@@ -144,6 +144,58 @@ Response (invalid):
 }
 ```
 
+## Deployment
+
+### Docker
+
+```bash
+# Build the image
+docker build -t blablador-token-generator:latest .
+
+# Run with config mount
+docker run -v /path/to/config.yaml:/app/config/config.yaml -p 8080:8080 blablador-token-generator:latest
+```
+
+Or using docker-compose:
+
+```bash
+# Edit config.yaml first, then
+docker-compose up -d
+```
+
+### Kubernetes
+
+Create a Secret with your config:
+
+```bash
+kubectl create secret generic token-generator-config \
+  --from-file=config.yaml=/path/to/config.yaml \
+  --namespace=your-namespace
+```
+
+The Kubernetes manifest in `k8s/` expects this secret at `token-generator-config`.
+
+### Helm Chart
+
+```bash
+# Install with custom values
+cd helm/blablador-token-generator
+
+# Option 1: Set values via command line
+helm install token-generator . \
+  --set config.oauth.client_id=your-client-id \
+  --set config.oauth.client_secret=your-secret \
+  --set config.oauth.redirect_uri=https://your-domain/oauth/openid/callback \
+  --set config.admin.admin_emails[0]=admin@example.com
+
+# Option 2: Create values file
+cp values.yaml values-production.yaml
+# Edit values-production.yaml with your config
+helm install token-generator -f values-production.yaml .
+```
+
+The Helm chart generates a Kubernetes Secret from the `config.*` values in `values.yaml`.
+
 ## Development
 
 ```bash
