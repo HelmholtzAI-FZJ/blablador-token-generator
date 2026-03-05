@@ -1,0 +1,29 @@
+version: '3.8'
+
+services:
+  app:
+    build: .
+    ports:
+      - "8080:8080"
+    volumes:
+      - tokens-data:/app/data
+    environment:
+      - CONFIG_PATH=/app/config/config.yaml
+    restart: unless-stopped
+
+  # Optional: PostgreSQL for production
+  # postgres:
+  #   image: postgres:16-alpine
+  #   environment:
+  #     POSTGRES_DB: tokens
+  #     POSTGRES_USER: tokens
+  #     POSTGRES_PASSWORD: change-me
+  #   volumes:
+  #     - postgres-data:/var/lib/postgresql/data
+  #   restart: unless-stopped
+
+volumes:
+  tokens-data:
+    driver: local
+  # postgres-data:
+  #   driver: local

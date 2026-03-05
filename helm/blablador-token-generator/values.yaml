@@ -1,0 +1,88 @@
+replicaCount: 2
+
+image:
+  repository: ghcr.io/helmholtzai-fzj/blablador-token-generator
+  pullPolicy: IfNotPresent
+  tag: "latest"
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+service:
+  type: ClusterIP
+  port: 80
+  targetPort: 8080
+
+ingress:
+  enabled: true
+  className: "nginx"
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-body-size: "10m"
+  hosts:
+    - host: tokens.example.com
+      paths:
+        - path: /
+          pathType: Prefix
+  tls:
+    - secretName: token-generator-tls
+      hosts:
+        - tokens.example.com
+
+resources:
+  limits:
+    cpu: 500m
+    memory: 256Mi
+  requests:
+    cpu: 100m
+    memory: 128Mi
+
+livenessProbe:
+  httpGet:
+    path: /docs
+    port: 8080
+  initialDelaySeconds: 10
+  periodSeconds: 30
+
+readinessProbe:
+  httpGet:
+    path: /docs
+    port: 8080
+  initialDelaySeconds: 5
+  periodSeconds: 10
+
+persistence:
+  enabled: true
+  storageClass: ""
+  accessMode: ReadWriteOnce
+  size: 1Gi
+
+config:
+  app:
+    name: "Token Generator"
+    host: "0.0.0.0"
+    port: 8080
+    secret_key: "change-me-in-production"
+    debug: false
+    api_url: "https://tokens.example.com"
+  database:
+    url: "sqlite+aiosqlite:///./data/tokens.db"
+  oauth:
+    client_id: "your-client-id"
+    client_secret: "your-client-secret"
+    authorize_url: "https://login.jsc.fz-juelich.de/oauth2-as/oauth2-authz"
+    token_url: "https://login.jsc.fz-juelich.de/oauth2/token"
+    userinfo_url: "https://login.jsc.fz-juelich.de/oauth2/userinfo"
+    redirect_uri: "https://tokens.example.com/oauth/openid/callback"
+    scopes:
+      - openid
+      - profile
+      - email
+  login:
+    name: "JSC Login"
+    description: "Authenticate with JSC Login"
+  tokens:
+    default_expiration_days: 365
+    token_length_bytes: 32
+  admin:
+    admin_emails: []

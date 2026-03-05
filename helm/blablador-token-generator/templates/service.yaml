@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "blablador-token-generator.fullname" . }}
+  labels:
+    {{- include "blablador-token-generator.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.service.type }}
+  ports:
+    - port: {{ .Values.service.port }}
+      targetPort: http
+      protocol: TCP
+      name: http
+  selector:
+    {{- include "blablador-token-generator.selectorLabels" . | nindent 4 }}

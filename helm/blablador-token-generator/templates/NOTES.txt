@@ -1,0 +1,13 @@
+Get the application URL by running these commands:
+{{- if .Values.ingress.enabled }}
+{{- range $host := .Values.ingress.hosts }}
+  http{{ if $.Values.ingress.tls }}s{{ end }}://{{ $host.host }}
+{{- end }}
+{{- end }}
+
+The config is stored in a Kubernetes Secret. Update it with:
+  kubectl create secret generic token-generator-config \
+    --from-file=config.yaml=/path/to/config.yaml \
+    --namespace={{ .Release.Namespace }} \
+    -o yaml > config-secret.yaml
+  kubectl apply -f config-secret.yaml

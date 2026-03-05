@@ -1,0 +1,14 @@
+apiVersion: v2
+name: blablador-token-generator
+description: Token authentication service with OAuth2
+type: application
+version: 0.1.0
+appVersion: "1.0"
+keywords:
+  - oauth2
+  - token
+  - authentication
+home: https://github.com/HelmholtzAI-FZJ/blablador-token-generator
+maintainers:
+  - name: HelmholtzAI-FZJ
+    url: https://github.com/HelmholtzAI-FZJ
