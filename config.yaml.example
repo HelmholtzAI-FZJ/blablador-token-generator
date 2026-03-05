@@ -38,3 +38,4 @@ admin:
   # Admin emails (users with these emails will be admins)
   admin_emails:
     - "admin@example.com"
+    - "another-admin@example.com"

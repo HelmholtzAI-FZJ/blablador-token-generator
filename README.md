@@ -190,7 +190,8 @@ helm install token-generator . \
   --set config.oauth.client_id=your-client-id \
   --set config.oauth.client_secret=your-secret \
   --set config.oauth.redirect_uri=https://your-domain/oauth/openid/callback \
-  --set config.admin.admin_emails[0]=admin@example.com
+  --set config.admin.admin_emails[0]=admin@example.com \
+  --set config.admin.admin_emails[1]=another-admin@example.com
 
 # Option 2: Create values file
 cp values.yaml values-production.yaml
