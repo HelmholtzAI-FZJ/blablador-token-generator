@@ -10,3 +10,4 @@ venv/
 htmlcov/
 .env
 .DS_Store
+config.yaml
