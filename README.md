@@ -163,6 +163,8 @@ Or using docker-compose:
 docker-compose up -d
 ```
 
+The database is stored in `/app/data/tokens.db` and persisted via a Docker volume (`tokens-data`).
+
 ### Kubernetes
 
 Create a Secret with your config:
@@ -174,6 +176,8 @@ kubectl create secret generic token-generator-config \
 ```
 
 The Kubernetes manifest in `k8s/` expects this secret at `token-generator-config`.
+
+The database is stored in `/app/data/tokens.db` and persisted via a PersistentVolumeClaim (`token-generator-db`).
 
 ### Helm Chart
 
@@ -195,6 +199,8 @@ helm install token-generator -f values-production.yaml .
 ```
 
 The Helm chart generates a Kubernetes Secret from the `config.*` values in `values.yaml`.
+
+The database is stored in `/app/data/tokens.db` and persisted via a PersistentVolumeClaim (enabled by default in `values.yaml`).
 
 ## Development
 
