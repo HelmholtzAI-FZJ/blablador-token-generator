@@ -1,0 +1,68 @@
+import pytest
+import asyncio
+from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
+from app.models import Base, User, Token
+from app.auth import hash_token, generate_token
+
+
+@pytest.fixture(scope="session")
+def event_loop():
+    loop = asyncio.get_event_loop_policy().new_event_loop()
+    yield loop
+    loop.close()
+
+
+@pytest.fixture
+async def test_db():
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:", echo=False)
+    async_session_maker = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+    
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    
+    async with async_session_maker() as session:
+        yield session
+    
+    await engine.dispose()
+
+
+@pytest.fixture
+async def test_user(test_db):
+    user = User(
+        unity_id="test-user-123",
+        email="test@example.com",
+        name="Test User",
+        is_admin=False
+    )
+    test_db.add(user)
+    await test_db.commit()
+    await test_db.refresh(user)
+    return user
+
+
+@pytest.fixture
+async def test_admin(test_db):
+    admin = User(
+        unity_id="admin-user-456",
+        email="admin@example.com",
+        name="Admin User",
+        is_admin=True
+    )
+    test_db.add(admin)
+    await test_db.commit()
+    await test_db.refresh(admin)
+    return admin
+
+
+@pytest.fixture
+async def test_token(test_db, test_user):
+    plain_token = generate_token()
+    token = Token(
+        user_id=test_user.id,
+        token_hash=hash_token(plain_token),
+        name="Test Token"
+    )
+    test_db.add(token)
+    await test_db.commit()
+    await test_db.refresh(token)
+    return {"token": token, "plain_token": plain_token}

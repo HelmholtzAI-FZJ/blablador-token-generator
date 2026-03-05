@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Admin - {{ app_name }}</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            background: #f5f5f5;
+            min-height: 100vh;
+        }
+        header {
+            background: #2c3e50;
+            color: white;
+            padding: 1rem 2rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .header-left h1 { font-size: 1.25rem; }
+        .header-right { display: flex; align-items: center; gap: 1rem; }
+        .header-right a, .header-right button {
+            color: white;
+            text-decoration: none;
+            background: none;
+            border: none;
+            cursor: pointer;
+            font-size: 1rem;
+        }
+        .container { max-width: 1200px; margin: 2rem auto; padding: 0 1rem; }
+        .card {
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            padding: 1.5rem;
+            margin-bottom: 1.5rem;
+        }
+        .card h2 { margin-bottom: 1rem; color: #2c3e50; }
+        table { width: 100%; border-collapse: collapse; }
+        th, td { padding: 0.75rem; text-align: left; border-bottom: 1px solid #eee; }
+        th { background: #f8f9fa; font-weight: 600; }
+        .status-active { color: #27ae60; font-weight: 500; }
+        .status-revoked { color: #e74c3c; font-weight: 500; }
+        .btn { 
+            padding: 0.5rem 1rem; 
+            background: #3498db; 
+            color: white; 
+            border: none; 
+            border-radius: 4px; 
+            cursor: pointer;
+            font-size: 1rem;
+        }
+        .btn-danger { background: #e74c3c; }
+        .btn-danger:hover { background: #c0392b; }
+        .empty { text-align: center; color: #666; padding: 2rem; }
+    </style>
+</head>
+<body>
+    <header>
+        <div class="header-left">
+            <h1>{{ app_name }} - Admin</h1>
+        </div>
+        <div class="header-right">
+            <span>{{ user.name }} ({{ user.email }})</span>
+            <a href="/dashboard" style="color: #f39c12; font-weight: bold;">Dashboard</a>
+            <a href="/logout" style="color: white; text-decoration: none; cursor: pointer;">Logout</a>
+        </div>
+    </header>
+    
+    <div class="container">
+        <div class="card">
+            <h2>All Tokens</h2>
+            <div style="margin-bottom: 1rem; display: flex; gap: 0.5rem; align-items: center;">
+                <form method="get" action="/admin/tokens" style="flex: 1; display: flex; gap: 0.5rem;">
+                    <input type="text" name="search" placeholder="Paste token to search..." value="{{ search }}" style="flex: 1; padding: 0.5rem; border: 1px solid #ddd; border-radius: 4px;">
+                    <button type="submit" class="btn">Search</button>
+                    {% if search %}
+                    <a href="/admin/tokens" class="btn" style="background: #95a5a6;">Clear</a>
+                    {% endif %}
+                </form>
+                <button class="btn btn-danger" onclick="deleteRevokedTokens()"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg> Delete Revoked</button>
+            </div>
+            {% if search %}
+            <p style="margin-bottom: 1rem; color: #666;">Showing result for token search</p>
+            {% endif %}
+            {% if tokens_with_users %}
+            <table>
+                <thead>
+                    <tr>
+                        <th>Token Name</th>
+                        <th>User</th>
+                        <th>Email</th>
+                        <th>Created</th>
+                        <th>Last Used</th>
+                        <th>Expires</th>
+                        <th>Status</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for item in tokens_with_users %}
+                    <tr>
+                        <td>{{ item.token.name }}</td>
+                        <td>{{ item.user.name if item.user else 'Unknown' }}</td>
+                        <td>{{ item.user.email if item.user else 'Unknown' }}</td>
+                        <td class="datetime" data-utc="{{ item.token.created_at.isoformat() if item.token.created_at else '' }}">{{ item.token.created_at.strftime('%Y-%m-%d %H:%M') if item.token.created_at else '' }}</td>
+                        <td class="datetime" data-utc="{{ item.token.last_used_at.isoformat() if item.token.last_used_at else '' }}">{{ item.token.last_used_at.strftime('%Y-%m-%d %H:%M') if item.token.last_used_at else 'Never' }}</td>
+                        <td class="datetime-date" data-utc="{{ item.token.expires_at.isoformat() if item.token.expires_at else '' }}">{{ item.token.expires_at.strftime('%Y-%m-%d') if item.token.expires_at else 'Never' }}</td>
+                        <td>
+                            {% if item.token.revoked_at %}
+                            <span class="status-revoked">Revoked</span>
+                            {% else %}
+                            <span class="status-active">Active</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if item.token.revoked_at %}
+                            <button class="btn" style="background: #e74c3c;" onclick="deleteToken('{{ item.token.id }}')"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg> Delete</button>
+                            {% else %}
+                            <button class="btn btn-danger" onclick="revokeToken('{{ item.token.id }}')"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"></line></svg> Revoke</button>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+            {% else %}
+            <p class="empty">No tokens in the system.</p>
+            {% endif %}
+        </div>
+    </div>
+    
+    <script>
+        function toLocalDateTime(utcStr) {
+            if (!utcStr) return '';
+            const date = new Date(utcStr);
+            return date.toLocaleString();
+        }
+        
+        function toLocalDate(utcStr) {
+            if (!utcStr) return '';
+            const date = new Date(utcStr);
+            return date.toLocaleDateString();
+        }
+        
+        document.querySelectorAll('.datetime').forEach(el => {
+            const utc = el.dataset.utc;
+            if (utc) el.textContent = toLocalDateTime(utc);
+        });
+        document.querySelectorAll('.datetime-date').forEach(el => {
+            const utc = el.dataset.utc;
+            if (utc) el.textContent = toLocalDate(utc);
+        });
+        
+        async function revokeToken(tokenId) {
+            if (!confirm('Are you sure you want to revoke this token?')) return;
+            
+            const response = await fetch(`/admin/tokens/${tokenId}/revoke`, {
+                method: 'DELETE'
+            });
+            
+            if (response.ok) {
+                location.reload();
+            } else {
+                alert('Failed to revoke token');
+            }
+        }
+        
+        async function deleteToken(tokenId) {
+            if (!confirm('Are you sure you want to permanently delete this token? This cannot be undone.')) return;
+            
+            const response = await fetch(`/admin/tokens/${tokenId}/permanent`, {
+                method: 'DELETE'
+            });
+            
+            if (response.ok) {
+                location.reload();
+            } else {
+                alert('Failed to delete token');
+            }
+        }
+        
+        async function deleteRevokedTokens() {
+            if (!confirm('Are you sure you want to delete all revoked tokens? This cannot be undone.')) return;
+            
+            const response = await fetch('/admin/api/tokens/revoked', {
+                method: 'DELETE'
+            });
+            
+            if (response.ok) {
+                location.reload();
+            } else {
+                alert('Failed to delete revoked tokens');
+            }
+        }
+    </script>
+</body>
+</html>
