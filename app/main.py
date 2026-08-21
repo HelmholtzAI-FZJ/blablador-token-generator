@@ -1,6 +1,6 @@
 from contextlib import asynccontextmanager
 from urllib.parse import urlencode
-from fastapi import FastAPI, Request, Depends, HTTPException
+from fastapi import FastAPI, Request, Depends, HTTPException, Form
 from fastapi.responses import RedirectResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -13,7 +13,7 @@ from app.models import User, Token
 from app.auth import (
     get_current_user, get_current_admin, 
     get_or_create_user, get_unity_userinfo, create_access_token,
-    hash_token
+    hash_token, authenticate_local_user
 )
 from app.api import tokens, validate, admin
 
@@ -71,7 +71,8 @@ async def home(request: Request):
         "request": request, 
         "app_name": config.app.name,
         "login_name": config.login.name,
-        "login_description": config.login.description
+        "login_description": config.login.description,
+        "config": config
     })
 
 
@@ -208,6 +209,48 @@ async def admin_tokens(
 async def logout():
     response = RedirectResponse(url="/")
     response.delete_cookie("access_token")
+    return response
+
+@app.get("/login/local", response_class=HTMLResponse)
+async def login_local_form(request: Request):
+    if not config.local.enabled:
+        raise HTTPException(status_code=404, detail="Local login disabled")
+    return templates.TemplateResponse("login_local.html", {
+        "request": request,
+        "app_name": config.app.name,
+        "error": None
+    })
+
+@app.post("/login/local")
+async def login_local(
+    request: Request,
+    email: str = Form(...),
+    password: str = Form(...),
+    db: AsyncSession = Depends(get_db)
+):
+    if not config.local.enabled:
+        raise HTTPException(status_code=404, detail="Local login disabled")
+    
+    user = await authenticate_local_user(email, password, db)
+    if not user:
+        return templates.TemplateResponse("login_local.html", {
+            "request": request,
+            "app_name": config.app.name,
+            "error": "Invalid email or password"
+        }, status_code=401)
+    
+    access_token = create_access_token(data={"sub": user.id})
+    
+    response = RedirectResponse(url="/dashboard", status_code=303)
+    response.set_cookie(
+        key="access_token",
+        value=access_token,
+        httponly=True,
+        samesite="lax",
+        secure=False,
+        path="/",
+        max_age=86400
+    )
     return response
 
 

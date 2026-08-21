@@ -29,13 +29,22 @@ login:
   name: "JSC Login"
   description: "Authenticate with JSC Login to create and manage API tokens."
 
+local:
+  enabled: false
+  allow_registration: false
+
 tokens:
-  # Token configuration
-  default_expiration_days: 365
+  # Token expiration settings
+  # default_expiration_days: default duration for new tokens (UI default and API fallback)
+  # max_expiration_days: maximum allowed expiration for any token (enforced by API)
+  # token_prefix always shows up
+  default_expiration_days: 90
+  max_expiration_days: 365
   token_length_bytes: 32
+  token_prefix: blablador
 
 admin:
-  # Admin emails (users with these emails will be admins)
+  # Admin emails (users with these emails will be admins WHEN CREATING THE USER ON THE DATABASE - this should be set before the user exists)
   admin_emails:
     - "admin@example.com"
     - "another-admin@example.com"

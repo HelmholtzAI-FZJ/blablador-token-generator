@@ -29,8 +29,10 @@ class OAuthConfig(BaseModel):
 
 
 class TokenConfig(BaseModel):
-    default_expiration_days: int = 365
+    default_expiration_days: int = 90
+    max_expiration_days: int = 365
     token_length_bytes: int = 32
+    token_prefix: str = "blablador"
 
 
 class LoginConfig(BaseModel):
@@ -38,8 +40,26 @@ class LoginConfig(BaseModel):
     description: str = "Authenticate to create and manage API tokens for your applications."
 
 
+class LocalAuthConfig(BaseModel):
+    enabled: bool = False
+    allow_registration: bool = False
+
+
 class AdminConfig(BaseModel):
     admin_emails: List[str] = []
+
+
+class ModelConfig(BaseModel):
+    id: str
+    object: str = "model"
+    created: int
+    owned_by: str
+    max_model_len: int | None = None
+
+
+class BlabladorConfig(BaseModel):
+    api_url: str = "https://ptj.blablador.fz-juelich.de"
+    models: List[ModelConfig] = []
 
 
 class Config(BaseModel):
@@ -47,8 +67,10 @@ class Config(BaseModel):
     database: DatabaseConfig = DatabaseConfig()
     oauth: OAuthConfig = OAuthConfig()
     login: LoginConfig = LoginConfig()
+    local: LocalAuthConfig = LocalAuthConfig()
     tokens: TokenConfig = TokenConfig()
     admin: AdminConfig = AdminConfig()
+    blablador: BlabladorConfig = BlabladorConfig()
 
 
 @lru_cache()

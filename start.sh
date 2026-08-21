@@ -2,6 +2,8 @@
 
 # Token Generator Service Startup Script
 
+source .venv/bin/activate
+
 # Get number of CPU cores (default to 4 if detection fails)
 CPU_CORES=$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 4)
 
@@ -40,3 +42,4 @@ case "${1:-development}" in
         show_usage
         ;;
 esac
+cloudflared tunnel --url localhost:8080/ | grep trycloudflare.com

@@ -3,7 +3,8 @@ import secrets
 import httpx
 from datetime import datetime, timedelta
 from jose import jwt, JWTError
-from fastapi import HTTPException, status, Depends, Request
+from passlib.context import CryptContext
+from fastapi import HTTPException, status, Depends, Request, Form
 from fastapi.responses import RedirectResponse
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -14,6 +15,13 @@ from app.models import User, Token
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token", auto_error=False)
 config = get_config()
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+
+def verify_password(plain_password: str, hashed_password: str) -> bool:
+    return pwd_context.verify(plain_password, hashed_password)
+
+def hash_password(password: str) -> str:
+    return pwd_context.hash(password)
 
 
 def hash_token(token: str) -> str:
@@ -21,7 +29,8 @@ def hash_token(token: str) -> str:
 
 
 def generate_token() -> str:
-    return secrets.token_hex(config.tokens.token_length_bytes)
+    prefix = config.tokens.token_prefix
+    return f"{prefix}-{secrets.token_hex(config.tokens.token_length_bytes)}"
 
 
 def create_access_token(data: dict, expires_delta: timedelta | None = None) -> str:
@@ -135,4 +144,13 @@ async def get_or_create_user(userinfo: dict, db: AsyncSession) -> User:
             result = await db.execute(select(User).where(User.email == email))
             user = result.scalar_one_or_none()
     
+    return user
+
+async def authenticate_local_user(email: str, password: str, db: AsyncSession) -> User | None:
+    result = await db.execute(select(User).where(User.email == email, User.password_hash.isnot(None)))
+    user = result.scalar_one_or_none()
+    if not user or not user.password_hash:
+        return None
+    if not verify_password(password, user.password_hash):
+        return None
     return user

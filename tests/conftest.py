@@ -3,6 +3,8 @@ import asyncio
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 from app.models import Base, User, Token
 from app.auth import hash_token, generate_token
+from app.config import TokenConfig
+from unittest.mock import patch
 
 
 @pytest.fixture(scope="session")
