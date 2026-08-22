@@ -265,8 +265,11 @@ async def get_or_create_user(userinfo: dict, db: AsyncSession) -> User:
             user.email = email
             dirty = True
         if dirty:
-            await db.commit()
-            await db.refresh(user)
+            try:
+                await db.commit()
+                await db.refresh(user)
+            except Exception:
+                await db.rollback()
 
     return user
 
