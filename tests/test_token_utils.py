@@ -23,9 +23,16 @@ class TestTokenUtils:
         assert hashed == hash_token(token)
         assert hashed != hash_token("different_token")
 
-    def test_hash_is_sha256(self):
+    def test_hash_is_hmac_sha256(self):
         import hashlib
+        import hmac
+        from app.config import get_config
         token = "test_token_value"
-        expected = hashlib.sha256(token.encode()).hexdigest()
+        config = get_config()
+        expected = hmac.new(
+            config.app.secret_key.encode(),
+            token.encode(),
+            hashlib.sha256,
+        ).hexdigest()
 
         assert hash_token(token) == expected

@@ -1,10 +1,10 @@
 from datetime import datetime
 import logging
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request, Query
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import select, func
 from sqlalchemy.orm import joinedload
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from app.database import get_db
 from app.models import User, Token
 from app.auth import get_current_admin, hash_password, validate_password_strength
@@ -13,10 +13,8 @@ from app.rate_limit import limiter
 logger = logging.getLogger("token_generator.audit")
 router = APIRouter(prefix="/admin", tags=["admin"])
 
-# Admin endpoints are rate-limited more generously than public endpoints:
-# admins are trusted, but we still cap to prevent runaway scripts or
-# automated tools from hammering the API.
 ADMIN_RATE_LIMIT = "60/minute"
+MAX_PAGE_SIZE = 100
 
 
 class AdminTokenResponse(BaseModel):
@@ -41,15 +39,15 @@ class UserResponse(BaseModel):
 
 
 class CreateUserRequest(BaseModel):
-    email: str
-    name: str
-    password: str
+    email: str = Field(..., min_length=3, max_length=255)
+    name: str = Field(..., min_length=1, max_length=255)
+    password: str = Field(..., min_length=8, max_length=128)
     is_admin: bool = False
 
 
 class UpdateUserRequest(BaseModel):
-    name: str | None = None
-    password: str | None = None
+    name: str | None = Field(None, min_length=1, max_length=255)
+    password: str | None = Field(None, min_length=8, max_length=128)
     is_admin: bool | None = None
 
 
@@ -57,13 +55,18 @@ class UpdateUserRequest(BaseModel):
 @limiter.limit(ADMIN_RATE_LIMIT)
 async def list_all_tokens(
     request: Request,
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=MAX_PAGE_SIZE),
     admin: User = Depends(get_current_admin),
     db: AsyncSession = Depends(get_db),
 ):
+    offset = (page - 1) * page_size
     result = await db.execute(
         select(Token)
         .options(joinedload(Token.user))
         .order_by(Token.created_at.desc())
+        .offset(offset)
+        .limit(page_size)
     )
     tokens = result.scalars().all()
 
@@ -161,10 +164,18 @@ async def delete_revoked_tokens(
 @limiter.limit(ADMIN_RATE_LIMIT)
 async def list_users(
     request: Request,
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=MAX_PAGE_SIZE),
     admin: User = Depends(get_current_admin),
     db: AsyncSession = Depends(get_db),
 ):
-    result = await db.execute(select(User).order_by(User.created_at.desc()))
+    offset = (page - 1) * page_size
+    result = await db.execute(
+        select(User)
+        .order_by(User.created_at.desc())
+        .offset(offset)
+        .limit(page_size)
+    )
     users = result.scalars().all()
 
     return [

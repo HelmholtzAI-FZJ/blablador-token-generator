@@ -58,7 +58,17 @@ def validate_password_strength(password: str) -> None:
 
 
 def hash_token(token: str) -> str:
-    return hashlib.sha256(token.encode()).hexdigest()
+    """HMAC-SHA256 of the token using the app secret key.
+
+    A keyed hash prevents offline cracking of token hashes if the database
+    is compromised, since the key (app secret) is not in the DB.
+    """
+    import hmac
+    return hmac.new(
+        config.app.secret_key.encode(),
+        token.encode(),
+        hashlib.sha256,
+    ).hexdigest()
 
 
 def generate_token() -> str:
