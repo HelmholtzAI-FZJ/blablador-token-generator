@@ -1,4 +1,5 @@
 from datetime import datetime
+import logging
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
@@ -8,6 +9,7 @@ from app.database import get_db
 from app.models import User, Token
 from app.auth import get_current_admin, hash_password
 
+logger = logging.getLogger("token_generator.audit")
 router = APIRouter(prefix="/admin", tags=["admin"])
 
 class AdminTokenResponse(BaseModel):
@@ -84,7 +86,8 @@ async def revoke_token_admin(
     
     token.revoked_at = datetime.utcnow()
     await db.commit()
-    
+    logger.info("admin=%s action=revoke_token token_id=%s user_id=%s",
+                admin.id, token.id, token.user_id)
     return {"message": "Token revoked successfully"}
 
 @router.delete("/tokens/{token_id}/permanent")
@@ -103,7 +106,8 @@ async def delete_token_admin(
     
     await db.delete(token)
     await db.commit()
-    
+    logger.info("admin=%s action=delete_token token_id=%s user_id=%s",
+                admin.id, token.id, token.user_id)
     return {"message": "Token deleted successfully"}
 
 @router.delete("/tokens/revoked")
@@ -123,7 +127,8 @@ async def delete_revoked_tokens(
         count += 1
     
     await db.commit()
-    
+    logger.info("admin=%s action=delete_revoked_tokens count=%d",
+                admin.id, count)
     return {"message": f"Deleted {count} revoked tokens"}
 
 @router.get("/users", response_model=list[UserResponse])
@@ -171,6 +176,8 @@ async def create_user(
     db.add(user)
     await db.commit()
     await db.refresh(user)
+    logger.info("admin=%s action=create_user user_id=%s email=%s is_admin=%s",
+                admin.id, user.id, user.email, user.is_admin)
     
     return UserResponse(
         id=user.id,
@@ -203,7 +210,8 @@ async def update_user(
     
     await db.commit()
     await db.refresh(user)
-    
+    logger.info("admin=%s action=update_user user_id=%s is_admin=%s",
+                admin.id, user.id, user.is_admin)
     return UserResponse(
         id=user.id,
         email=user.email,
@@ -231,5 +239,6 @@ async def delete_user(
     
     await db.delete(user)
     await db.commit()
-    
+    logger.info("admin=%s action=delete_user user_id=%s",
+                admin.id, user.id)
     return {"message": "User deleted successfully"}
