@@ -163,33 +163,6 @@ async def login():
     return response
 
 
-@app.get("/callback")
-@limiter.limit("10/minute")
-async def callback(request: Request, code: str, state: str | None = None, db: AsyncSession = Depends(get_db)):
-    # Verify OAuth state to prevent login CSRF
-    cookie_state = request.cookies.get("oauth_state")
-    if not state or not cookie_state or state != cookie_state:
-        raise HTTPException(status_code=400, detail="Invalid OAuth state")
-
-    userinfo = await get_unity_userinfo(code)
-    user = await get_or_create_user(userinfo, db)
-
-    access_token = create_access_token(data={"sub": user.id})
-    response = RedirectResponse(url="/dashboard")
-    response.set_cookie(
-        key="access_token",
-        value=access_token,
-        httponly=True,
-        samesite="strict",
-        secure=config.app.secure_cookies,
-        path="/",
-        max_age=86400
-    )
-    # Clear the OAuth state cookie
-    response.delete_cookie("oauth_state", path="/")
-    return response
-
-
 @app.get("/oauth/openid/callback")
 @limiter.limit("10/minute")
 async def openid_callback(request: Request, code: str | None = None, state: str | None = None, error: str | None = None, error_description: str | None = None, db: AsyncSession = Depends(get_db)):
