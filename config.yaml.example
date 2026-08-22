@@ -10,6 +10,8 @@ app:
   secret_key: "REPLACE_WITH_GENERATED_SECRET_KEY_AT_LEAST_32_CHARS_LONG"
   debug: false
   api_url: "http://localhost:8080"
+  # Set to true in production behind TLS to mark auth cookies as Secure
+  secure_cookies: false
 
 database:
   url: "sqlite+aiosqlite:///./tokens.db"
