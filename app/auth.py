@@ -107,12 +107,15 @@ async def revoke_jwt(payload: dict, db: AsyncSession) -> None:
     exp = datetime.utcfromtimestamp(exp_ts)
     existing = await db.execute(select(RevokedJWT).where(RevokedJWT.jti == jti))
     if existing.scalar_one_or_none() is None:
-        db.add(RevokedJWT(
-            jti=jti,
-            user_id=payload.get("sub", ""),
-            expires_at=exp,
-        ))
-        await db.commit()
+        try:
+            db.add(RevokedJWT(
+                jti=jti,
+                user_id=payload.get("sub", ""),
+                expires_at=exp,
+            ))
+            await db.commit()
+        except Exception:
+            await db.rollback()
 
 
 async def is_jwt_revoked(payload: dict, db: AsyncSession) -> bool:
