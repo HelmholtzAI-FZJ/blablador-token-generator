@@ -272,12 +272,16 @@ async def admin_tokens(
 
 
 @app.get("/logout")
+@limiter.limit("10/minute")
 async def logout(request: Request, db: AsyncSession = Depends(get_db)):
     # Revoke the JWT so it can't be replayed after logout
     token = request.cookies.get("access_token")
     if token:
-        payload = decode_access_token(token)
-        await revoke_jwt(payload, db)
+        try:
+            payload = decode_access_token(token)
+            await revoke_jwt(payload, db)
+        except HTTPException:
+            pass  # Token is invalid, proceed with logout anyway
 
     response = RedirectResponse(url="/")
     response.delete_cookie("access_token")
