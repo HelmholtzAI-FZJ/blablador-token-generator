@@ -1,5 +1,5 @@
 from datetime import datetime, timezone, timedelta
-from fastapi import APIRouter, Depends, HTTPException, status, Header
+from fastapi import APIRouter, Depends, HTTPException, status, Header, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from sqlalchemy.orm import joinedload
@@ -7,6 +7,7 @@ from pydantic import BaseModel
 from app.database import get_db
 from app.models import Token, User
 from app.auth import hash_token
+from app.rate_limit import limiter
 
 router = APIRouter(prefix="/api/v1/auth", tags=["auth"])
 
@@ -37,7 +38,9 @@ async def extract_bearer_token(authorization: str | None = Header(None)) -> str 
 
 
 @router.post("/validate", response_model=ValidateResponse)
+@limiter.limit("30/minute")
 async def validate_token(
+    request: Request,
     bearer_token: str = Depends(extract_bearer_token),
     db: AsyncSession = Depends(get_db)
 ):

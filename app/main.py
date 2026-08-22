@@ -5,6 +5,8 @@ from fastapi import FastAPI, Request, Depends, HTTPException, Form
 from fastapi.responses import RedirectResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from slowapi import _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from sqlalchemy.orm import joinedload
@@ -17,6 +19,7 @@ from app.auth import (
     hash_token, authenticate_local_user
 )
 from app.api import tokens, validate, admin
+from app.rate_limit import limiter
 
 config = get_config()
 
@@ -33,6 +36,10 @@ app = FastAPI(
     description=f"Token authentication infrastructure on top of {config.login.name}",
     lifespan=lifespan
 )
+
+# Register rate limiter state and exception handler
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 
 from fastapi import HTTPException
@@ -131,7 +138,8 @@ async def login():
 
 
 @app.get("/callback")
-async def callback(code: str, db: AsyncSession = Depends(get_db)):
+@limiter.limit("10/minute")
+async def callback(request: Request, code: str, db: AsyncSession = Depends(get_db)):
     userinfo = await get_unity_userinfo(code)
     user = await get_or_create_user(userinfo, db)
     
@@ -151,6 +159,7 @@ async def callback(code: str, db: AsyncSession = Depends(get_db)):
 
 
 @app.get("/oauth/openid/callback")
+@limiter.limit("10/minute")
 async def openid_callback(request: Request, code: str | None = None, error: str | None = None, error_description: str | None = None, db: AsyncSession = Depends(get_db)):
     print(f"Callback - code: {code}, error: {error}, error_desc: {error_description}")
     print(f"Full query: {request.query_params}")
@@ -275,6 +284,7 @@ async def login_local_form(request: Request):
     })
 
 @app.post("/login/local")
+@limiter.limit("5/minute")
 async def login_local(
     request: Request,
     email: str = Form(...),
