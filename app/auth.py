@@ -20,7 +20,6 @@ pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 def verify_password(plain_password: str, hashed_password: str) -> bool:
     return pwd_context.verify(plain_password, hashed_password)
 
-
 def hash_password(password: str) -> str:
     return pwd_context.hash(password)
 
@@ -61,7 +60,7 @@ def hash_token(token: str) -> str:
     """HMAC-SHA256 of the token using the app secret key.
 
     A keyed hash prevents offline cracking of token hashes if the database
-    is compromised, since the key (app secret) is not in the DB.
+    is compromised, since the key is not in the DB.
     """
     import hmac
     return hmac.new(
@@ -162,8 +161,10 @@ async def get_current_admin(
 async def get_unity_userinfo(code: str) -> dict:
     import base64
     async with httpx.AsyncClient() as client:
-        auth_header = base64.b64encode(f"{config.oauth.client_id}:{config.oauth.client_secret}".encode()).decode()
-        
+        auth_header = base64.b64encode(
+            f"{config.oauth.client_id}:{config.oauth.client_secret}".encode()
+        ).decode()
+
         response = await client.post(
             config.oauth.token_url,
             data={
@@ -176,22 +177,46 @@ async def get_unity_userinfo(code: str) -> dict:
                 "Content-Type": "application/x-www-form-urlencoded",
             },
         )
-        
+
         if response.status_code != 200:
-            raise HTTPException(status_code=400, detail="Failed to exchange authorization code")
+            raise HTTPException(
+                status_code=400,
+                detail="Failed to exchange authorization code",
+            )
 
         token_data = response.json()
         access_token = token_data.get("access_token")
+        if not access_token:
+            raise HTTPException(
+                status_code=400,
+                detail="OAuth provider did not return an access token",
+            )
 
         userinfo_response = await client.get(
             config.oauth.userinfo_url,
-            headers={"Authorization": f"Bearer {access_token}"}
+            headers={"Authorization": f"Bearer {access_token}"},
         )
 
         if userinfo_response.status_code != 200:
-            raise HTTPException(status_code=400, detail="Failed to retrieve user information")
-        
-        return userinfo_response.json()
+            raise HTTPException(
+                status_code=400,
+                detail="Failed to retrieve user information",
+            )
+
+        userinfo = userinfo_response.json()
+        # Validate required fields before persisting
+        if not userinfo.get("sub"):
+            raise HTTPException(
+                status_code=400,
+                detail="OAuth provider did not return a subject identifier",
+            )
+        if not userinfo.get("email"):
+            raise HTTPException(
+                status_code=400,
+                detail="OAuth provider did not return an email address",
+            )
+
+        return userinfo
 
 
 async def get_or_create_user(userinfo: dict, db: AsyncSession) -> User:
@@ -230,6 +255,7 @@ async def get_or_create_user(userinfo: dict, db: AsyncSession) -> User:
         await db.refresh(user)
 
     return user
+
 
 async def authenticate_local_user(email: str, password: str, db: AsyncSession) -> User | None:
     result = await db.execute(select(User).where(User.email == email, User.password_hash.isnot(None)))
