@@ -1,6 +1,7 @@
 from contextlib import asynccontextmanager
 from urllib.parse import urlencode
 import secrets as _secrets
+from secrets import compare_digest
 from fastapi import FastAPI, Request, Depends, HTTPException, Form
 from fastapi.responses import RedirectResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
@@ -174,7 +175,7 @@ async def openid_callback(request: Request, code: str | None = None, state: str 
 
     # Verify OAuth state to prevent login CSRF
     cookie_state = request.cookies.get("oauth_state")
-    if not state or not cookie_state or state != cookie_state:
+    if not state or not cookie_state or not compare_digest(state, cookie_state):
         raise HTTPException(status_code=400, detail="Invalid OAuth state")
 
     if not code:
@@ -327,7 +328,7 @@ async def login_local(
 
     # Validate CSRF token: form field must match cookie value
     cookie_csrf = request.cookies.get("csrf_token")
-    if not cookie_csrf or csrf_token != cookie_csrf:
+    if not cookie_csrf or not compare_digest(csrf_token, cookie_csrf):
         return templates.TemplateResponse("login_local.html", {
             "request": request,
             "app_name": config.app.name,
