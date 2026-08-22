@@ -37,3 +37,19 @@ class Token(Base):
     revoked_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
 
     user: Mapped["User"] = relationship("User", back_populates="tokens")
+
+
+class RevokedJWT(Base):
+    """Tracks revoked session JWTs (the access_token cookie).
+
+    When a user logs out, their JWT jti is added here so the token
+    can't be replayed even if stolen.  Entries are purged once the
+    JWT's natural expiry has passed.
+    """
+
+    __tablename__ = "revoked_jwts"
+
+    jti: Mapped[str] = mapped_column(String(64), primary_key=True)
+    user_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.id"), index=True)
+    revoked_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    expires_at: Mapped[datetime] = mapped_column(DateTime)

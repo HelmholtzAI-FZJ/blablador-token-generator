@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from app.config import get_config
 from app.database import get_db
-from app.models import User, Token
+from app.models import User, Token, RevokedJWT
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token", auto_error=False)
 config = get_config()
@@ -36,7 +36,9 @@ def generate_token() -> str:
 def create_access_token(data: dict, expires_delta: timedelta | None = None) -> str:
     to_encode = data.copy()
     expire = datetime.utcnow() + (expires_delta or timedelta(hours=24))
-    to_encode.update({"exp": expire})
+    # Add a unique JWT ID so individual session tokens can be
+    # revoked (blacklisted) without rotating the signing key.
+    to_encode.update({"exp": expire, "jti": secrets.token_hex(16)})
     return jwt.encode(to_encode, config.app.secret_key, algorithm="HS256")
 
 
@@ -51,6 +53,32 @@ def decode_access_token(token: str) -> dict:
         )
 
 
+async def revoke_jwt(payload: dict, db: AsyncSession) -> None:
+    """Add a JWT's jti to the revocation blacklist."""
+    jti = payload.get("jti")
+    if not jti:
+        return
+    exp_ts = payload.get("exp", 0)
+    exp = datetime.utcfromtimestamp(exp_ts)
+    existing = await db.execute(select(RevokedJWT).where(RevokedJWT.jti == jti))
+    if existing.scalar_one_or_none() is None:
+        db.add(RevokedJWT(
+            jti=jti,
+            user_id=payload.get("sub", ""),
+            expires_at=exp,
+        ))
+        await db.commit()
+
+
+async def is_jwt_revoked(payload: dict, db: AsyncSession) -> bool:
+    """Check if a JWT has been revoked."""
+    jti = payload.get("jti")
+    if not jti:
+        return False
+    result = await db.execute(select(RevokedJWT).where(RevokedJWT.jti == jti))
+    return result.scalar_one_or_none() is not None
+
+
 async def get_current_user(
     request: Request,
     db: AsyncSession = Depends(get_db)
@@ -58,18 +86,22 @@ async def get_current_user(
     token = request.cookies.get("access_token")
     if not token:
         raise HTTPException(status_code=302, detail="Not authenticated")
-    
+
     payload = decode_access_token(token)
     user_id: str = payload.get("sub")
     if user_id is None:
         raise HTTPException(status_code=302, detail="Invalid token payload")
-    
+
+    # Check JWT revocation blacklist
+    if await is_jwt_revoked(payload, db):
+        raise HTTPException(status_code=302, detail="Token has been revoked")
+
     result = await db.execute(select(User).where(User.id == user_id))
     user = result.scalar_one_or_none()
-    
+
     if user is None:
         raise HTTPException(status_code=302, detail="User not found")
-    
+
     return user
 
 

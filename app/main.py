@@ -16,7 +16,8 @@ from app.models import User, Token
 from app.auth import (
     get_current_user, get_current_admin,
     get_or_create_user, get_unity_userinfo, create_access_token,
-    hash_token, authenticate_local_user
+    hash_token, authenticate_local_user,
+    decode_access_token, revoke_jwt,
 )
 from app.api import tokens, validate, admin
 from app.rate_limit import limiter
@@ -271,7 +272,13 @@ async def admin_tokens(
 
 
 @app.get("/logout")
-async def logout():
+async def logout(request: Request, db: AsyncSession = Depends(get_db)):
+    # Revoke the JWT so it can't be replayed after logout
+    token = request.cookies.get("access_token")
+    if token:
+        payload = decode_access_token(token)
+        await revoke_jwt(payload, db)
+
     response = RedirectResponse(url="/")
     response.delete_cookie("access_token")
     return response
