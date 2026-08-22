@@ -137,6 +137,7 @@ def get_oauth_login_url(state: str) -> str:
 
 
 @app.get("/", response_class=HTMLResponse)
+@limiter.limit("30/minute")
 async def home(request: Request):
     return templates.TemplateResponse("index.html", {
         "request": request,
@@ -198,6 +199,7 @@ async def openid_callback(request: Request, code: str | None = None, state: str 
 
 
 @app.get("/dashboard", response_class=HTMLResponse)
+@limiter.limit("60/minute")
 async def dashboard(
     request: Request,
     user: User = Depends(get_current_user),
@@ -224,6 +226,7 @@ async def dashboard(
 
 
 @app.get("/admin/tokens", response_class=HTMLResponse)
+@limiter.limit("60/minute")
 async def admin_tokens(
     request: Request,
     search: str | None = None,

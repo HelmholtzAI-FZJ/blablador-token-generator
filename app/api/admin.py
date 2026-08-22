@@ -199,6 +199,7 @@ async def create_user(
     admin: User = Depends(get_current_admin),
     db: AsyncSession = Depends(get_db),
 ):
+    # Prevent privilege escalation: only existing admins can grant admin status
     result = await db.execute(select(User).where(User.email == body.email))
     existing = result.scalar_one_or_none()
     if existing:
