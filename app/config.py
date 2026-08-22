@@ -2,7 +2,7 @@ import yaml
 from pathlib import Path
 from functools import lru_cache
 from pydantic import BaseModel
-from typing import List
+from typing import ClassVar, List
 
 
 class AppConfig(BaseModel):
@@ -72,6 +72,40 @@ class Config(BaseModel):
     admin: AdminConfig = AdminConfig()
     blablador: BlabladorConfig = BlabladorConfig()
 
+    # Known weak/default secret values that must never be used in production.
+    # Declared as ClassVar so Pydantic does not treat it as a model field.
+    WEAK_SECRET_VALUES: ClassVar[List[str]] = [
+        "change-me",
+        "change-me-in-production",
+        "your-secret-key",
+        "secret",
+        "",
+    ]
+
+    def validate_security(self) -> None:
+        """Validate security-critical configuration at startup.
+
+        Refuses to start if the JWT secret_key is a known weak/default value
+        or too short (<32 chars). This prevents token forgery via default
+        or guessable signing keys.
+
+        Raises:
+            ValueError: If the secret_key is weak, default, or too short.
+        """
+        secret = self.app.secret_key
+        if secret in Config.WEAK_SECRET_VALUES:
+            raise ValueError(
+                f"JWT secret_key must not be a default or weak value ('{secret}'). "
+                "Set a strong, unique secret_key in config.yaml. "
+                'Generate one with: python -c "import secrets; print(secrets.token_hex(32))"'
+            )
+        if len(secret) < 32:
+            raise ValueError(
+                f"JWT secret_key must be at least 32 characters long "
+                f"(current: {len(secret)}). Use a strong, random secret. "
+                'Generate one with: python -c "import secrets; print(secrets.token_hex(32))"'
+            )
+
 
 @lru_cache()
 def get_config() -> Config:
@@ -79,5 +113,8 @@ def get_config() -> Config:
     if config_path.exists():
         with open(config_path) as f:
             data = yaml.safe_load(f)
-            return Config(**data)
-    return Config()
+            config = Config(**data)
+    else:
+        config = Config()
+    config.validate_security()
+    return config
