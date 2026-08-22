@@ -216,6 +216,12 @@
             return match ? match[1] : '';
         }
 
+        function escapeHtml(str) {
+            const div = document.createElement('div');
+            div.textContent = str;
+            return div.innerHTML;
+        }
+
         function csrfHeaders(extra = {}) {
             const token = getCsrfToken();
             const headers = {...extra};

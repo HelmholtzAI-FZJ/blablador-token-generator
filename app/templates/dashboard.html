@@ -189,6 +189,12 @@ curl -X POST {{ api_url }}/api/v1/auth/validate \
             return match ? match[1] : '';
         }
 
+        function escapeHtml(str) {
+            const div = document.createElement('div');
+            div.textContent = str;
+            return div.innerHTML;
+        }
+
         function csrfHeaders(extra = {}) {
             const token = getCsrfToken();
             const headers = {...extra};
@@ -492,14 +498,14 @@ curl -X POST {{ api_url }}/api/v1/auth/validate \
                 
                 const newRow = document.createElement('tr');
                 newRow.innerHTML = `
-                    <td>${result.name}</td>
+                    <td>${escapeHtml(result.name)}</td>
                     <td class="datetime" data-utc="${now}"></td>
                     <td class="datetime">Never</td>
                     <td class="datetime-date" data-utc="${expires}">${expiresDisplay}</td>
                     <td class="token-status" data-revoked="false" data-expires="${expires}">Active</td>
                     <td>
-                        <button class="btn btn-danger" onclick="revokeToken('${result.id}')"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"></line></svg> Revoke</button>
-                        <button class="btn" style="background: #e74c3c;" onclick="deleteToken('${result.id}')"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg> Delete</button>
+                        <button class="btn btn-danger" onclick="revokeToken('${result.id}')">Revoke</button>
+                        <button class="btn" style="background: #e74c3c;" onclick="deleteToken('${result.id}')">Delete</button>
                     </td>
                 `;
                 
