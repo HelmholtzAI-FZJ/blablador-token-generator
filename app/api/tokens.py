@@ -1,5 +1,5 @@
 from datetime import datetime, timedelta, timezone
-from fastapi import APIRouter, Depends, HTTPException, status, Body
+from fastapi import APIRouter, Depends, HTTPException, status, Body, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from pydantic import BaseModel, Field
@@ -7,8 +7,15 @@ from app.database import get_db
 from app.models import User, Token
 from app.auth import get_current_user, generate_token, hash_token
 from app.config import get_config
+from app.rate_limit import limiter
 
-router = APIRouter(prefix="/tokens", tags=["["])
+router = APIRouter(prefix="/tokens", tags=["tokens"])
+
+# Rate limits for token endpoints — applied in addition to the
+# global limiter.  These protect against brute-force token enumeration
+# and runaway scripts.
+TOKEN_LIST_LIMIT = "60/minute"
+TOKEN_MUTATE_LIMIT = "30/minute"
 
 
 class CreateTokenRequest(BaseModel):
@@ -35,58 +42,60 @@ class TokenWithValueResponse(BaseModel):
 
 
 @router.post("", response_model=TokenWithValueResponse)
+@limiter.limit(TOKEN_MUTATE_LIMIT)
 async def create_token(
-    request: CreateTokenRequest,
+    request: Request,
+    body: CreateTokenRequest,
     user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
 ):
     config = get_config()
-    
+
     plain_token = generate_token()
     token_hash = hash_token(plain_token)
-    
-    if request.expires_at:
-        expires_at = datetime.fromisoformat(request.expires_at.replace('Z', '+00:00'))
-        # Normalize to naive UTC to match other code paths
+
+    if body.expires_at:
+        expires_at = datetime.fromisoformat(body.expires_at.replace("Z", "+00:00"))
         if expires_at.tzinfo is not None:
             expires_at = expires_at.astimezone(timezone.utc).replace(tzinfo=None)
-    elif request.expires_in_days:
-        expires_at = datetime.utcnow() + timedelta(days=request.expires_in_days)
+    elif body.expires_in_days:
+        expires_at = datetime.utcnow() + timedelta(days=body.expires_in_days)
     else:
         expires_at = datetime.utcnow() + timedelta(days=config.tokens.default_expiration_days)
-    
-    # Enforce maximum expiration
+
     max_expires = datetime.utcnow() + timedelta(days=config.tokens.max_expiration_days)
     if expires_at > max_expires:
         raise HTTPException(
             status_code=400,
-            detail=f"Token expiration cannot exceed {config.tokens.max_expiration_days} days from now"
+            detail=f"Token expiration cannot exceed {config.tokens.max_expiration_days} days from now",
         )
-    
+
     token = Token(
         user_id=user.id,
         token_hash=token_hash,
-        name=request.name,
-        expires_at=expires_at
+        name=body.name,
+        expires_at=expires_at,
     )
-    
+
     db.add(token)
     await db.commit()
     await db.refresh(token)
-    
+
     return TokenWithValueResponse(
         id=token.id,
         name=token.name,
         token=plain_token,
         created_at=token.created_at.isoformat(),
-        expires_at=token.expires_at.isoformat() if token.expires_at else None
+        expires_at=token.expires_at.isoformat() if token.expires_at else None,
     )
 
 
 @router.get("", response_model=list[TokenResponse])
+@limiter.limit(TOKEN_LIST_LIMIT)
 async def list_tokens(
+    request: Request,
     user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
 ):
     result = await db.execute(
         select(Token)
@@ -94,7 +103,7 @@ async def list_tokens(
         .order_by(Token.created_at.desc())
     )
     tokens = result.scalars().all()
-    
+
     return [
         TokenResponse(
             id=t.id,
@@ -102,49 +111,53 @@ async def list_tokens(
             created_at=t.created_at.isoformat(),
             expires_at=t.expires_at.isoformat() if t.expires_at else None,
             last_used_at=t.last_used_at.isoformat() if t.last_used_at else None,
-            revoked=t.revoked_at is not None
+            revoked=t.revoked_at is not None,
         )
         for t in tokens
     ]
 
 
 @router.delete("/{token_id}")
+@limiter.limit(TOKEN_MUTATE_LIMIT)
 async def revoke_token(
+    request: Request,
     token_id: str,
     user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
 ):
     result = await db.execute(
         select(Token).where(Token.id == token_id, Token.user_id == user.id)
     )
     token = result.scalar_one_or_none()
-    
+
     if not token:
         raise HTTPException(status_code=404, detail="Token not found")
-    
+
     token.revoked_at = datetime.utcnow()
     await db.commit()
-    
+
     return {"message": "Token revoked successfully"}
 
 
 @router.delete("/{token_id}/permanent")
+@limiter.limit(TOKEN_MUTATE_LIMIT)
 async def delete_token(
+    request: Request,
     token_id: str,
     user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
 ):
     result = await db.execute(
         select(Token).where(Token.id == token_id, Token.user_id == user.id)
     )
     token = result.scalar_one_or_none()
-    
+
     if not token:
         raise HTTPException(status_code=404, detail="Token not found")
-    
+
     await db.delete(token)
     await db.commit()
-    
+
     return {"message": "Token deleted successfully"}
 
 
@@ -154,51 +167,53 @@ class RenewTokenRequest(BaseModel):
 
 
 @router.post("/{token_id}/renew", response_model=TokenResponse)
+@limiter.limit(TOKEN_MUTATE_LIMIT)
 async def renew_token(
+    request: Request,
     token_id: str,
-    request: RenewTokenRequest | None = None,
+    body: RenewTokenRequest | None = None,
     user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
 ):
-    # Fetch token
     result = await db.execute(
         select(Token).where(Token.id == token_id, Token.user_id == user.id)
     )
     token = result.scalar_one_or_none()
     if not token:
         raise HTTPException(status_code=404, detail="Token not found")
+
     config = get_config()
-    # Determine original duration
+
     if token.expires_at and token.created_at:
         original_duration = token.expires_at - token.created_at
     else:
         original_duration = timedelta(days=config.tokens.default_expiration_days)
-    # Compute new expiration
-    if request and request.expires_at:
-        new_expires_at = datetime.fromisoformat(request.expires_at.replace('Z', '+00:00'))
-        # Normalize to naive UTC to match other code paths
+
+    if body and body.expires_at:
+        new_expires_at = datetime.fromisoformat(body.expires_at.replace("Z", "+00:00"))
         if new_expires_at.tzinfo is not None:
             new_expires_at = new_expires_at.astimezone(timezone.utc).replace(tzinfo=None)
-    elif request and request.expires_in_days:
-        new_expires_at = datetime.utcnow() + timedelta(days=request.expires_in_days)
+    elif body and body.expires_in_days:
+        new_expires_at = datetime.utcnow() + timedelta(days=body.expires_in_days)
     else:
         new_expires_at = datetime.utcnow() + original_duration
 
-    # Enforce maximum expiration
     max_expires = datetime.utcnow() + timedelta(days=config.tokens.max_expiration_days)
     if new_expires_at > max_expires:
         raise HTTPException(
             status_code=400,
-            detail=f"Token expiration cannot exceed {config.tokens.max_expiration_days} days from now"
+            detail=f"Token expiration cannot exceed {config.tokens.max_expiration_days} days from now",
         )
+
     token.expires_at = new_expires_at
     await db.commit()
     await db.refresh(token)
+
     return TokenResponse(
         id=token.id,
         name=token.name,
         created_at=token.created_at.isoformat(),
         expires_at=token.expires_at.isoformat() if token.expires_at else None,
         last_used_at=token.last_used_at.isoformat() if token.last_used_at else None,
-        revoked=token.revoked_at is not None
+        revoked=token.revoked_at is not None,
     )
