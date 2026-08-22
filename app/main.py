@@ -46,8 +46,6 @@ app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 
 from fastapi import HTTPException
-
-
 from fastapi.responses import JSONResponse
 
 
@@ -177,7 +175,6 @@ async def callback(request: Request, code: str, state: str | None = None, db: As
     user = await get_or_create_user(userinfo, db)
 
     access_token = create_access_token(data={"sub": user.id})
-
     response = RedirectResponse(url="/dashboard")
     response.set_cookie(
         key="access_token",
@@ -238,7 +235,7 @@ async def dashboard(
         .order_by(Token.created_at.desc())
     )
     user_tokens = result.scalars().all()
-    
+
     return templates.TemplateResponse(
         "dashboard.html",
         {
@@ -260,7 +257,7 @@ async def admin_tokens(
     db: AsyncSession = Depends(get_db)
 ):
     tokens_with_users = []
-    
+
     if search:
         search_hash = hash_token(search)
         result = await db.execute(
@@ -286,7 +283,7 @@ async def admin_tokens(
                 "token": t,
                 "user": t.user
             })
-    
+
     return templates.TemplateResponse(
         "admin.html",
         {
@@ -306,6 +303,7 @@ async def logout():
     response.delete_cookie("access_token")
     return response
 
+
 @app.get("/login/local", response_class=HTMLResponse)
 async def login_local_form(request: Request):
     if not config.local.enabled:
@@ -316,6 +314,7 @@ async def login_local_form(request: Request):
         "csrf_token": request.cookies.get("csrf_token", ""),
         "error": None
     })
+
 
 @app.post("/login/local")
 @limiter.limit("5/minute")
@@ -345,7 +344,7 @@ async def login_local(
             "app_name": config.app.name,
             "error": "Invalid email or password"
         }, status_code=401)
-    
+
     access_token = create_access_token(data={"sub": user.id})
     response = RedirectResponse(url="/dashboard", status_code=303)
     response.set_cookie(
@@ -360,68 +359,8 @@ async def login_local(
     return response
 
 
-@app.delete("/admin/api/tokens/revoked")
-async def delete_revoked_tokens_api(
-    admin: User = Depends(get_current_admin),
-    db: AsyncSession = Depends(get_db)
-):
-    from datetime import datetime
-    result = await db.execute(
-        select(Token).where(Token.revoked_at.isnot(None))
-    )
-    tokens = result.scalars().all()
-    
-    count = 0
-    for token in tokens:
-        await db.delete(token)
-        count += 1
-    
-    await db.commit()
-    
-    return {"message": f"Deleted {count} revoked tokens"}
-
-
+# Register API routers
 app.include_router(tokens.router)
-@app.delete("/admin/tokens/{token_id}/permanent")
-async def delete_token_admin_api(
-    token_id: str,
-    admin: User = Depends(get_current_admin),
-    db: AsyncSession = Depends(get_db)
-):
-    result = await db.execute(
-        select(Token).where(Token.id == token_id)
-    )
-    token = result.scalar_one_or_none()
-    
-    if not token:
-        raise HTTPException(status_code=404, detail="Token not found")
-    
-    await db.delete(token)
-    await db.commit()
-    
-    return {"message": "Token deleted successfully"}
-
-
-@app.delete("/admin/tokens/{token_id}/revoke")
-async def revoke_token_admin_api(
-    token_id: str,
-    admin: User = Depends(get_current_admin),
-    db: AsyncSession = Depends(get_db)
-):
-    result = await db.execute(
-        select(Token).where(Token.id == token_id)
-    )
-    token = result.scalar_one_or_none()
-    
-    if not token:
-        raise HTTPException(status_code=404, detail="Token not found")
-    
-    token.revoked_at = datetime.utcnow()
-    await db.commit()
-    
-    return {"message": "Token revoked successfully"}
-
-
 app.include_router(validate.router)
 app.include_router(admin.router)
 
