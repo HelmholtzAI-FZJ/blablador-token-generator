@@ -249,10 +249,24 @@ async def get_or_create_user(userinfo: dict, db: AsyncSession) -> User:
             # If creation fails, try to fetch existing user
             result = await db.execute(select(User).where(User.email == email))
             user = result.scalar_one_or_none()
-    elif user.is_admin != is_admin:
-        user.is_admin = is_admin
-        await db.commit()
-        await db.refresh(user)
+    else:
+        # Sync admin status from config on every login so that
+        # adding/removing emails in admin_emails takes effect for
+        # existing users, not just new ones.
+        dirty = False
+        if user.is_admin != is_admin:
+            user.is_admin = is_admin
+            dirty = True
+        # Keep profile attributes up to date with the OAuth provider
+        if user.name != name:
+            user.name = name
+            dirty = True
+        if user.email != email:
+            user.email = email
+            dirty = True
+        if dirty:
+            await db.commit()
+            await db.refresh(user)
 
     return user
 
