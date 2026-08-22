@@ -57,8 +57,9 @@ templates.env.globals['now'] = datetime.utcnow
 
 
 # CSRF protection: double-submit cookie pattern.
-# Safe methods (GET, HEAD, OPTIONS, TRACE) are exempt.
-# State-changing methods must send matching X-CSRF-Token header and csrf_token cookie.
+# Safe methods (GET, HEAD, OPTIONS, TRACE) receive a csrf_token cookie.
+# State-changing requests must send the cookie value in the X-CSRF-Token
+# header (fetch API) or as a "csrf_token" form field (plain HTML forms).
 SAFE_METHODS = {"GET", "HEAD", "OPTIONS", "TRACE"}
 
 
@@ -82,11 +83,23 @@ async def csrf_middleware(request: Request, call_next):
     cookie_token = request.cookies.get("csrf_token")
     header_token = request.headers.get("x-csrf-token")
 
-    if not cookie_token or not header_token or cookie_token != header_token:
-        return JSONResponse(
-            status_code=403,
-            content={"detail": "CSRF token missing or invalid"}
-        )
+    if header_token:
+        # Fetch API: header must match cookie
+        if not cookie_token or cookie_token != header_token:
+            return JSONResponse(
+                status_code=403,
+                content={"detail": "CSRF token missing or invalid"}
+            )
+    else:
+        # No header token: allow form submissions through (they carry
+        # csrf_token as a hidden field validated at the endpoint level),
+        # reject everything else.
+        content_type = request.headers.get("content-type", "")
+        if "application/x-www-form-urlencoded" not in content_type:
+            return JSONResponse(
+                status_code=403,
+                content={"detail": "CSRF token missing or invalid"}
+            )
 
     return await call_next(request)
 
@@ -257,6 +270,7 @@ async def login_local_form(request: Request):
     return templates.TemplateResponse("login_local.html", {
         "request": request,
         "app_name": config.app.name,
+        "csrf_token": request.cookies.get("csrf_token", ""),
         "error": None
     })
 
@@ -265,11 +279,21 @@ async def login_local(
     request: Request,
     email: str = Form(...),
     password: str = Form(...),
+    csrf_token: str = Form(...),
     db: AsyncSession = Depends(get_db)
 ):
     if not config.local.enabled:
         raise HTTPException(status_code=404, detail="Local login disabled")
-    
+
+    # Validate CSRF token: form field must match cookie value
+    cookie_csrf = request.cookies.get("csrf_token")
+    if not cookie_csrf or csrf_token != cookie_csrf:
+        return templates.TemplateResponse("login_local.html", {
+            "request": request,
+            "app_name": config.app.name,
+            "error": "Invalid CSRF token"
+        }, status_code=403)
+
     user = await authenticate_local_user(email, password, db)
     if not user:
         return templates.TemplateResponse("login_local.html", {
