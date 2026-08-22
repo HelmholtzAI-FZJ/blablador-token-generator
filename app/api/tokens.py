@@ -78,8 +78,12 @@ async def create_token(
     )
 
     db.add(token)
-    await db.commit()
-    await db.refresh(token)
+    try:
+        await db.commit()
+        await db.refresh(token)
+    except Exception:
+        await db.rollback()
+        raise HTTPException(status_code=500, detail="Failed to create token")
 
     return TokenWithValueResponse(
         id=token.id,
@@ -134,7 +138,11 @@ async def revoke_token(
         raise HTTPException(status_code=404, detail="Token not found")
 
     token.revoked_at = datetime.utcnow()
-    await db.commit()
+    try:
+        await db.commit()
+    except Exception:
+        await db.rollback()
+        raise HTTPException(status_code=500, detail="Failed to revoke token")
 
     return {"message": "Token revoked successfully"}
 
@@ -156,7 +164,11 @@ async def delete_token(
         raise HTTPException(status_code=404, detail="Token not found")
 
     await db.delete(token)
-    await db.commit()
+    try:
+        await db.commit()
+    except Exception:
+        await db.rollback()
+        raise HTTPException(status_code=500, detail="Failed to delete token")
 
     return {"message": "Token deleted successfully"}
 
@@ -206,8 +218,12 @@ async def renew_token(
         )
 
     token.expires_at = new_expires_at
-    await db.commit()
-    await db.refresh(token)
+    try:
+        await db.commit()
+        await db.refresh(token)
+    except Exception:
+        await db.rollback()
+        raise HTTPException(status_code=500, detail="Failed to renew token")
 
     return TokenResponse(
         id=token.id,
