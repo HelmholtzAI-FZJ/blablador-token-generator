@@ -111,12 +111,13 @@ async def csrf_middleware(request: Request, call_next):
     return await call_next(request)
 
 
-def get_oauth_login_url() -> str:
+def get_oauth_login_url(state: str) -> str:
     params = {
         "response_type": "code",
         "client_id": config.oauth.client_id,
         "redirect_uri": config.oauth.redirect_uri,
         "scope": " ".join(config.oauth.scopes),
+        "state": state,
     }
     return f"{config.oauth.authorize_url}?{urlencode(params)}"
 
@@ -124,7 +125,7 @@ def get_oauth_login_url() -> str:
 @app.get("/", response_class=HTMLResponse)
 async def home(request: Request):
     return templates.TemplateResponse("index.html", {
-        "request": request, 
+        "request": request,
         "app_name": config.app.name,
         "login_name": config.login.name,
         "login_description": config.login.description,
@@ -134,17 +135,34 @@ async def home(request: Request):
 
 @app.get("/login")
 async def login():
-    return RedirectResponse(get_oauth_login_url())
+    # Generate a random state and store it in a short-lived cookie
+    state = _secrets.token_hex(16)
+    response = RedirectResponse(get_oauth_login_url(state))
+    response.set_cookie(
+        key="oauth_state",
+        value=state,
+        httponly=True,
+        samesite="strict",
+        secure=config.app.secure_cookies,
+        path="/",
+        max_age=300  # 5 minutes
+    )
+    return response
 
 
 @app.get("/callback")
 @limiter.limit("10/minute")
-async def callback(request: Request, code: str, db: AsyncSession = Depends(get_db)):
+async def callback(request: Request, code: str, state: str | None = None, db: AsyncSession = Depends(get_db)):
+    # Verify OAuth state to prevent login CSRF
+    cookie_state = request.cookies.get("oauth_state")
+    if not state or not cookie_state or state != cookie_state:
+        raise HTTPException(status_code=400, detail="Invalid OAuth state")
+
     userinfo = await get_unity_userinfo(code)
     user = await get_or_create_user(userinfo, db)
-    
+
     access_token = create_access_token(data={"sub": user.id})
-    
+
     response = RedirectResponse(url="/dashboard")
     response.set_cookie(
         key="access_token",
@@ -155,29 +173,29 @@ async def callback(request: Request, code: str, db: AsyncSession = Depends(get_d
         path="/",
         max_age=86400
     )
+    # Clear the OAuth state cookie
+    response.delete_cookie("oauth_state", path="/")
     return response
 
 
 @app.get("/oauth/openid/callback")
 @limiter.limit("10/minute")
-async def openid_callback(request: Request, code: str | None = None, error: str | None = None, error_description: str | None = None, db: AsyncSession = Depends(get_db)):
-    print(f"Callback - code: {code}, error: {error}, error_desc: {error_description}")
-    print(f"Full query: {request.query_params}")
-    
+async def openid_callback(request: Request, code: str | None = None, state: str | None = None, error: str | None = None, error_description: str | None = None, db: AsyncSession = Depends(get_db)):
     if error:
-        return {"detail": f"OAuth error: {error} - {error_description}"}
-    
-    if not code:
-        return {"detail": "No code provided"}
-    
-    userinfo = await get_unity_userinfo(code)
-    print(f"User info: {userinfo}")
-    user = await get_or_create_user(userinfo, db)
-    print(f"User created/retrieved: {user.id}, {user.email}")
-    
-    access_token = create_access_token(data={"sub": user.id})
-    print(f"Access token created: {access_token[:20]}...")
+        return {"detail": "OAuth authentication failed"}
 
+    # Verify OAuth state to prevent login CSRF
+    cookie_state = request.cookies.get("oauth_state")
+    if not state or not cookie_state or state != cookie_state:
+        raise HTTPException(status_code=400, detail="Invalid OAuth state")
+
+    if not code:
+        return {"detail": "No authorization code provided"}
+
+    userinfo = await get_unity_userinfo(code)
+    user = await get_or_create_user(userinfo, db)
+
+    access_token = create_access_token(data={"sub": user.id})
     response = RedirectResponse(url="/dashboard", status_code=303)
     response.set_cookie(
         key="access_token",
@@ -188,7 +206,8 @@ async def openid_callback(request: Request, code: str | None = None, error: str 
         path="/",
         max_age=86400
     )
-    print("Cookie set, redirecting to dashboard")
+    # Clear the OAuth state cookie
+    response.delete_cookie("oauth_state", path="/")
     return response
 
 
