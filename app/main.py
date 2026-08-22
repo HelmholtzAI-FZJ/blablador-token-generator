@@ -231,6 +231,7 @@ async def dashboard(
 async def admin_tokens(
     request: Request,
     search: str | None = None,
+    page: int = 1,
     admin: User = Depends(get_current_admin),
     db: AsyncSession = Depends(get_db)
 ):
@@ -254,10 +255,14 @@ async def admin_tokens(
                 "user": token.user
             })
     else:
+        page_size = 100
+        offset = (page - 1) * page_size
         result = await db.execute(
             select(Token)
             .options(joinedload(Token.user))
             .order_by(Token.created_at.desc())
+            .offset(offset)
+            .limit(page_size)
         )
         tokens = result.scalars().all()
         for t in tokens:
