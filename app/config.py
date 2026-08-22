@@ -12,6 +12,7 @@ class AppConfig(BaseModel):
     secret_key: str = "change-me"
     debug: bool = False
     api_url: str = "http://localhost:8080"
+    secure_cookies: bool = False
 
 
 class DatabaseConfig(BaseModel):

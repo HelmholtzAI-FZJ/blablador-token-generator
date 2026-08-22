@@ -1,5 +1,6 @@
 from contextlib import asynccontextmanager
 from urllib.parse import urlencode
+import secrets as _secrets
 from fastapi import FastAPI, Request, Depends, HTTPException, Form
 from fastapi.responses import RedirectResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
@@ -11,7 +12,7 @@ from app.config import get_config
 from app.database import init_db, close_db, get_db
 from app.models import User, Token
 from app.auth import (
-    get_current_user, get_current_admin, 
+    get_current_user, get_current_admin,
     get_or_create_user, get_unity_userinfo, create_access_token,
     hash_token, authenticate_local_user
 )
@@ -55,6 +56,41 @@ templates = Jinja2Templates(directory="app/templates")
 templates.env.globals['now'] = datetime.utcnow
 
 
+# CSRF protection: double-submit cookie pattern.
+# Safe methods (GET, HEAD, OPTIONS, TRACE) are exempt.
+# State-changing methods must send matching X-CSRF-Token header and csrf_token cookie.
+SAFE_METHODS = {"GET", "HEAD", "OPTIONS", "TRACE"}
+
+
+@app.middleware("http")
+async def csrf_middleware(request: Request, call_next):
+    if request.method in SAFE_METHODS:
+        response = await call_next(request)
+        # Set/refresh CSRF cookie on safe requests
+        if not request.cookies.get("csrf_token"):
+            response.set_cookie(
+                key="csrf_token",
+                value=_secrets.token_hex(32),
+                httponly=False,
+                samesite="strict",
+                secure=config.app.secure_cookies,
+                path="/",
+            )
+        return response
+
+    # State-changing request: validate CSRF token
+    cookie_token = request.cookies.get("csrf_token")
+    header_token = request.headers.get("x-csrf-token")
+
+    if not cookie_token or not header_token or cookie_token != header_token:
+        return JSONResponse(
+            status_code=403,
+            content={"detail": "CSRF token missing or invalid"}
+        )
+
+    return await call_next(request)
+
+
 def get_oauth_login_url() -> str:
     params = {
         "response_type": "code",
@@ -93,7 +129,10 @@ async def callback(code: str, db: AsyncSession = Depends(get_db)):
         key="access_token",
         value=access_token,
         httponly=True,
-        samesite="lax"
+        samesite="strict",
+        secure=config.app.secure_cookies,
+        path="/",
+        max_age=86400
     )
     return response
 
@@ -116,14 +155,14 @@ async def openid_callback(request: Request, code: str | None = None, error: str 
     
     access_token = create_access_token(data={"sub": user.id})
     print(f"Access token created: {access_token[:20]}...")
-    
+
     response = RedirectResponse(url="/dashboard", status_code=303)
     response.set_cookie(
         key="access_token",
         value=access_token,
         httponly=True,
-        samesite="lax",
-        secure=False,
+        samesite="strict",
+        secure=config.app.secure_cookies,
         path="/",
         max_age=86400
     )
@@ -240,14 +279,13 @@ async def login_local(
         }, status_code=401)
     
     access_token = create_access_token(data={"sub": user.id})
-    
     response = RedirectResponse(url="/dashboard", status_code=303)
     response.set_cookie(
         key="access_token",
         value=access_token,
         httponly=True,
-        samesite="lax",
-        secure=False,
+        samesite="strict",
+        secure=config.app.secure_cookies,
         path="/",
         max_age=86400
     )
