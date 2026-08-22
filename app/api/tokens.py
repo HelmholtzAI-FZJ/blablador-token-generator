@@ -2,18 +2,18 @@ from datetime import datetime, timedelta, timezone
 from fastapi import APIRouter, Depends, HTTPException, status, Body
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from app.database import get_db
 from app.models import User, Token
 from app.auth import get_current_user, generate_token, hash_token
 from app.config import get_config
 
-router = APIRouter(prefix="/tokens", tags=["tokens"])
+router = APIRouter(prefix="/tokens", tags=["["])
 
 
 class CreateTokenRequest(BaseModel):
-    name: str
-    expires_in_days: int | None = None
+    name: str = Field(..., min_length=1, max_length=255)
+    expires_in_days: int | None = Field(None, ge=1, le=365)
     expires_at: str | None = None
 
 
@@ -149,7 +149,7 @@ async def delete_token(
 
 
 class RenewTokenRequest(BaseModel):
-    expires_in_days: int | None = None
+    expires_in_days: int | None = Field(None, ge=1, le=365)
     expires_at: str | None = None
 
 
