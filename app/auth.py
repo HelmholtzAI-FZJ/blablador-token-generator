@@ -120,18 +120,22 @@ async def get_or_create_user(userinfo: dict, db: AsyncSession) -> User:
     unity_id = userinfo.get("sub")
     email = userinfo.get("email", "")
     name = userinfo.get("name", userinfo.get("preferred_username", email))
-    
+
     # First try to find by unity_id
     result = await db.execute(select(User).where(User.unity_id == unity_id))
     user = result.scalar_one_or_none()
-    
+
     if user is None and email:
         # Try to find by email (in case of different unity_id)
         result = await db.execute(select(User).where(User.email == email))
         user = result.scalar_one_or_none()
-    
+
+    # Sync admin status from config on every login so that
+    # adding/removing emails in admin_emails takes effect for
+    # existing users, not just new ones.
+    is_admin = email in config.admin.admin_emails
+
     if user is None:
-        is_admin = email in config.admin.admin_emails
         user = User(unity_id=unity_id, email=email, name=name, is_admin=is_admin)
         db.add(user)
         try:
@@ -142,7 +146,11 @@ async def get_or_create_user(userinfo: dict, db: AsyncSession) -> User:
             # If creation fails, try to fetch existing user
             result = await db.execute(select(User).where(User.email == email))
             user = result.scalar_one_or_none()
-    
+    elif user.is_admin != is_admin:
+        user.is_admin = is_admin
+        await db.commit()
+        await db.refresh(user)
+
     return user
 
 async def authenticate_local_user(email: str, password: str, db: AsyncSession) -> User | None:
