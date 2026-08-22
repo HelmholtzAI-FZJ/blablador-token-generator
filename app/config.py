@@ -118,5 +118,17 @@ def get_config() -> Config:
             config = Config(**data)
     else:
         config = Config()
+
+    # Allow secrets to be overridden by environment variables.
+    # This prevents storing secrets in config files on disk.
+    import os
+    secret_key = os.environ.get("JWT_SECRET_KEY")
+    if secret_key:
+        config.app.secret_key = secret_key
+
+    oauth_client_secret = os.environ.get("OAUTH_CLIENT_SECRET")
+    if oauth_client_secret:
+        config.oauth.client_secret = oauth_client_secret
+
     config.validate_security()
     return config
