@@ -275,8 +275,8 @@
                 
                 tbody.innerHTML = users.map(user => `
                     <tr>
-                        <td>${user.email}</td>
-                        <td>${user.name}</td>
+                        <td>${escapeHtml(user.email)}</td>
+                        <td>${escapeHtml(user.name)}</td>
                         <td>
                             ${user.has_password ? '<span class="badge badge-local">Local</span>' : ''}
                             ${user.unity_id ? '<span class="badge badge-oauth">OAuth</span>' : ''}
@@ -285,7 +285,7 @@
                         <td>${new Date(user.created_at).toLocaleString()}</td>
                         <td>
                             <button class="btn btn-small" onclick="resetPassword('${user.id}')">Reset Password</button>
-                            <button class="btn btn-small btn-danger" onclick="deleteUser('${user.id}', '${user.email}')">Delete</button>
+                            <button class="btn btn-small btn-danger" onclick="deleteUser('${user.id}', '${escapeHtml(user.email)}')">Delete</button>
                         </td>
                     </tr>
                 `).join('');
