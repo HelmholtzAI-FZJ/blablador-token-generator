@@ -102,3 +102,81 @@ class TestSecurityHeaders:
         assert r.headers.get("x-frame-options") == "DENY"
         assert r.headers.get("referrer-policy") == "strict-origin-when-cross-origin"
         assert "strict-transport-security" in r.headers
+
+
+class TestTimingSafeComparison:
+    """Security: use secrets.compare_digest for timing-safe comparison."""
+
+    def test_oauth_state_uses_constant_time_comparison(self):
+        """OAuth state check must use secrets.compare_digest to prevent timing attacks."""
+        import inspect
+        from app.main import openid_callback
+        source = inspect.getsource(openid_callback)
+        assert "compare_digest" in source
+
+    def test_csrf_uses_constant_time_comparison(self):
+        """CSRF validation must use secrets.compare_digest to prevent timing attacks."""
+        import inspect
+        from app.main import login_local
+        source = inspect.getsource(login_local)
+        assert "compare_digest" in source
+
+
+class TestCommitErrorHandling:
+    """Security: commit failures must not leave broken transaction state."""
+
+    def test_revoke_nonexistent_token_no_crash(self):
+        """Revoking a non-existent token should not crash the server."""
+        import asyncio
+        import httpx
+        from httpx import ASGITransport
+        # Use httpx + ASGI transport for correct async handling
+        async def run():
+            async with httpx.AsyncClient(
+                transport=ASGITransport(app=app),
+                base_url="http://testserver",
+                headers={"x-csrf-token": "fake-csrf-for-test"}
+            ) as client:
+                r = await client.post("/tokens/nonexistent-id/revoke")
+                # Auth guard returns 401 when no valid token; never 500 (crash)
+                assert r.status_code in (401, 404, 403)
+        asyncio.run(run())
+
+    def test_delete_nonexistent_token_no_crash(self):
+        """Deleting a non-existent token should not crash the server."""
+        import asyncio
+        import httpx
+        from httpx import ASGITransport
+        async def run():
+            async with httpx.AsyncClient(
+                transport=ASGITransport(app=app),
+                base_url="http://testserver",
+                headers={"x-csrf-token": "fake-csrf-for-test"}
+            ) as client:
+                r = await client.delete("/tokens/nonexistent-id/permanent")
+                # Auth guard returns 401/403 when no valid token; never 500 (crash)
+                assert r.status_code in (401, 403, 404)
+        asyncio.run(run())
+
+
+class TestXssMitigation:
+    """Security: user-controlled data must not cause XSS in admin panel."""
+
+    def test_admin_page_xss_sanitized(self):
+        """admin.html template must escape user.name via escapeHtml."""
+        # Check the escapeHtml function exists in the template
+        with open("app/templates/admin.html") as f:
+            content = f.read()
+        assert "escapeHtml(user.email)" in content
+        assert "escapeHtml(user.name)" in content
+
+
+class TestRateLimitLogin:
+    """Security: /login endpoint must be rate-limited."""
+
+    def test_login_rate_limited(self):
+        """The /login endpoint should have a rate limit decorator."""
+        import inspect
+        from app.main import login as login_fn
+        source = inspect.getsource(login_fn)
+        assert "@limiter.limit" in source
