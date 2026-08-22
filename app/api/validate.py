@@ -63,7 +63,10 @@ async def validate_token(
             raise HTTPException(status_code=401, detail="Token has expired")
 
     token.last_used_at = now.replace(tzinfo=None)
-    await db.commit()
+    try:
+        await db.commit()
+    except Exception:
+        await db.rollback()
 
     def format_datetime(dt):
         if dt is None:
