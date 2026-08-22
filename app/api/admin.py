@@ -257,8 +257,13 @@ async def update_user(
     if body.is_admin is not None:
         user.is_admin = body.is_admin
 
-    await db.commit()
-    await db.refresh(user)
+    try:
+        await db.commit()
+        await db.refresh(user)
+    except Exception:
+        await db.rollback()
+        raise HTTPException(status_code=500, detail="Failed to update user")
+
     logger.info(
         "admin=%s action=update_user user_id=%s is_admin=%s",
         admin.id,
@@ -292,6 +297,10 @@ async def delete_user(
         raise HTTPException(status_code=400, detail="Cannot delete yourself")
 
     await db.delete(user)
-    await db.commit()
+    try:
+        await db.commit()
+    except Exception:
+        await db.rollback()
+        raise HTTPException(status_code=500, detail="Failed to delete user")
     logger.info("admin=%s action=delete_user user_id=%s", admin.id, user.id)
     return {"message": "User deleted successfully"}
