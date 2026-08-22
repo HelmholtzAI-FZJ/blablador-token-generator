@@ -13,6 +13,7 @@ class AppConfig(BaseModel):
     debug: bool = False
     api_url: str = "http://localhost:8080"
     secure_cookies: bool = False
+    jwt_expiration_hours: int = 24
 
 
 class DatabaseConfig(BaseModel):

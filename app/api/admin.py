@@ -7,7 +7,7 @@ from sqlalchemy.orm import joinedload
 from pydantic import BaseModel
 from app.database import get_db
 from app.models import User, Token
-from app.auth import get_current_admin, hash_password
+from app.auth import get_current_admin, hash_password, validate_password_strength
 from app.rate_limit import limiter
 
 logger = logging.getLogger("token_generator.audit")
@@ -195,6 +195,8 @@ async def create_user(
     if existing:
         raise HTTPException(status_code=400, detail="User with this email already exists")
 
+    validate_password_strength(body.password)
+
     user = User(
         email=body.email,
         name=body.name,
@@ -241,6 +243,7 @@ async def update_user(
     if body.name is not None:
         user.name = body.name
     if body.password is not None:
+        validate_password_strength(body.password)
         user.password_hash = hash_password(body.password)
     if body.is_admin is not None:
         user.is_admin = body.is_admin

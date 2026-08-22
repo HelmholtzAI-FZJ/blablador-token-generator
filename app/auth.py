@@ -20,8 +20,41 @@ pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 def verify_password(plain_password: str, hashed_password: str) -> bool:
     return pwd_context.verify(plain_password, hashed_password)
 
+
 def hash_password(password: str) -> str:
     return pwd_context.hash(password)
+
+
+MIN_PASSWORD_LENGTH = 8
+
+
+def validate_password_strength(password: str) -> None:
+    """Enforce basic password complexity.
+
+    Raises:
+        HTTPException: 400 if the password is too short, missing
+        uppercase, lowercase, or digit requirements.
+    """
+    if len(password) < MIN_PASSWORD_LENGTH:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Password must be at least {MIN_PASSWORD_LENGTH} characters long",
+        )
+    if not any(c.isupper() for c in password):
+        raise HTTPException(
+            status_code=400,
+            detail="Password must contain at least one uppercase letter",
+        )
+    if not any(c.islower() for c in password):
+        raise HTTPException(
+            status_code=400,
+            detail="Password must contain at least one lowercase letter",
+        )
+    if not any(c.isdigit() for c in password):
+        raise HTTPException(
+            status_code=400,
+            detail="Password must contain at least one digit",
+        )
 
 
 def hash_token(token: str) -> str:
@@ -35,7 +68,10 @@ def generate_token() -> str:
 
 def create_access_token(data: dict, expires_delta: timedelta | None = None) -> str:
     to_encode = data.copy()
-    expire = datetime.utcnow() + (expires_delta or timedelta(hours=24))
+    if expires_delta:
+        expire = datetime.utcnow() + expires_delta
+    else:
+        expire = datetime.utcnow() + timedelta(hours=config.app.jwt_expiration_hours)
     # Add a unique JWT ID so individual session tokens can be
     # revoked (blacklisted) without rotating the signing key.
     to_encode.update({"exp": expire, "jti": secrets.token_hex(16)})
