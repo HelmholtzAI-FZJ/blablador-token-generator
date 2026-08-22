@@ -149,7 +149,8 @@ async def home(request: Request):
 
 
 @app.get("/login")
-async def login():
+@limiter.limit("30/minute")
+async def login(request: Request):
     # Generate a random state and store it in a short-lived cookie
     state = _secrets.token_hex(16)
     response = RedirectResponse(get_oauth_login_url(state))
