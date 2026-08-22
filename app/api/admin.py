@@ -101,7 +101,11 @@ async def revoke_token_admin(
         raise HTTPException(status_code=404, detail="Token not found")
 
     token.revoked_at = datetime.utcnow()
-    await db.commit()
+    try:
+        await db.commit()
+    except Exception:
+        await db.rollback()
+        raise HTTPException(status_code=500, detail="Failed to revoke token")
     logger.info(
         "admin=%s action=revoke_token token_id=%s user_id=%s",
         admin.id,
@@ -126,7 +130,11 @@ async def delete_token_admin(
         raise HTTPException(status_code=404, detail="Token not found")
 
     await db.delete(token)
-    await db.commit()
+    try:
+        await db.commit()
+    except Exception:
+        await db.rollback()
+        raise HTTPException(status_code=500, detail="Failed to delete token")
     logger.info(
         "admin=%s action=delete_token token_id=%s user_id=%s",
         admin.id,
@@ -151,7 +159,11 @@ async def delete_revoked_tokens(
         await db.delete(token)
         count += 1
 
-    await db.commit()
+    try:
+        await db.commit()
+    except Exception:
+        await db.rollback()
+        raise HTTPException(status_code=500, detail="Failed to delete revoked tokens")
     logger.info(
         "admin=%s action=delete_revoked_tokens count=%d",
         admin.id,
@@ -215,8 +227,12 @@ async def create_user(
         unity_id=None,
     )
     db.add(user)
-    await db.commit()
-    await db.refresh(user)
+    try:
+        await db.commit()
+        await db.refresh(user)
+    except Exception:
+        await db.rollback()
+        raise HTTPException(status_code=500, detail="Failed to create user")
     logger.info(
         "admin=%s action=create_user user_id=%s email=%s is_admin=%s",
         admin.id,
