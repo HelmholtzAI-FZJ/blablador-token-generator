@@ -230,6 +230,10 @@ async def admin_tokens(
     admin: User = Depends(get_current_admin),
     db: AsyncSession = Depends(get_db)
 ):
+    # Cap search length to prevent abuse
+    if search and len(search) > 128:
+        search = search[:128]
+
     tokens_with_users = []
 
     if search:
