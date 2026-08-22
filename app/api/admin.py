@@ -1,6 +1,6 @@
 from datetime import datetime
 import logging
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from sqlalchemy.orm import joinedload
@@ -8,9 +8,16 @@ from pydantic import BaseModel
 from app.database import get_db
 from app.models import User, Token
 from app.auth import get_current_admin, hash_password
+from app.rate_limit import limiter
 
 logger = logging.getLogger("token_generator.audit")
 router = APIRouter(prefix="/admin", tags=["admin"])
+
+# Admin endpoints are rate-limited more generously than public endpoints:
+# admins are trusted, but we still cap to prevent runaway scripts or
+# automated tools from hammering the API.
+ADMIN_RATE_LIMIT = "60/minute"
+
 
 class AdminTokenResponse(BaseModel):
     id: str
@@ -23,6 +30,7 @@ class AdminTokenResponse(BaseModel):
     last_used_at: str | None = None
     revoked: bool = False
 
+
 class UserResponse(BaseModel):
     id: str
     email: str
@@ -32,21 +40,26 @@ class UserResponse(BaseModel):
     has_password: bool
     unity_id: str | None = None
 
+
 class CreateUserRequest(BaseModel):
     email: str
     name: str
     password: str
     is_admin: bool = False
 
+
 class UpdateUserRequest(BaseModel):
     name: str | None = None
     password: str | None = None
     is_admin: bool | None = None
 
+
 @router.get("/tokens", response_model=list[AdminTokenResponse])
+@limiter.limit(ADMIN_RATE_LIMIT)
 async def list_all_tokens(
+    request: Request,
     admin: User = Depends(get_current_admin),
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
 ):
     result = await db.execute(
         select(Token)
@@ -54,7 +67,7 @@ async def list_all_tokens(
         .order_by(Token.created_at.desc())
     )
     tokens = result.scalars().all()
-    
+
     return [
         AdminTokenResponse(
             id=t.id,
@@ -65,82 +78,96 @@ async def list_all_tokens(
             created_at=t.created_at.isoformat(),
             expires_at=t.expires_at.isoformat() if t.expires_at else None,
             last_used_at=t.last_used_at.isoformat() if t.last_used_at else None,
-            revoked=t.revoked_at is not None
+            revoked=t.revoked_at is not None,
         )
         for t in tokens
     ]
 
+
 @router.delete("/tokens/{token_id}")
+@limiter.limit(ADMIN_RATE_LIMIT)
 async def revoke_token_admin(
+    request: Request,
     token_id: str,
     admin: User = Depends(get_current_admin),
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
 ):
-    result = await db.execute(
-        select(Token).where(Token.id == token_id)
-    )
+    result = await db.execute(select(Token).where(Token.id == token_id))
     token = result.scalar_one_or_none()
-    
+
     if not token:
         raise HTTPException(status_code=404, detail="Token not found")
-    
+
     token.revoked_at = datetime.utcnow()
     await db.commit()
-    logger.info("admin=%s action=revoke_token token_id=%s user_id=%s",
-                admin.id, token.id, token.user_id)
+    logger.info(
+        "admin=%s action=revoke_token token_id=%s user_id=%s",
+        admin.id,
+        token.id,
+        token.user_id,
+    )
     return {"message": "Token revoked successfully"}
 
+
 @router.delete("/tokens/{token_id}/permanent")
+@limiter.limit(ADMIN_RATE_LIMIT)
 async def delete_token_admin(
+    request: Request,
     token_id: str,
     admin: User = Depends(get_current_admin),
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
 ):
-    result = await db.execute(
-        select(Token).where(Token.id == token_id)
-    )
+    result = await db.execute(select(Token).where(Token.id == token_id))
     token = result.scalar_one_or_none()
-    
+
     if not token:
         raise HTTPException(status_code=404, detail="Token not found")
-    
+
     await db.delete(token)
     await db.commit()
-    logger.info("admin=%s action=delete_token token_id=%s user_id=%s",
-                admin.id, token.id, token.user_id)
+    logger.info(
+        "admin=%s action=delete_token token_id=%s user_id=%s",
+        admin.id,
+        token.id,
+        token.user_id,
+    )
     return {"message": "Token deleted successfully"}
 
+
 @router.delete("/tokens/revoked")
+@limiter.limit(ADMIN_RATE_LIMIT)
 async def delete_revoked_tokens(
+    request: Request,
     admin: User = Depends(get_current_admin),
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
 ):
-    from datetime import datetime
-    result = await db.execute(
-        select(Token).where(Token.revoked_at.isnot(None))
-    )
+    result = await db.execute(select(Token).where(Token.revoked_at.isnot(None)))
     tokens = result.scalars().all()
-    
+
     count = 0
     for token in tokens:
         await db.delete(token)
         count += 1
-    
+
     await db.commit()
-    logger.info("admin=%s action=delete_revoked_tokens count=%d",
-                admin.id, count)
+    logger.info(
+        "admin=%s action=delete_revoked_tokens count=%d",
+        admin.id,
+        count,
+    )
     return {"message": f"Deleted {count} revoked tokens"}
 
+
 @router.get("/users", response_model=list[UserResponse])
+@limiter.limit(ADMIN_RATE_LIMIT)
 async def list_users(
+    request: Request,
     admin: User = Depends(get_current_admin),
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
 ):
-    result = await db.execute(
-        select(User).order_by(User.created_at.desc())
-    )
+    result = await db.execute(select(User).order_by(User.created_at.desc()))
     users = result.scalars().all()
-    
+
     return [
         UserResponse(
             id=u.id,
@@ -149,36 +176,43 @@ async def list_users(
             is_admin=u.is_admin,
             created_at=u.created_at.isoformat(),
             has_password=u.password_hash is not None,
-            unity_id=u.unity_id
+            unity_id=u.unity_id,
         )
         for u in users
     ]
 
+
 @router.post("/users", response_model=UserResponse)
+@limiter.limit(ADMIN_RATE_LIMIT)
 async def create_user(
-    request: CreateUserRequest,
+    request: Request,
+    body: CreateUserRequest,
     admin: User = Depends(get_current_admin),
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
 ):
-    # Check if user exists
-    result = await db.execute(select(User).where(User.email == request.email))
+    result = await db.execute(select(User).where(User.email == body.email))
     existing = result.scalar_one_or_none()
     if existing:
         raise HTTPException(status_code=400, detail="User with this email already exists")
-    
+
     user = User(
-        email=request.email,
-        name=request.name,
-        password_hash=hash_password(request.password),
-        is_admin=request.is_admin,
-        unity_id=None
+        email=body.email,
+        name=body.name,
+        password_hash=hash_password(body.password),
+        is_admin=body.is_admin,
+        unity_id=None,
     )
     db.add(user)
     await db.commit()
     await db.refresh(user)
-    logger.info("admin=%s action=create_user user_id=%s email=%s is_admin=%s",
-                admin.id, user.id, user.email, user.is_admin)
-    
+    logger.info(
+        "admin=%s action=create_user user_id=%s email=%s is_admin=%s",
+        admin.id,
+        user.id,
+        user.email,
+        user.is_admin,
+    )
+
     return UserResponse(
         id=user.id,
         email=user.email,
@@ -186,32 +220,39 @@ async def create_user(
         is_admin=user.is_admin,
         created_at=user.created_at.isoformat(),
         has_password=True,
-        unity_id=user.unity_id
+        unity_id=user.unity_id,
     )
 
+
 @router.patch("/users/{user_id}", response_model=UserResponse)
+@limiter.limit(ADMIN_RATE_LIMIT)
 async def update_user(
+    request: Request,
     user_id: str,
-    request: UpdateUserRequest,
+    body: UpdateUserRequest,
     admin: User = Depends(get_current_admin),
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
 ):
     result = await db.execute(select(User).where(User.id == user_id))
     user = result.scalar_one_or_none()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
-    
-    if request.name is not None:
-        user.name = request.name
-    if request.password is not None:
-        user.password_hash = hash_password(request.password)
-    if request.is_admin is not None:
-        user.is_admin = request.is_admin
-    
+
+    if body.name is not None:
+        user.name = body.name
+    if body.password is not None:
+        user.password_hash = hash_password(body.password)
+    if body.is_admin is not None:
+        user.is_admin = body.is_admin
+
     await db.commit()
     await db.refresh(user)
-    logger.info("admin=%s action=update_user user_id=%s is_admin=%s",
-                admin.id, user.id, user.is_admin)
+    logger.info(
+        "admin=%s action=update_user user_id=%s is_admin=%s",
+        admin.id,
+        user.id,
+        user.is_admin,
+    )
     return UserResponse(
         id=user.id,
         email=user.email,
@@ -219,26 +260,27 @@ async def update_user(
         is_admin=user.is_admin,
         created_at=user.created_at.isoformat(),
         has_password=user.password_hash is not None,
-        unity_id=user.unity_id
+        unity_id=user.unity_id,
     )
 
+
 @router.delete("/users/{user_id}")
+@limiter.limit(ADMIN_RATE_LIMIT)
 async def delete_user(
+    request: Request,
     user_id: str,
     admin: User = Depends(get_current_admin),
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
 ):
     result = await db.execute(select(User).where(User.id == user_id))
     user = result.scalar_one_or_none()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
-    
-    # Prevent self-deletion
+
     if user.id == admin.id:
         raise HTTPException(status_code=400, detail="Cannot delete yourself")
-    
+
     await db.delete(user)
     await db.commit()
-    logger.info("admin=%s action=delete_user user_id=%s",
-                admin.id, user.id)
+    logger.info("admin=%s action=delete_user user_id=%s", admin.id, user.id)
     return {"message": "User deleted successfully"}
