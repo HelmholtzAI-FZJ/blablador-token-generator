@@ -100,19 +100,18 @@ async def get_unity_userinfo(code: str) -> dict:
         )
         
         if response.status_code != 200:
-            error_detail = f"Failed to exchange code for token. Status: {response.status_code}, Response: {response.text}"
-            raise HTTPException(status_code=400, detail=error_detail)
-        
+            raise HTTPException(status_code=400, detail="Failed to exchange authorization code")
+
         token_data = response.json()
         access_token = token_data.get("access_token")
-        
+
         userinfo_response = await client.get(
             config.oauth.userinfo_url,
             headers={"Authorization": f"Bearer {access_token}"}
         )
-        
+
         if userinfo_response.status_code != 200:
-            raise HTTPException(status_code=400, detail="Failed to get user info")
+            raise HTTPException(status_code=400, detail="Failed to retrieve user information")
         
         return userinfo_response.json()
 
