@@ -34,7 +34,10 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title=config.app.name,
     description=f"Token authentication infrastructure on top of {config.login.name}",
-    lifespan=lifespan
+    lifespan=lifespan,
+    docs_url=None if not config.app.debug else "/docs",
+    redoc_url=None if not config.app.debug else "/redoc",
+    openapi_url=None if not config.app.debug else "/openapi.json",
 )
 
 # Register rate limiter state and exception handler
