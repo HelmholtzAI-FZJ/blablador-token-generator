@@ -11,3 +11,4 @@ htmlcov/
 .env
 .DS_Store
 config.yaml
+cookies.txt
