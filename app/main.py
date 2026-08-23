@@ -75,6 +75,13 @@ SAFE_METHODS = {"GET", "HEAD", "OPTIONS", "TRACE"}
 
 @app.middleware("http")
 async def csrf_middleware(request: Request, call_next):
+    # Bearer-token API calls are not vulnerable to CSRF: the token is
+    # explicitly supplied by the client, not auto-sent by the browser
+    # like a cookie.  Skip the CSRF check for these requests.
+    authorization = request.headers.get("authorization", "")
+    if authorization.startswith("Bearer "):
+        return await call_next(request)
+
     if request.method in SAFE_METHODS:
         response = await call_next(request)
         # Set/refresh CSRF cookie on safe requests
