@@ -193,7 +193,7 @@ async def openid_callback(request: Request, code: str | None = None, state: str 
         samesite="strict",
         secure=config.app.secure_cookies,
         path="/",
-        max_age=86400
+        max_age=config.app.jwt_expiration_hours * 3600
     )
     # Clear the OAuth state cookie
     response.delete_cookie("oauth_state", path="/")
@@ -303,6 +303,7 @@ async def logout(request: Request, db: AsyncSession = Depends(get_db)):
 
 
 @app.get("/login/local", response_class=HTMLResponse)
+@limiter.limit("30/minute")
 async def login_local_form(request: Request):
     if not config.local.enabled:
         raise HTTPException(status_code=404, detail="Local login disabled")
@@ -352,7 +353,7 @@ async def login_local(
         samesite="strict",
         secure=config.app.secure_cookies,
         path="/",
-        max_age=86400
+        max_age=config.app.jwt_expiration_hours * 3600
     )
     return response
 
