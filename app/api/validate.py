@@ -4,12 +4,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from sqlalchemy.orm import joinedload
 from pydantic import BaseModel, Field
+import logging as _logging
 from app.database import get_db
-from app.models import Token, User
+from app.models import Token, User, DeletedUser
 from app.auth import hash_token
 from app.rate_limit import limiter
 
 router = APIRouter(prefix="/api/v1/auth", tags=["auth"])
+
+_audit = _logging.getLogger("token_generator.audit")
 
 
 class ValidateRequest(BaseModel):
@@ -58,6 +61,29 @@ async def validate_token(
     
     if token is None:
         raise HTTPException(status_code=401, detail="Token not found or revoked")
+    
+    # Check if the account was deleted after this token was created
+    if token.user:
+        tombstone = (
+            await db.execute(
+                select(DeletedUser).where(
+                    (DeletedUser.unity_id == token.user.unity_id)
+                    | (DeletedUser.email == token.user.email)
+                )
+            )
+        ).scalar_one_or_none()
+        if tombstone:
+            _audit.warning(
+                "user=%s action=revoked_token_used_by_deleted_account "
+                "token_id=%s user_email=%s",
+                token.user_id,
+                token.id,
+                token.user.email,
+            )
+            raise HTTPException(
+                status_code=401,
+                detail="Token invalid: account has been deleted"
+            )
     
     now = datetime.now(timezone.utc)
     if token.expires_at:
