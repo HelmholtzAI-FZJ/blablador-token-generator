@@ -3,7 +3,7 @@ from fastapi import APIRouter, Depends, HTTPException, status, Header, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from sqlalchemy.orm import joinedload
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from app.database import get_db
 from app.models import Token, User
 from app.auth import hash_token
@@ -13,7 +13,7 @@ router = APIRouter(prefix="/api/v1/auth", tags=["auth"])
 
 
 class ValidateRequest(BaseModel):
-    token: str | None = None
+    token: str | None = Field(None, max_length=256)
 
 
 class ValidateResponse(BaseModel):
