@@ -23,6 +23,7 @@ Last full audit: 2026-08-23. All fixes are committed individually on `main`.
 | DELETE | `/tokens/{id}`           | 30/min     |
 | DELETE | `/tokens/{id}/permanent` | 30/min     |
 | POST   | `/tokens/{id}/renew`     | 30/min     |
+| POST   | `/account/delete`        | 5/min      |  ← self-service account deletion |
 
 ### Admin (JWT + `is_admin`)
 | Method | Endpoint                       | Rate limit |
@@ -62,6 +63,13 @@ Last full audit: 2026-08-23. All fixes are committed individually on `main`.
   it never demotes, so manual grants survive login.
 - **Login timing equalized**: unknown users still trigger a bcrypt check against
   a dummy hash, so response time does not leak whether an email exists.
+- **Self-service account deletion**: `POST /account/delete` (requires JWT session)
+  revokes all tokens, writes a tombstone, deletes the account, and revokes the
+  current session JWT.  Rate-limited to 5/min to prevent abuse.
+- **Deleted-user token rejection**: if a token is validated after its owner's
+  account was deleted, the request is rejected with `401 Token invalid: account
+  has been deleted` and the attempt is logged as `revoked_token_used_by_deleted_account`
+  so stale token usage is detectable.
 - **Secrets**: never logged; DB file chmod 600 (SQLite); env override for secrets.
 
 ## Testing
@@ -69,4 +77,5 @@ Last full audit: 2026-08-23. All fixes are committed individually on `main`.
 Run: `pytest -q`. Security-focused tests live in `tests/test_security.py`:
 JWT secret, CSRF, security headers, timing-safe compare, commit-error handling,
 XSS, rate limits, last-admin guard, deletion tombstone, no-demotion-on-login,
-login timing equalization.
+login timing equalization, self-delete (revokes tokens), deleted-user token
+rejection with audit log.

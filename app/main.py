@@ -13,7 +13,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import joinedload
 from app.config import get_config
 from app.database import init_db, close_db, get_db
-from app.models import User, Token
+from app.models import User, Token, DeletedUser
 from app.auth import (
     get_current_user, get_current_admin,
     get_or_create_user, get_unity_userinfo, create_access_token,
@@ -300,6 +300,64 @@ async def logout(request: Request, db: AsyncSession = Depends(get_db)):
     response = JSONResponse(status_code=200, content={"detail": "Logged out"})
     response.delete_cookie("access_token")
     return response
+
+
+import logging as _logging
+_account_logger = _logging.getLogger("token_generator.account")
+
+
+@app.post("/account/delete")
+@limiter.limit("5/minute")
+async def delete_my_account(
+    request: Request,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Self-service account deletion: revokes all tokens, then removes the account.
+
+    The user is logged out immediately.  A tombstone is written so the account
+    cannot be recreated via OAuth until an admin explicitly re-creates it.
+    """
+    # 1. Revoke every token belonging to the user
+    now = datetime.utcnow()
+    result = await db.execute(select(Token).where(Token.user_id == user.id))
+    tokens = result.scalars().all()
+    for t in tokens:
+        if t.revoked_at is None:
+            t.revoked_at = now
+
+    # 2. Write tombstone (blocks OAuth resurrection)
+    db.add(DeletedUser(unity_id=user.unity_id, email=user.email))
+
+    # 3. Delete the user row (cascades to revoke_jwt rows via FK)
+    await db.delete(user)
+
+    try:
+        await db.commit()
+    except Exception:
+        await db.rollback()
+        raise HTTPException(status_code=500, detail="Failed to delete account")
+
+    # 4. Log deletion (safe — only internal IDs, no secrets)
+    _account_logger.info(
+        "user=%s action=account_deleted token_count=%d",
+        user.id,
+        len(tokens),
+    )
+
+    # 5. Revoke the current session JWT so the browser is immediately logged out
+    cookie = request.cookies.get("access_token")
+    if cookie:
+        try:
+            payload = decode_access_token(cookie)
+            await revoke_jwt(payload, db)
+        except HTTPException:
+            pass
+
+    return JSONResponse(
+        status_code=200,
+        content={"detail": "Account deleted. All tokens have been revoked."},
+    )
 
 
 @app.get("/login/local", response_class=HTMLResponse)
