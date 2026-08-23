@@ -180,3 +180,35 @@ class TestRateLimitLogin:
         from app.main import login as login_fn
         source = inspect.getsource(login_fn)
         assert "@limiter.limit" in source
+
+    def test_login_local_form_rate_limited(self):
+        """The GET /login/local endpoint must be rate-limited."""
+        import inspect
+        from app.main import login_local_form
+        source = inspect.getsource(login_local_form)
+        assert "@limiter.limit" in source
+
+
+class TestLastAdminProtection:
+    """Security: the last remaining admin cannot be demoted or deleted."""
+
+    async def test_detects_last_admin(self, test_db, test_admin):
+        from app.api.admin import is_last_admin
+        assert await is_last_admin(test_db, test_admin.id)
+
+    async def test_not_last_admin_when_multiple(self, test_db, test_admin):
+        from app.models import User
+        from app.api.admin import is_last_admin
+        second_admin = User(
+            unity_id="admin-789",
+            email="second-admin@example.com",
+            name="Second Admin",
+            is_admin=True,
+        )
+        test_db.add(second_admin)
+        await test_db.commit()
+        assert not await is_last_admin(test_db, test_admin.id)
+
+    async def test_is_last_admin_false_for_non_admin(self, test_db, test_user):
+        from app.api.admin import is_last_admin
+        assert not await is_last_admin(test_db, test_user.id)

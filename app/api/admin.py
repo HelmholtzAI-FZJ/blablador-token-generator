@@ -17,6 +17,17 @@ ADMIN_RATE_LIMIT = "60/minute"
 MAX_PAGE_SIZE = 100
 
 
+async def is_last_admin(db: AsyncSession, user_id: str) -> bool:
+    """Return True if the user with user_id is an admin and the only one."""
+    result = await db.execute(select(func.count()).where(User.is_admin.is_(True)))
+    admin_count = result.scalar_one()
+    if admin_count > 1:
+        return False
+    target = await db.execute(select(User).where(User.id == user_id))
+    target_user = target.scalar_one_or_none()
+    return bool(target_user and target_user.is_admin)
+
+
 class AdminTokenResponse(BaseModel):
     id: str
     name: str
@@ -270,6 +281,11 @@ async def update_user(
     if body.password is not None:
         validate_password_strength(body.password)
         user.password_hash = hash_password(body.password)
+    if body.is_admin is False and await is_last_admin(db, user_id):
+        raise HTTPException(
+            status_code=400,
+            detail="Cannot demote the last remaining admin",
+        )
     if body.is_admin is not None:
         user.is_admin = body.is_admin
 
@@ -311,6 +327,12 @@ async def delete_user(
 
     if user.id == admin.id:
         raise HTTPException(status_code=400, detail="Cannot delete yourself")
+
+    if user.is_admin and await is_last_admin(db, user_id):
+        raise HTTPException(
+            status_code=400,
+            detail="Cannot delete the last remaining admin",
+        )
 
     await db.delete(user)
     try:
