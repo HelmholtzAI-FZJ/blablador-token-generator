@@ -23,9 +23,14 @@ class ValidateResponse(BaseModel):
     error: str | None = None
 
 
+MAX_TOKEN_LENGTH = 256
+
 async def extract_bearer_token(authorization: str | None = Header(None)) -> str | None:
     if authorization and authorization.startswith("Bearer "):
-        return authorization[7:]
+        token = authorization[7:]
+        if len(token) > MAX_TOKEN_LENGTH:
+            return None
+        return token
     return None
 
 
