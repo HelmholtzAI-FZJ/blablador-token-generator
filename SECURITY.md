@@ -60,10 +60,13 @@ Last full audit: 2026-08-23. All fixes are committed individually on `main`.
   login cannot silently resurrect them; explicit admin re-creation lifts it.
 - **No implicit admin demotion**: login only *promotes* via `admin_emails` config;
   it never demotes, so manual grants survive login.
+- **Login timing equalized**: unknown users still trigger a bcrypt check against
+  a dummy hash, so response time does not leak whether an email exists.
 - **Secrets**: never logged; DB file chmod 600 (SQLite); env override for secrets.
 
 ## Testing
 
 Run: `pytest -q`. Security-focused tests live in `tests/test_security.py`:
 JWT secret, CSRF, security headers, timing-safe compare, commit-error handling,
-XSS, rate limits, last-admin guard, deletion tombstone, no-demotion-on-login.
+XSS, rate limits, last-admin guard, deletion tombstone, no-demotion-on-login,
+login timing equalization.
