@@ -212,3 +212,66 @@ class TestLastAdminProtection:
     async def test_is_last_admin_false_for_non_admin(self, test_db, test_user):
         from app.api.admin import is_last_admin
         assert not await is_last_admin(test_db, test_user.id)
+
+
+class TestDeletionTombstone:
+    """Security: a deleted account must not be resurrected by OAuth login."""
+
+    async def test_deleted_user_blocked_from_login(self, test_db, test_user):
+        from app.models import DeletedUser
+        from app.auth import get_or_create_user
+        test_db.add(DeletedUser(unity_id=test_user.unity_id, email=test_user.email))
+        await test_db.commit()
+
+        userinfo = {"sub": test_user.unity_id, "email": test_user.email, "name": test_user.name}
+        with pytest.raises(HTTPException) as exc:
+            await get_or_create_user(userinfo, test_db)
+        assert exc.value.status_code == 403
+
+    async def test_undeleted_user_not_blocked(self, test_db, test_user):
+        from app.auth import get_or_create_user
+        userinfo = {"sub": test_user.unity_id, "email": test_user.email, "name": test_user.name}
+        user = await get_or_create_user(userinfo, test_db)
+        assert user.id == test_user.id
+
+
+class TestAdminNoDemotionOnLogin:
+    """Security: login must not silently demote a manually-granted admin."""
+
+    async def test_manually_granted_admin_not_demoted_on_login(self, test_db, test_admin):
+        from app.auth import get_or_create_user
+        # test_admin is is_admin=True but NOT in admin_emails config.
+        # Logging in must not flip is_admin to False.
+        userinfo = {"sub": test_admin.unity_id, "email": test_admin.email, "name": test_admin.name}
+        user = await get_or_create_user(userinfo, test_db)
+        assert user.is_admin is True
+
+
+class TestLoginTimingEqualization:
+    """Security: local login must not leak whether an email exists via timing."""
+
+    async def test_unknown_user_still_rejects(self, test_db):
+        from app.auth import authenticate_local_user
+        result = await authenticate_local_user(
+            "ghost@example.com", "WrongPass1", test_db
+        )
+        assert result is None
+
+    async def test_known_user_wrong_password_rejects(self, test_db, test_admin):
+        from app.auth import authenticate_local_user, hash_password
+        test_admin.password_hash = hash_password("CorrectHorse9")
+        await test_db.commit()
+        result = await authenticate_local_user(
+            test_admin.email, "WrongPass1", test_db
+        )
+        assert result is None
+
+    async def test_known_user_correct_password_ok(self, test_db, test_admin):
+        from app.auth import authenticate_local_user, hash_password
+        test_admin.password_hash = hash_password("CorrectHorse9")
+        await test_db.commit()
+        result = await authenticate_local_user(
+            test_admin.email, "CorrectHorse9", test_db
+        )
+        assert result is not None
+        assert result.id == test_admin.id

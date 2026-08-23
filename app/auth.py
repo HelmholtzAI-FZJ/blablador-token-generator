@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from app.config import get_config
 from app.database import get_db
-from app.models import User, Token, RevokedJWT
+from app.models import User, Token, RevokedJWT, DeletedUser
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token", auto_error=False)
 config = get_config()
@@ -25,6 +25,10 @@ def hash_password(password: str) -> str:
 
 
 MIN_PASSWORD_LENGTH = 8
+
+# Precomputed bcrypt hash used so that password verification takes the same
+# amount of time for unknown users (anti user-enumeration timing attack).
+_DUMMY_HASH = "$2b$12$2dBl/Zl3eBe5sjpf7Wv7Z.IlSzv0e0Zc6m10oMkoh4K3qPGftIFI2"
 
 
 def validate_password_strength(password: str) -> None:
@@ -227,6 +231,20 @@ async def get_or_create_user(userinfo: dict, db: AsyncSession) -> User:
     email = userinfo.get("email", "")
     name = userinfo.get("name", userinfo.get("preferred_username", email))
 
+    # Tombstone check: a deleted account must not be resurrected
+    # by OAuth login until an admin re-creates it.
+    tombstone_q = select(DeletedUser).where(DeletedUser.email == email)
+    if unity_id:
+        tombstone_q = tombstone_q.union(
+            select(DeletedUser).where(DeletedUser.unity_id == unity_id)
+        )
+    tombstone = (await db.execute(tombstone_q)).scalar_one_or_none()
+    if tombstone:
+        raise HTTPException(
+            status_code=403,
+            detail="Account has been disabled. Contact an administrator.",
+        )
+
     # First try to find by unity_id
     result = await db.execute(select(User).where(User.unity_id == unity_id))
     user = result.scalar_one_or_none()
@@ -236,13 +254,14 @@ async def get_or_create_user(userinfo: dict, db: AsyncSession) -> User:
         result = await db.execute(select(User).where(User.email == email))
         user = result.scalar_one_or_none()
 
-    # Sync admin status from config on every login so that
-    # adding/removing emails in admin_emails takes effect for
-    # existing users, not just new ones.
-    is_admin = email in config.admin.admin_emails
+    # Promote admin status from config on every login so that
+    # adding emails to admin_emails takes effect for existing
+    # users. Never demote here — revocation is an explicit admin
+    # action that must not be silently undone at login.
+    in_admin_config = email in config.admin.admin_emails
 
     if user is None:
-        user = User(unity_id=unity_id, email=email, name=name, is_admin=is_admin)
+        user = User(unity_id=unity_id, email=email, name=name, is_admin=in_admin_config)
         db.add(user)
         try:
             await db.commit()
@@ -253,12 +272,9 @@ async def get_or_create_user(userinfo: dict, db: AsyncSession) -> User:
             result = await db.execute(select(User).where(User.email == email))
             user = result.scalar_one_or_none()
     else:
-        # Sync admin status from config on every login so that
-        # adding/removing emails in admin_emails takes effect for
-        # existing users, not just new ones.
         dirty = False
-        if user.is_admin != is_admin:
-            user.is_admin = is_admin
+        if in_admin_config and not user.is_admin:
+            user.is_admin = True
             dirty = True
         # Keep profile attributes up to date with the OAuth provider
         if user.name != name:
@@ -280,8 +296,9 @@ async def get_or_create_user(userinfo: dict, db: AsyncSession) -> User:
 async def authenticate_local_user(email: str, password: str, db: AsyncSession) -> User | None:
     result = await db.execute(select(User).where(User.email == email, User.password_hash.isnot(None)))
     user = result.scalar_one_or_none()
-    if not user or not user.password_hash:
-        return None
-    if not verify_password(password, user.password_hash):
+    stored_hash = user.password_hash if (user and user.password_hash) else _DUMMY_HASH
+    # Always run bcrypt so response timing doesn't reveal whether the
+    # email exists (prevents user enumeration via timing side-channel).
+    if not verify_password(password, stored_hash):
         return None
     return user

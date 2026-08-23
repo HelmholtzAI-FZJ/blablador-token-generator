@@ -6,7 +6,7 @@ from sqlalchemy import select, func
 from sqlalchemy.orm import joinedload
 from pydantic import BaseModel, Field
 from app.database import get_db
-from app.models import User, Token
+from app.models import User, Token, DeletedUser
 from app.auth import get_current_admin, hash_password, validate_password_strength
 from app.rate_limit import limiter
 
@@ -230,6 +230,14 @@ async def create_user(
 
     validate_password_strength(body.password)
 
+    # Explicit admin re-creation lifts the deletion tombstone,
+    # allowing the account back even if it was previously deleted.
+    tombstone = (
+        await db.execute(select(DeletedUser).where(DeletedUser.email == body.email))
+    ).scalar_one_or_none()
+    if tombstone:
+        await db.delete(tombstone)
+
     user = User(
         email=body.email,
         name=body.name,
@@ -334,6 +342,8 @@ async def delete_user(
             detail="Cannot delete the last remaining admin",
         )
 
+    # Tombstone so the account isn't resurrected by OAuth login
+    db.add(DeletedUser(unity_id=user.unity_id, email=user.email))
     await db.delete(user)
     try:
         await db.commit()
