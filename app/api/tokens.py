@@ -55,7 +55,10 @@ async def create_token(
     token_hash = hash_token(plain_token)
 
     if body.expires_at:
-        expires_at = datetime.fromisoformat(body.expires_at.replace("Z", "+00:00"))
+        try:
+            expires_at = datetime.fromisoformat(body.expires_at.replace("Z", "+00:00"))
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid expires_at format")
         if expires_at.tzinfo is not None:
             expires_at = expires_at.astimezone(timezone.utc).replace(tzinfo=None)
     elif body.expires_in_days:
