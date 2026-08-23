@@ -248,6 +248,36 @@ class TestAdminNoDemotionOnLogin:
         assert user.is_admin is True
 
 
+class TestLoginTimingEqualization:
+    """Security: local login must not leak whether an email exists via timing."""
+
+    async def test_unknown_user_still_rejects(self, test_db):
+        from app.auth import authenticate_local_user
+        result = await authenticate_local_user(
+            "ghost@example.com", "WrongPass1", test_db
+        )
+        assert result is None
+
+    async def test_known_user_wrong_password_rejects(self, test_db, test_admin):
+        from app.auth import authenticate_local_user, hash_password
+        test_admin.password_hash = hash_password("CorrectHorse9")
+        await test_db.commit()
+        result = await authenticate_local_user(
+            test_admin.email, "WrongPass1", test_db
+        )
+        assert result is None
+
+    async def test_known_user_correct_password_ok(self, test_db, test_admin):
+        from app.auth import authenticate_local_user, hash_password
+        test_admin.password_hash = hash_password("CorrectHorse9")
+        await test_db.commit()
+        result = await authenticate_local_user(
+            test_admin.email, "CorrectHorse9", test_db
+        )
+        assert result is not None
+        assert result.id == test_admin.id
+
+
 class TestAccountDeletion:
     """Security: users can delete their own account, which revokes all tokens."""
 
