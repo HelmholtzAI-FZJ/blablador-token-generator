@@ -88,7 +88,7 @@
         <div class="header-right">
             <span>{{ user.name }} ({{ user.email }})</span>
             <a href="/dashboard" style="color: #f39c12; font-weight: bold;">Dashboard</a>
-            <a href="/logout" style="color: white; text-decoration: none; cursor: pointer;">Logout</a>
+            <a href="/logout" onclick="event.preventDefault(); fetch('/logout',{method:'POST',headers:{'X-CSRF-Token':(document.cookie.match(/csrf_token=([^;]+)/)||[])[1]||''}}).then(()=>window.location.href='/');" style="color: white; text-decoration: none; cursor: pointer;">Logout</a>
         </div>
     </header>
     

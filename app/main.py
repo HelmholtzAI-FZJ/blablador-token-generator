@@ -3,7 +3,7 @@ from urllib.parse import urlencode
 import secrets as _secrets
 from secrets import compare_digest
 from fastapi import FastAPI, Request, Depends, HTTPException, Form
-from fastapi.responses import RedirectResponse, HTMLResponse
+from fastapi.responses import RedirectResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from slowapi import _rate_limit_exceeded_handler
@@ -285,7 +285,7 @@ async def admin_tokens(
     )
 
 
-@app.get("/logout")
+@app.post("/logout")
 @limiter.limit("10/minute")
 async def logout(request: Request, db: AsyncSession = Depends(get_db)):
     # Revoke the JWT so it can't be replayed after logout
@@ -297,7 +297,7 @@ async def logout(request: Request, db: AsyncSession = Depends(get_db)):
         except HTTPException:
             pass  # Token is invalid, proceed with logout anyway
 
-    response = RedirectResponse(url="/")
+    response = JSONResponse(status_code=200, content={"detail": "Logged out"})
     response.delete_cookie("access_token")
     return response
 

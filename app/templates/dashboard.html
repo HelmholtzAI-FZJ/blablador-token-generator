@@ -96,7 +96,7 @@
             {% if user.is_admin %}
             <a href="/admin/tokens" style="color: #f39c12; font-weight: bold;">Admin Panel</a>
             {% endif %}
-            <a href="/logout" style="color: white; text-decoration: none; cursor: pointer;">Logout</a>
+            <a href="/logout" onclick="event.preventDefault(); fetch('/logout',{method:'POST',headers:{'X-CSRF-Token':(document.cookie.match(/csrf_token=([^;]+)/)||[])[1]||''}}).then(()=>window.location.href='/');" style="color: white; text-decoration: none; cursor: pointer;">Logout</a>
         </div>
     </header>
     
