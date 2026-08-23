@@ -205,7 +205,10 @@ async def renew_token(
         original_duration = timedelta(days=config.tokens.default_expiration_days)
 
     if body and body.expires_at:
-        new_expires_at = datetime.fromisoformat(body.expires_at.replace("Z", "+00:00"))
+        try:
+            new_expires_at = datetime.fromisoformat(body.expires_at.replace("Z", "+00:00"))
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid expires_at format")
         if new_expires_at.tzinfo is not None:
             new_expires_at = new_expires_at.astimezone(timezone.utc).replace(tzinfo=None)
     elif body and body.expires_in_days:
