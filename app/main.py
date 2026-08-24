@@ -166,7 +166,7 @@ async def login(request: Request):
         key="oauth_state",
         value=state,
         httponly=True,
-        samesite="strict",
+        samesite="lax",
         secure=config.app.secure_cookies,
         path="/",
         max_age=300  # 5 minutes
