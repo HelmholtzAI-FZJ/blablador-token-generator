@@ -90,7 +90,7 @@ async def csrf_middleware(request: Request, call_next):
                 key="csrf_token",
                 value=_secrets.token_hex(32),
                 httponly=False,
-                samesite="strict",
+                samesite="lax",
                 secure=config.app.secure_cookies,
                 path="/",
             )
@@ -197,7 +197,7 @@ async def openid_callback(request: Request, code: str | None = None, state: str 
         key="access_token",
         value=access_token,
         httponly=True,
-        samesite="strict",
+        samesite="lax",
         secure=config.app.secure_cookies,
         path="/",
         max_age=config.app.jwt_expiration_hours * 3600
@@ -415,7 +415,7 @@ async def login_local(
         key="access_token",
         value=access_token,
         httponly=True,
-        samesite="strict",
+        samesite="lax",
         secure=config.app.secure_cookies,
         path="/",
         max_age=config.app.jwt_expiration_hours * 3600
