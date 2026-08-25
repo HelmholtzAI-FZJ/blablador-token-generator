@@ -284,7 +284,9 @@
                         <td>${user.is_admin ? 'Yes' : 'No'}</td>
                         <td>${new Date(user.created_at).toLocaleString()}</td>
                         <td>
-                            <button class="btn btn-small" onclick="resetPassword('${user.id}')">Reset Password</button>
+                            ${user.has_password
+                                ? `<button class="btn btn-small" onclick="openPasswordModal('${user.id}')">Reset Password</button>`
+                                : ''}
                             <button class="btn btn-small btn-danger" onclick="deleteUser('${user.id}', '${escapeHtml(user.email)}')">Delete</button>
                         </td>
                     </tr>
@@ -317,21 +319,21 @@
                     alert('Failed to create user: ' + (error.detail || 'Unknown error'));
                 }
             } catch (e) {
-                alert('Failed to create user');
+                alert('Failed to create user: ' + e.message);
             }
         });
         
         async function resetPassword(userId) {
             const newPassword = prompt('Enter new password:');
             if (!newPassword) return;
-            
+
             try {
                 const response = await fetch(`/admin/users/${userId}`, {
                     method: 'PATCH',
                     headers: csrfHeaders({'Content-Type': 'application/json'}),
                     body: JSON.stringify({password: newPassword})
                 });
-                
+
                 if (response.ok) {
                     alert('Password reset successfully');
                     loadUsers();
@@ -340,6 +342,61 @@
                 }
             } catch (e) {
                 alert('Failed to reset password');
+            }
+        }
+        
+        // Password reset modal: hidden input with eye-icon toggle
+        let _passwordModalUserId = null;
+        
+        function openPasswordModal(userId) {
+            _passwordModalUserId = userId;
+            document.getElementById('passwordModal').style.display = 'block';
+            const input = document.getElementById('newPasswordInput');
+            input.value = '';
+            setTimeout(() => input.focus(), 50);
+        }
+        
+        function closePasswordModal() {
+            document.getElementById('passwordModal').style.display = 'none';
+            _passwordModalUserId = null;
+        }
+        
+        function togglePasswordVisibility() {
+            const input = document.getElementById('newPasswordInput');
+            const eye = document.getElementById('passwordEye');
+            if (input.type === 'password') {
+                input.type = 'text';
+                eye.textContent = '🙈';
+            } else {
+                input.type = 'password';
+                eye.textContent = '👁';
+            }
+        }
+        
+        async function submitPasswordReset() {
+            if (!_passwordModalUserId) return;
+            const newPassword = document.getElementById('newPasswordInput').value;
+            if (!newPassword) {
+                alert('Please enter a new password');
+                return;
+            }
+
+            try {
+                const response = await fetch(`/admin/users/${_passwordModalUserId}`, {
+                    method: 'PATCH',
+                    headers: csrfHeaders({'Content-Type': 'application/json'}),
+                    body: JSON.stringify({password: newPassword})
+                });
+
+                if (response.ok) {
+                    closePasswordModal();
+                    loadUsers();
+                } else {
+                    const error = await response.json();
+                    alert('Failed to reset password: ' + (error.detail || 'Unknown error'));
+                }
+            } catch (e) {
+                alert('Failed to reset password: ' + e.message);
             }
         }
         
@@ -409,5 +466,23 @@
             }
         }
     </script>
+
+    <!-- Password reset modal -->
+    <div id="passwordModal" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.5); z-index:1000; justify-content:center; align-items:center;">
+        <div class="card" style="max-width:400px; margin:0 auto;">
+            <h2>Reset Password</h2>
+            <div class="form-group">
+                <label for="newPasswordInput">New Password</label>
+                <div style="display:flex; align-items:center; gap:0.5rem;">
+                    <input type="password" id="newPasswordInput" style="flex:1; padding:0.5rem; border:1px solid #ddd; border-radius:4px;" onkeydown="if(event.key==='Enter') submitPasswordReset()">
+                    <span id="passwordEye" onclick="togglePasswordVisibility()" style="cursor:pointer; font-size:1.5rem;">👁</span>
+                </div>
+            </div>
+            <div style="display:flex; gap:0.5rem; margin-top:1rem;">
+                <button class="btn btn-success" onclick="submitPasswordReset()">Reset</button>
+                <button class="btn" style="background:#95a5a6;" onclick="closePasswordModal()">Cancel</button>
+            </div>
+        </div>
+    </div>
 </body>
 </html>

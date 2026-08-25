@@ -47,6 +47,7 @@ class UserResponse(BaseModel):
     is_admin: bool
     created_at: str
     unity_id: str | None = None
+    has_password: bool = False
 
 
 class CreateUserRequest(BaseModel):
@@ -209,6 +210,7 @@ async def list_users(
             is_admin=u.is_admin,
             created_at=u.created_at.isoformat(),
             unity_id=u.unity_id,
+            has_password=u.password_hash is not None,
         )
         for u in users
     ]
@@ -267,6 +269,7 @@ async def create_user(
         is_admin=user.is_admin,
         created_at=user.created_at.isoformat(),
         unity_id=user.unity_id,
+        has_password=user.password_hash is not None,
     )
 
 
@@ -317,6 +320,7 @@ async def update_user(
         is_admin=user.is_admin,
         created_at=user.created_at.isoformat(),
         unity_id=user.unity_id,
+        has_password=user.password_hash is not None,
     )
 
 

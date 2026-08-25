@@ -362,3 +362,22 @@ class TestValidateDeletedAccount:
         import inspect
         source = inspect.getsource(validate_token)
         assert "DeletedUser" in source, "validate_token must check DeletedUser"
+
+
+class TestHasPasswordField:
+    """Security: UserResponse must expose has_password so the frontend
+    can hide the 'Reset Password' button for OAuth-only users."""
+
+    def test_user_response_has_password_field(self):
+        from app.api.admin import UserResponse
+        fields = UserResponse.model_fields
+        assert "has_password" in fields, "UserResponse must include has_password"
+
+    async def test_has_password_true_for_local_user(self, test_db, test_user):
+        from app.auth import hash_password
+        test_user.password_hash = hash_password("SomePassword1")
+        await test_db.commit()
+        assert test_user.password_hash is not None
+
+    async def test_has_password_false_for_oauth_user(self, test_db, test_user):
+        assert test_user.password_hash is None
