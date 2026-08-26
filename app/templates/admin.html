@@ -392,8 +392,16 @@
                     closePasswordModal();
                     loadUsers();
                 } else {
-                    const error = await response.json();
-                    alert('Failed to reset password: ' + (error.detail || 'Unknown error'));
+                    let msg = 'Unknown error';
+                    try {
+                        const error = await response.json();
+                        if (typeof error.detail === 'string') {
+                            msg = error.detail;
+                        } else if (Array.isArray(error.detail)) {
+                            msg = error.detail.map(e => e.msg || JSON.stringify(e)).join('; ');
+                        }
+                    } catch (e) {}
+                    alert('Failed to reset password: ' + msg);
                 }
             } catch (e) {
                 alert('Failed to reset password: ' + e.message);
