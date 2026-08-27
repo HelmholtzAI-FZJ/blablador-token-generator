@@ -372,10 +372,16 @@ async def delete_my_account(
 async def login_local_form(request: Request):
     if not config.local.enabled:
         raise HTTPException(status_code=404, detail="Local login disabled")
+    # Use the cookie value if the browser already has one; otherwise generate
+    # one now so the form hidden field matches the cookie that the CSRF
+    # middleware will set on the response.
+    csrf_value = request.cookies.get("csrf_token")
+    if not csrf_value:
+        csrf_value = _secrets.token_hex(32)
     return templates.TemplateResponse("login_local.html", {
         "request": request,
         "app_name": config.app.name,
-        "csrf_token": request.cookies.get("csrf_token", ""),
+        "csrf_token": csrf_value,
         "error": None
     })
 
