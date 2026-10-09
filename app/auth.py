@@ -75,17 +75,30 @@ def validate_password_strength(password: str) -> None:
 
 
 def hash_token(token: str) -> str:
-    """HMAC-SHA256 of the token using the app secret key.
+    """HMAC-SHA256 of the token keyed with token_hash_key.
 
     A keyed hash prevents offline cracking of token hashes if the database
     is compromised, since the key is not in the DB.
     """
+    return _hmac_sha256(config.app.token_hash_key, token)
+
+
+def legacy_hash_token(token: str) -> str:
+    """Hash used before token_hash_key existed (keyed with secret_key)."""
+    return _hmac_sha256(config.app.secret_key, token)
+
+
+def token_hash_candidates(token: str) -> list[str]:
+    """Hashes a stored token may have, current scheme first."""
+    hashes = [hash_token(token)]
+    if config.app.legacy_token_hash_fallback:
+        hashes.append(legacy_hash_token(token))
+    return hashes
+
+
+def _hmac_sha256(key: str, token: str) -> str:
     import hmac
-    return hmac.new(
-        config.app.secret_key.encode(),
-        token.encode(),
-        hashlib.sha256,
-    ).hexdigest()
+    return hmac.new(key.encode(), token.encode(), hashlib.sha256).hexdigest()
 
 
 def generate_token() -> str:

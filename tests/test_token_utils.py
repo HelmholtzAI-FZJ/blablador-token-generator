@@ -30,7 +30,7 @@ class TestTokenUtils:
         token = "test_token_value"
         config = get_config()
         expected = hmac.new(
-            config.app.secret_key.encode(),
+            config.app.token_hash_key.encode(),
             token.encode(),
             hashlib.sha256,
         ).hexdigest()

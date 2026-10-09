@@ -1,3 +1,7 @@
+import os
+
+os.environ.setdefault("TOKEN_HASH_KEY", "test-token-hash-key-" + "0" * 32)
+
 import pytest
 import asyncio
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
