@@ -1,8 +1,11 @@
 import os
 from pathlib import Path
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 from app.config import get_config
 from app.models import Base
+
+SCHEMA_LOCK_KEY = 7_316_201
 
 engine = None
 async_session_maker = None
@@ -11,10 +14,15 @@ async_session_maker = None
 async def init_db():
     global engine, async_session_maker
     config = get_config()
-    engine = create_async_engine(config.database.url, echo=config.app.debug)
+    engine = create_async_engine(
+        config.database.url, echo=config.app.debug, pool_pre_ping=True
+    )
     async_session_maker = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
     async with engine.begin() as conn:
+        # Several workers/pods start at once; serialize schema creation.
+        if engine.dialect.name == "postgresql":
+            await conn.execute(text("SELECT pg_advisory_xact_lock(:key)"), {"key": SCHEMA_LOCK_KEY})
         await conn.run_sync(Base.metadata.create_all)
 
     # Restrict SQLite database file permissions to owner-only (600)

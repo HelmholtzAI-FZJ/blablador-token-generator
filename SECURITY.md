@@ -64,6 +64,9 @@ Last full audit: 2026-10-09. All fixes are committed individually on `main`.
   provider sends `email_verified: true` (or `oauth.trust_provider_emails` is
   set); `admin_subjects` promotes by OAuth subject and is preferred.
 - **Container**: non-root user, locked + hash-verified dependencies.
+- **Deployment**: Helm ships PostgreSQL (required for >1 replica; the chart
+  refuses SQLite with more replicas) and a password-protected Redis for
+  rate-limit counters, both non-root with read-only root filesystems.
 - **Input bounds**: bearer token capped at 256 chars (header + body);
   admin search capped at 128; `expires_at` parsed with error handling (400, not 500).
 - **Token storage**: HMAC-SHA256 keyed with `token_hash_key`, separate from the
@@ -88,11 +91,9 @@ Last full audit: 2026-10-09. All fixes are committed individually on `main`.
   so stale token usage is detectable.
 - **Secrets**: never logged; DB file chmod 600 (SQLite); env override for secrets.
 
-## Open items (2026-10-09 audit)
+## Open items
 
-- SQLite on a `ReadWriteOnce` PVC with `replicaCount: 2`: the second pod cannot
-  mount the volume on another node, and concurrent writers will hit locks. Use
-  PostgreSQL or a single replica.
+None from the 2026-10-09 audit.
 
 ## Testing
 

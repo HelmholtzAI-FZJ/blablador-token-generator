@@ -189,6 +189,11 @@ cd helm/blablador-token-generator
 
 # Option 1: Set values via command line
 helm install token-generator . \
+  --set config.app.secret_key=$(openssl rand -hex 32) \
+  --set config.app.token_hash_key=$(openssl rand -hex 32) \
+  --set postgresql.password=$(openssl rand -hex 32) \
+  --set redis.password=$(openssl rand -hex 32) \
+  --set forwardedAllowIps=<ingress-controller-pod-cidr> \
   --set config.oauth.client_id=your-client-id \
   --set config.oauth.client_secret=your-secret \
   --set config.oauth.redirect_uri=https://your-domain/oauth/openid/callback \
