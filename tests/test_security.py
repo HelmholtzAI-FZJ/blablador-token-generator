@@ -838,3 +838,41 @@ class TestNonAsciiSecrets:
         client.cookies.set("csrf_token", "abc")
         r = client.post("/login/local", data={"email": "a@b.c", "password": "x", "csrf_token": "é"})
         assert r.status_code == 403
+
+
+class TestPkce:
+    """The OAuth flow uses PKCE (S256)."""
+
+    def test_challenge_matches_rfc7636_vector(self):
+        from app.auth import pkce_challenge
+        assert pkce_challenge("dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk") == \
+            "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM"
+
+    def test_login_sends_challenge_for_stored_verifier(self):
+        from urllib.parse import parse_qs, urlparse
+        from app.auth import pkce_challenge
+        client = TestClient(app, follow_redirects=False)
+        r = client.get("/login")
+        params = parse_qs(urlparse(r.headers["location"]).query)
+        verifier = r.cookies.get("oauth_verifier")
+        assert verifier and 43 <= len(verifier) <= 128
+        assert params["code_challenge_method"] == ["S256"]
+        assert params["code_challenge"] == [pkce_challenge(verifier)]
+
+    def test_callback_exchanges_code_with_verifier(self, monkeypatch):
+        import app.main as main
+        seen = {}
+
+        async def fake_userinfo(code, code_verifier):
+            seen["code"], seen["verifier"] = code, code_verifier
+            return {"sub": "pkce-sub", "email": "pkce@example.com", "name": "P"}
+
+        monkeypatch.setattr(main, "get_unity_userinfo", fake_userinfo)
+        with TestClient(app, follow_redirects=False) as client:
+            client.cookies.set("oauth_state", "s")
+            r = client.get("/oauth/openid/callback", params={"state": "s", "code": "c"})
+            assert r.status_code == 400, "missing verifier must be rejected"
+            client.cookies.set("oauth_verifier", "v" * 43)
+            r = client.get("/oauth/openid/callback", params={"state": "s", "code": "c"})
+            assert r.status_code == 303
+        assert seen == {"code": "c", "verifier": "v" * 43}

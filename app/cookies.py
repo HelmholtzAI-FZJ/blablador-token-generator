@@ -18,6 +18,7 @@ def cookie_name(base: str) -> str:
 SESSION_COOKIE = cookie_name("access_token")
 CSRF_COOKIE = cookie_name("csrf_token")
 OAUTH_STATE_COOKIE = cookie_name("oauth_state")
+OAUTH_VERIFIER_COOKIE = cookie_name("oauth_verifier")
 
 
 def set_cookie(response: Response, name: str, value: str, max_age: int | None = None) -> None:

@@ -18,7 +18,7 @@ from app.models import User, Token, DeletedUser
 from app.auth import (
     get_current_user, get_current_admin,
     get_or_create_user, get_unity_userinfo, create_session_token,
-    hash_token, authenticate_local_user,
+    hash_token, authenticate_local_user, new_pkce_verifier, pkce_challenge,
     decode_access_token, revoke_jwt,
 )
 from app.api import tokens, validate, admin
@@ -26,7 +26,8 @@ from app.rate_limit import limiter, RATE_LIMITS, user_or_ip
 from app.logging_config import configure_logging
 from app.body_limit import BodySizeLimitMiddleware
 from app.cookies import (
-    CSRF_COOKIE, OAUTH_STATE_COOKIE, SESSION_COOKIE, delete_cookie, set_cookie,
+    CSRF_COOKIE, OAUTH_STATE_COOKIE, OAUTH_VERIFIER_COOKIE, SESSION_COOKIE,
+    delete_cookie, set_cookie,
 )
 
 config = get_config()
@@ -158,13 +159,15 @@ async def security_headers_middleware(request: Request, call_next):
 app.add_middleware(BodySizeLimitMiddleware, max_bytes=config.app.max_body_bytes)
 
 
-def get_oauth_login_url(state: str) -> str:
+def get_oauth_login_url(state: str, code_challenge: str) -> str:
     params = {
         "response_type": "code",
         "client_id": config.oauth.client_id,
         "redirect_uri": config.oauth.redirect_uri,
         "scope": " ".join(config.oauth.scopes),
         "state": state,
+        "code_challenge": code_challenge,
+        "code_challenge_method": "S256",
     }
     return f"{config.oauth.authorize_url}?{urlencode(params)}"
 
@@ -188,10 +191,13 @@ async def home(request: Request):
 @app.get("/login")
 @limiter.limit(RATE_LIMITS.pages)
 async def login(request: Request):
-    # Generate a random state and store it in a short-lived cookie
+    # Random state (login CSRF) and PKCE verifier (code interception), both
+    # kept in short-lived cookies until the callback.
     state = _secrets.token_hex(16)
-    response = RedirectResponse(get_oauth_login_url(state))
+    verifier = new_pkce_verifier()
+    response = RedirectResponse(get_oauth_login_url(state, pkce_challenge(verifier)))
     set_cookie(response, OAUTH_STATE_COOKIE, state, max_age=300)
+    set_cookie(response, OAUTH_VERIFIER_COOKIE, verifier, max_age=300)
     return response
 
 
@@ -203,13 +209,14 @@ async def openid_callback(request: Request, code: str | None = None, state: str 
 
     # Verify OAuth state to prevent login CSRF
     cookie_state = request.cookies.get(OAUTH_STATE_COOKIE)
-    if not state or not cookie_state or not secure_equals(state, cookie_state):
+    verifier = request.cookies.get(OAUTH_VERIFIER_COOKIE)
+    if not state or not cookie_state or not verifier or not secure_equals(state, cookie_state):
         raise HTTPException(status_code=400, detail="Invalid OAuth state")
 
     if not code:
         return {"detail": "No authorization code provided"}
 
-    userinfo = await get_unity_userinfo(code)
+    userinfo = await get_unity_userinfo(code, verifier)
     user = await get_or_create_user(userinfo, db)
     _audit.info("user=%s action=login method=oauth", user.id)
 
@@ -217,6 +224,7 @@ async def openid_callback(request: Request, code: str | None = None, state: str 
     set_cookie(response, SESSION_COOKIE, create_session_token(user),
                max_age=config.app.jwt_expiration_hours * 3600)
     delete_cookie(response, OAUTH_STATE_COOKIE)
+    delete_cookie(response, OAUTH_VERIFIER_COOKIE)
     return response
 
 
