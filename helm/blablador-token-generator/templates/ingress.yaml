@@ -33,7 +33,7 @@ spec:
             pathType: {{ .pathType | default "Prefix" }}
             backend:
               service:
-                name: {{ $.Release.Name }}
+                name: {{ include "blablador-token-generator.fullname" $ }}
                 port:
                   number: {{ $.Values.service.port }}
           {{- end }}
