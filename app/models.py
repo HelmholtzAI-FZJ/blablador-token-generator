@@ -75,12 +75,13 @@ class DeletedUser(Base):
     OAuth login recreates users from provider data, so a plain row
     deletion would silently resurrect the account on next login.
     This table records deletion so re-login is blocked until an
-    admin explicitly re-creates the user.
+    admin explicitly re-creates the user. It holds keyed hashes of the
+    subject and email only (see app/tombstones.py).
     """
 
     __tablename__ = "deleted_users"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
-    unity_id: Mapped[str | None] = mapped_column(String(255), index=True, nullable=True)
-    email: Mapped[str] = mapped_column(String(255), index=True)
+    unity_id_hash: Mapped[str | None] = mapped_column(String(64), index=True, nullable=True)
+    email_hash: Mapped[str] = mapped_column(String(64), index=True)
     deleted_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
