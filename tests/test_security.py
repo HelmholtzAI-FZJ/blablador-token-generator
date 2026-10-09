@@ -91,6 +91,19 @@ class TestCsrfProtection:
                         headers={"X-CSRF-Token": "wrong-token"})
         assert r.status_code == 403
 
+    def test_form_post_without_csrf_rejected(self):
+        """Cross-site HTML forms must not bypass CSRF on cookie endpoints."""
+        client = TestClient(app)
+        for path in ("/account/delete", "/logout", "/tokens/x/renew"):
+            r = client.post(path, data={"a": "b"})
+            assert r.status_code == 403, path
+
+    def test_bearer_header_does_not_bypass_csrf_outside_api(self):
+        """A dummy Bearer header must not skip CSRF on cookie endpoints."""
+        client = TestClient(app)
+        r = client.post("/account/delete", headers={"Authorization": "Bearer x"})
+        assert r.status_code == 403
+
 
 class TestSecurityHeaders:
     """Medium fix 1: Add security headers middleware."""

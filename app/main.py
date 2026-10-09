@@ -71,6 +71,8 @@ templates.env.globals['now'] = datetime.utcnow
 # State-changing requests must send the cookie value in the X-CSRF-Token
 # header (fetch API) or as a "csrf_token" form field (plain HTML forms).
 SAFE_METHODS = {"GET", "HEAD", "OPTIONS", "TRACE"}
+FORM_CSRF_PATHS = {"/login/local"}
+BEARER_PATH_PREFIX = "/api/v1/"
 
 
 @app.middleware("http")
@@ -79,7 +81,7 @@ async def csrf_middleware(request: Request, call_next):
     # explicitly supplied by the client, not auto-sent by the browser
     # like a cookie.  Skip the CSRF check for these requests.
     authorization = request.headers.get("authorization", "")
-    if authorization.startswith("Bearer "):
+    if authorization.startswith("Bearer ") and request.url.path.startswith(BEARER_PATH_PREFIX):
         return await call_next(request)
 
     if request.method in SAFE_METHODS:
@@ -102,17 +104,15 @@ async def csrf_middleware(request: Request, call_next):
 
     if header_token:
         # Fetch API: header must match cookie
-        if not cookie_token or cookie_token != header_token:
+        if not cookie_token or not compare_digest(cookie_token, header_token):
             return JSONResponse(
                 status_code=403,
                 content={"detail": "CSRF token missing or invalid"}
             )
     else:
-        # No header token: allow form submissions through (they carry
-        # csrf_token as a hidden field validated at the endpoint level),
-        # reject everything else.
-        content_type = request.headers.get("content-type", "")
-        if "application/x-www-form-urlencoded" not in content_type:
+        # No header token: only endpoints that validate a csrf_token form
+        # field themselves may accept plain form submissions.
+        if request.url.path not in FORM_CSRF_PATHS:
             return JSONResponse(
                 status_code=403,
                 content={"detail": "CSRF token missing or invalid"}
