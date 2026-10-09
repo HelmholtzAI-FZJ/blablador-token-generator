@@ -71,7 +71,7 @@ templates.env.globals['now'] = datetime.utcnow
 # State-changing requests must send the cookie value in the X-CSRF-Token
 # header (fetch API) or as a "csrf_token" form field (plain HTML forms).
 SAFE_METHODS = {"GET", "HEAD", "OPTIONS", "TRACE"}
-FORM_CSRF_PATHS = {"/login/local"}
+FORM_CSRF_PATHS = {"/login/local", "/admin/tokens/search"}
 BEARER_PATH_PREFIX = "/api/v1/"
 
 
@@ -247,59 +247,62 @@ async def dashboard(
     )
 
 
+def form_csrf_valid(request: Request, submitted: str) -> bool:
+    """Check a csrf_token form field against the cookie (for FORM_CSRF_PATHS)."""
+    cookie_token = request.cookies.get("csrf_token")
+    return bool(cookie_token) and compare_digest(submitted, cookie_token)
+
+
+def render_admin_tokens(request: Request, admin: User, tokens: list[Token], searched: bool):
+    return templates.TemplateResponse(request, "admin.html", {
+        "app_name": config.app.name,
+        "user": admin,
+        "tokens_with_users": [{"token": t, "user": t.user} for t in tokens],
+        "searched": searched,
+        "csrf_token": request.state.csrf_token,
+        "login_name": config.login.name,
+    })
+
+
 @app.get("/admin/tokens", response_class=HTMLResponse)
 @limiter.limit(RATE_LIMITS.admin, key_func=user_or_ip)
 async def admin_tokens(
     request: Request,
-    search: str | None = None,
     page: int = Query(1, ge=1),
     admin: User = Depends(get_current_admin),
     db: AsyncSession = Depends(get_db)
 ):
-    # Cap search length to prevent abuse
-    if search and len(search) > 128:
-        search = search[:128]
-
-    tokens_with_users = []
-
-    if search:
-        search_hash = hash_token(search)
-        result = await db.execute(
-            select(Token)
-            .options(joinedload(Token.user))
-            .where(Token.token_hash == search_hash)
-        )
-        token = result.scalar_one_or_none()
-        if token:
-            tokens_with_users.append({
-                "token": token,
-                "user": token.user
-            })
-    else:
-        page_size = 100
-        offset = (page - 1) * page_size
-        result = await db.execute(
-            select(Token)
-            .options(joinedload(Token.user))
-            .order_by(Token.created_at.desc())
-            .offset(offset)
-            .limit(page_size)
-        )
-        tokens = result.scalars().all()
-        for t in tokens:
-            tokens_with_users.append({
-                "token": t,
-                "user": t.user
-            })
-
-    return templates.TemplateResponse(request, "admin.html", {
-        "app_name": config.app.name,
-            "user": admin,
-            "tokens_with_users": tokens_with_users,
-            "search": search or "",
-            "login_name": config.login.name
-        }
+    page_size = 100
+    result = await db.execute(
+        select(Token)
+        .options(joinedload(Token.user))
+        .order_by(Token.created_at.desc())
+        .offset((page - 1) * page_size)
+        .limit(page_size)
     )
+    return render_admin_tokens(request, admin, list(result.scalars().all()), searched=False)
+
+
+@app.post("/admin/tokens/search", response_class=HTMLResponse)
+@limiter.limit(RATE_LIMITS.admin, key_func=user_or_ip)
+async def admin_token_search(
+    request: Request,
+    token: str = Form(..., max_length=256),
+    csrf_token: str = Form(...),
+    admin: User = Depends(get_current_admin),
+    db: AsyncSession = Depends(get_db)
+):
+    # A POST body keeps the plaintext token out of URLs, access logs,
+    # proxy logs and browser history.
+    if not form_csrf_valid(request, csrf_token):
+        raise HTTPException(status_code=403, detail="Invalid CSRF token")
+    result = await db.execute(
+        select(Token)
+        .options(joinedload(Token.user))
+        .where(Token.token_hash == hash_token(token.strip()))
+    )
+    found = result.scalar_one_or_none()
+    return render_admin_tokens(request, admin, [found] if found else [], searched=True)
 
 
 @app.post("/logout")
@@ -396,9 +399,7 @@ async def login_local(
     if not config.local.enabled:
         raise HTTPException(status_code=404, detail="Local login disabled")
 
-    # Validate CSRF token: form field must match cookie value
-    cookie_csrf = request.cookies.get("csrf_token")
-    if not cookie_csrf or not compare_digest(csrf_token, cookie_csrf):
+    if not form_csrf_valid(request, csrf_token):
         return templates.TemplateResponse(request, "login_local.html", {
             "app_name": config.app.name,
             "csrf_token": request.state.csrf_token,
