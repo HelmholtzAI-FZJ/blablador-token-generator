@@ -635,3 +635,27 @@ class TestAdminTokenRoutes:
             ids = {t["id"] for t in listing.json()}
             assert kept_id in ids and revoked_id not in ids
             assert client.get("/admin/tokens", params={"page": 0}).status_code == 422
+
+
+class TestRateLimitStorageOutage:
+    """An unreachable Redis must not turn every request into a 500."""
+
+    def test_limits_fall_back_to_memory(self):
+        from fastapi import FastAPI
+        from slowapi import _rate_limit_exceeded_handler
+        from slowapi.errors import RateLimitExceeded
+        from app.rate_limit import build_limiter
+
+        unreachable = build_limiter("redis://127.0.0.1:1/0")
+        mini = FastAPI()
+        mini.state.limiter = unreachable
+        mini.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+        @mini.get("/limited")
+        @unreachable.limit("3/minute")
+        async def limited(request: Request):
+            return {"ok": True}
+
+        client = TestClient(mini)
+        statuses = [client.get("/limited").status_code for _ in range(4)]
+        assert statuses == [200, 200, 200, 429]
