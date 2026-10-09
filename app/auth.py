@@ -3,7 +3,7 @@ import secrets
 import bcrypt
 import httpx
 from datetime import datetime, timedelta
-from jose import jwt, JWTError
+import jwt
 from fastapi import HTTPException, status, Depends, Request, Form
 from fastapi.responses import RedirectResponse
 from fastapi.security import OAuth2PasswordBearer
@@ -107,8 +107,11 @@ def create_access_token(data: dict, expires_delta: timedelta | None = None) -> s
 
 def decode_access_token(token: str) -> dict:
     try:
-        return jwt.decode(token, config.app.secret_key, algorithms=["HS256"])
-    except JWTError:
+        return jwt.decode(
+            token, config.app.secret_key, algorithms=["HS256"],
+            options={"require": ["exp", "sub"]},
+        )
+    except jwt.PyJWTError:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid token",
