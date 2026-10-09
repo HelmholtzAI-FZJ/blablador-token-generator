@@ -140,11 +140,10 @@ async def security_headers_middleware(request: Request, call_next):
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["X-Frame-Options"] = "DENY"
     response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
-    # Templates rely on inline scripts/handlers, so 'unsafe-inline' is still
-    # required; the remaining directives block external script/style loads,
-    # plugins, <base> hijacking, framing and off-site form posts.
+    # Scripts only from our own static files (no inline scripts or event
+    # handlers), so injected markup cannot run code. Inline styles remain.
     response.headers["Content-Security-Policy"] = (
-        "default-src 'self'; script-src 'self' 'unsafe-inline'; "
+        "default-src 'self'; script-src 'self'; "
         "style-src 'self' 'unsafe-inline'; img-src 'self' data:; "
         "object-src 'none'; base-uri 'none'; frame-ancestors 'none'; "
         "form-action 'self'"
@@ -153,8 +152,10 @@ async def security_headers_middleware(request: Request, call_next):
         "max-age=31536000; includeSubDomains"
     )
     # Pages show account data and API responses can carry a new token in
-    # plain text: never let browsers or proxies store them.
-    response.headers.setdefault("Cache-Control", "no-store")
+    # plain text: never let browsers or proxies store them. Static scripts
+    # may be cached but are revalidated on every use.
+    cache = "no-cache" if request.url.path.startswith("/static/") else "no-store"
+    response.headers.setdefault("Cache-Control", cache)
     return response
 
 
@@ -430,6 +431,8 @@ async def login_local(
                max_age=config.app.jwt_expiration_hours * 3600)
     return response
 
+
+app.mount("/static", StaticFiles(directory="app/static"), name="static")
 
 # Register API routers
 app.include_router(tokens.router)

@@ -187,7 +187,7 @@ class TestXssMitigation:
     def test_admin_page_xss_sanitized(self):
         """admin.html template must escape user.name via escapeHtml."""
         # Check the escapeHtml function exists in the template
-        with open("app/templates/admin.html") as f:
+        with open("app/static/admin.js") as f:
             content = f.read()
         assert "escapeHtml(user.email)" in content
         assert "escapeHtml(user.name)" in content
@@ -1015,3 +1015,22 @@ class TestRevokedSessionPurge:
         await revoke_jwt(payload, test_db)
         jtis = set((await test_db.execute(select(RevokedJWT.jti))).scalars().all())
         assert jtis == {payload["jti"]}
+
+
+class TestStrictCsp:
+    """script-src 'self' only works while no inline scripts or handlers exist."""
+
+    def test_csp_forbids_inline_scripts(self):
+        csp = TestClient(app).get("/").headers["content-security-policy"]
+        script_src = next(d for d in csp.split(";") if d.strip().startswith("script-src"))
+        assert "'unsafe-inline'" not in script_src and "'unsafe-eval'" not in script_src
+
+    def test_no_inline_scripts_or_handlers(self):
+        import re
+        from pathlib import Path
+        handler = re.compile(r"\son[a-z]+\s*=", re.I)
+        inline_script = re.compile(r"<script(?![^>]*\bsrc=)[^>]*>", re.I)
+        for path in list(Path("app/templates").glob("*.html")) + list(Path("app/static").glob("*.js")):
+            text = path.read_text()
+            assert not handler.search(text), f"inline event handler in {path}"
+            assert not inline_script.search(text), f"inline <script> in {path}"
