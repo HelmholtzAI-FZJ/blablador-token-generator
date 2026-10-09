@@ -598,17 +598,22 @@ class TestSessionInvalidation:
             await get_current_user(self.cookie_request(old), test_db)
 
     @pytest.mark.asyncio
-    async def test_admin_password_reset_and_demotion_bump_epoch(self, test_db, test_user, test_admin):
+    async def test_admin_password_reset_and_demotion_bump_epoch(self, test_db, test_admin):
         from app.api.admin import update_user, UpdateUserRequest
+        from app.models import User
+        local = User(email="epoch@example.com", name="Local", password_hash="x")
+        test_db.add(local)
+        await test_db.commit()
+        await test_db.refresh(local)
         req = Request({"type": "http", "method": "PATCH", "path": "/", "query_string": b"",
                        "headers": [], "client": ("127.0.0.2", 0)})
-        before = test_user.session_epoch
-        await update_user.__wrapped__(req, test_user.id, UpdateUserRequest(password="NewPassw0rd"), test_admin, test_db)
-        assert test_user.session_epoch == before + 1
-        await update_user.__wrapped__(req, test_user.id, UpdateUserRequest(is_admin=True), test_admin, test_db)
-        assert test_user.session_epoch == before + 2
-        await update_user.__wrapped__(req, test_user.id, UpdateUserRequest(name="Renamed"), test_admin, test_db)
-        assert test_user.session_epoch == before + 2
+        before = local.session_epoch
+        await update_user.__wrapped__(req, local.id, UpdateUserRequest(password="NewPassw0rd"), test_admin, test_db)
+        assert local.session_epoch == before + 1
+        await update_user.__wrapped__(req, local.id, UpdateUserRequest(is_admin=True), test_admin, test_db)
+        assert local.session_epoch == before + 2
+        await update_user.__wrapped__(req, local.id, UpdateUserRequest(name="Renamed"), test_admin, test_db)
+        assert local.session_epoch == before + 2
 
 
 class TestDeleteUserWithRevokedSessions:
@@ -1066,3 +1071,17 @@ class TestTokenLimits:
         from app.config import TokenConfig
         with pytest.raises(ValidationError):
             TokenConfig(token_length_bytes=8)
+
+
+class TestNoPasswordsOnOAuthAccounts:
+    @pytest.mark.asyncio
+    async def test_admin_cannot_set_password_on_oauth_account(self, test_db, test_user, test_admin):
+        from app.api.admin import UpdateUserRequest, update_user
+        req = Request({"type": "http", "method": "PATCH", "path": "/", "query_string": b"",
+                       "headers": [], "client": ("127.0.0.7", 0)})
+        with pytest.raises(HTTPException) as exc:
+            await update_user.__wrapped__(req, test_user.id, UpdateUserRequest(password="Passw0rdOK"),
+                                          test_admin, test_db)
+        assert exc.value.status_code == 400
+        await test_db.refresh(test_user)
+        assert test_user.password_hash is None

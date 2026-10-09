@@ -289,6 +289,11 @@ async def update_user(
     if body.name is not None:
         user.name = body.name
     if body.password is not None:
+        if user.unity_id is not None:
+            raise HTTPException(
+                status_code=400,
+                detail="OAuth accounts sign in through the identity provider and cannot have a password",
+            )
         validate_password_strength(body.password)
         user.password_hash = hash_password(body.password)
         invalidate_sessions(user)
