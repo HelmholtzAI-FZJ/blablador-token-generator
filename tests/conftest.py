@@ -16,7 +16,8 @@ os.environ.setdefault("TOKEN_HASH_KEY", "test-token-hash-key-" + "0" * 32)
 
 import pytest
 import asyncio
-from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+from app.database import build_engine
 from app.models import Base, User, Token
 from app.auth import hash_token, generate_token
 from app.config import TokenConfig
@@ -33,7 +34,7 @@ def event_loop():
 @pytest.fixture
 async def test_db():
     url = os.environ.get("TEST_DATABASE_URL", "sqlite+aiosqlite:///:memory:")
-    engine = create_async_engine(url, echo=False)
+    engine = build_engine(url, echo=False)
     async_session_maker = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
     
     async with engine.begin() as conn:

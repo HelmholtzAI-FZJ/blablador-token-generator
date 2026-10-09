@@ -532,3 +532,47 @@ class TestSessionInvalidation:
         assert test_user.session_epoch == before + 2
         await update_user.__wrapped__(req, test_user.id, UpdateUserRequest(name="Renamed"), test_admin, test_db)
         assert test_user.session_epoch == before + 2
+
+
+class TestDeleteUserWithRevokedSessions:
+    """Users who logged out (rows in revoked_jwts) must still be deletable."""
+
+    @staticmethod
+    async def logged_out_user(db, email: str):
+        from app.auth import create_session_token, decode_access_token, revoke_jwt
+        from app.models import User
+        user = User(email=email, name="Leaver", unity_id=f"sub-{email}")
+        db.add(user)
+        await db.commit()
+        await db.refresh(user)
+        db.add(Token(user_id=user.id, token_hash=hash_token(generate_token()), name="t"))
+        await db.commit()
+        await revoke_jwt(decode_access_token(create_session_token(user)), db)
+        return user
+
+    @staticmethod
+    def request(path: str, method: str) -> Request:
+        return Request({"type": "http", "method": method, "path": path, "query_string": b"",
+                        "headers": [], "client": ("127.0.0.3", 0)})
+
+    @pytest.mark.asyncio
+    async def test_admin_can_delete_user_who_logged_out(self, test_db, test_admin):
+        from sqlalchemy import func
+        from app.api.admin import delete_user
+        from app.models import RevokedJWT, User
+        user = await self.logged_out_user(test_db, "leaver@example.com")
+        await delete_user.__wrapped__(self.request(f"/admin/users/{user.id}", "DELETE"),
+                                      user.id, test_admin, test_db)
+        assert (await test_db.execute(select(User).where(User.id == user.id))).first() is None
+        assert (await test_db.execute(select(func.count()).select_from(RevokedJWT))).scalar_one() == 0
+        assert (await test_db.execute(select(func.count()).select_from(Token))).scalar_one() == 0
+
+    @pytest.mark.asyncio
+    async def test_user_can_delete_own_account_after_logout(self, test_db):
+        from app.main import delete_my_account
+        from app.models import User
+        user = await self.logged_out_user(test_db, "self-leaver@example.com")
+        response = await delete_my_account.__wrapped__(
+            self.request("/account/delete", "POST"), user, test_db)
+        assert response.status_code == 200
+        assert (await test_db.execute(select(User).where(User.id == user.id))).first() is None

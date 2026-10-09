@@ -343,7 +343,7 @@ async def delete_my_account(
     # 2. Write tombstone (blocks OAuth resurrection)
     db.add(DeletedUser(unity_id=user.unity_id, email=user.email))
 
-    # 3. Delete the user row (cascades to revoke_jwt rows via FK)
+    # 3. Delete the user row (tokens via ORM cascade, revoked_jwts via FK)
     await db.delete(user)
 
     try:
@@ -359,19 +359,14 @@ async def delete_my_account(
         len(tokens),
     )
 
-    # 5. Revoke the current session JWT so the browser is immediately logged out
-    cookie = request.cookies.get("access_token")
-    if cookie:
-        try:
-            payload = decode_access_token(cookie)
-            await revoke_jwt(payload, db)
-        except HTTPException:
-            pass
-
-    return JSONResponse(
+    # 5. Sessions of a deleted user are rejected because the user lookup
+    # fails; just clear the cookie.
+    response = JSONResponse(
         status_code=200,
         content={"detail": "Account deleted. All tokens have been revoked."},
     )
+    response.delete_cookie("access_token")
+    return response
 
 
 @app.get("/login/local", response_class=HTMLResponse)
