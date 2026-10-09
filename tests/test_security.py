@@ -449,3 +449,18 @@ class TestValidateLocalUserTombstones:
         await test_db.commit()
         result = await validate_token(make_request(), bearer_token=plain, db=test_db)
         assert result.valid
+
+
+class TestLongPasswords:
+    """Passwords beyond bcrypt's 72-byte limit must not crash login."""
+
+    def test_verify_long_password_returns_bool(self):
+        from app.auth import hash_password, verify_password
+        h = hash_password("Aa1" * 20)
+        assert verify_password("Aa1" * 20, h)
+        assert verify_password("x" * 500, h) is False
+
+    def test_long_password_rejected_on_set(self):
+        from app.auth import validate_password_strength
+        with pytest.raises(HTTPException):
+            validate_password_strength("Aa1" + "x" * 80)

@@ -1,9 +1,9 @@
 import hashlib
 import secrets
+import bcrypt
 import httpx
 from datetime import datetime, timedelta
 from jose import jwt, JWTError
-from passlib.context import CryptContext
 from fastapi import HTTPException, status, Depends, Request, Form
 from fastapi.responses import RedirectResponse
 from fastapi.security import OAuth2PasswordBearer
@@ -15,13 +15,22 @@ from app.models import User, Token, RevokedJWT, DeletedUser
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token", auto_error=False)
 config = get_config()
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+# bcrypt only uses the first 72 bytes; older bcrypt releases truncated
+# silently, so verify against the same prefix to keep existing hashes valid.
+BCRYPT_MAX_BYTES = 72
+
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
-    return pwd_context.verify(plain_password, hashed_password)
+    try:
+        return bcrypt.checkpw(
+            plain_password.encode()[:BCRYPT_MAX_BYTES], hashed_password.encode()
+        )
+    except ValueError:
+        return False
+
 
 def hash_password(password: str) -> str:
-    return pwd_context.hash(password)
+    return bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
 
 
 MIN_PASSWORD_LENGTH = 8
@@ -57,6 +66,11 @@ def validate_password_strength(password: str) -> None:
         raise HTTPException(
             status_code=400,
             detail="Password must contain at least one digit",
+        )
+    if len(password.encode()) > BCRYPT_MAX_BYTES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Password must not exceed {BCRYPT_MAX_BYTES} bytes",
         )
 
 
