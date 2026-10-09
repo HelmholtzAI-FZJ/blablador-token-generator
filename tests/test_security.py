@@ -116,6 +116,7 @@ class TestSecurityHeaders:
         assert r.headers.get("x-frame-options") == "DENY"
         assert r.headers.get("referrer-policy") == "strict-origin-when-cross-origin"
         assert "strict-transport-security" in r.headers
+        assert "frame-ancestors 'none'" in r.headers.get("content-security-policy", "")
 
 
 class TestTimingSafeComparison:
