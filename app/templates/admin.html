@@ -265,7 +265,7 @@
         async function loadUsers() {
             const tbody = document.getElementById('usersTableBody');
             try {
-                const response = await fetch('/admin/users');
+                const response = await fetch('/api/admin/users');
                 const users = await response.json();
                 
                 if (users.length === 0) {
@@ -304,7 +304,7 @@
             const isAdmin = document.getElementById('userIsAdmin').checked;
             
             try {
-                const response = await fetch('/admin/users', {
+                const response = await fetch('/api/admin/users', {
                     method: 'POST',
                     headers: csrfHeaders({'Content-Type': 'application/json'}),
                     body: JSON.stringify({email, name, password, is_admin: isAdmin})
@@ -328,7 +328,7 @@
             if (!newPassword) return;
 
             try {
-                const response = await fetch(`/admin/users/${userId}`, {
+                const response = await fetch(`/api/admin/users/${userId}`, {
                     method: 'PATCH',
                     headers: csrfHeaders({'Content-Type': 'application/json'}),
                     body: JSON.stringify({password: newPassword})
@@ -382,7 +382,7 @@
             }
 
             try {
-                const response = await fetch(`/admin/users/${_passwordModalUserId}`, {
+                const response = await fetch(`/api/admin/users/${_passwordModalUserId}`, {
                     method: 'PATCH',
                     headers: csrfHeaders({'Content-Type': 'application/json'}),
                     body: JSON.stringify({password: newPassword})
@@ -412,7 +412,7 @@
             if (!confirm(`Delete user ${email}? This cannot be undone.`)) return;
             
             try {
-                const response = await fetch(`/admin/users/${userId}`, {
+                const response = await fetch(`/api/admin/users/${userId}`, {
                     method: 'DELETE',
                     headers: csrfHeaders()
                 });
@@ -432,7 +432,7 @@
         async function revokeToken(tokenId) {
             if (!confirm('Are you sure you want to revoke this token?')) return;
             
-            const response = await fetch(`/admin/tokens/${tokenId}/revoke`, {
+            const response = await fetch(`/api/admin/tokens/${tokenId}`, {
                 method: 'DELETE',
                 headers: csrfHeaders()
             });
@@ -447,7 +447,7 @@
         async function deleteToken(tokenId) {
             if (!confirm('Are you sure you want to permanently delete this token? This cannot be undone.')) return;
             
-            const response = await fetch(`/admin/tokens/${tokenId}/permanent`, {
+            const response = await fetch(`/api/admin/tokens/${tokenId}/permanent`, {
                 method: 'DELETE',
                 headers: csrfHeaders()
             });
@@ -462,7 +462,7 @@
         async function deleteRevokedTokens() {
             if (!confirm('Are you sure you want to delete all revoked tokens? This cannot be undone.')) return;
             
-            const response = await fetch('/admin/api/tokens/revoked', {
+            const response = await fetch('/api/admin/tokens/revoked', {
                 method: 'DELETE',
                 headers: csrfHeaders()
             });

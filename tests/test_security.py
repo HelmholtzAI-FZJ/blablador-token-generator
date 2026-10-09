@@ -576,3 +576,62 @@ class TestDeleteUserWithRevokedSessions:
             self.request("/account/delete", "POST"), user, test_db)
         assert response.status_code == 200
         assert (await test_db.execute(select(User).where(User.id == user.id))).first() is None
+
+
+def _ui_fetch_calls():
+    """(method, path) for every fetch() in the templates and static scripts."""
+    import re
+    from pathlib import Path
+    pattern = re.compile(r"fetch\(\s*([`'\"])(.+?)\1\s*(?:,\s*\{\s*method:\s*'(\w+)')?", re.S)
+    sources = list(Path("app/templates").glob("*.html")) + list(Path("app/static").glob("*.js"))
+    calls = []
+    for source in sources:
+        for _quote, url, method in pattern.findall(source.read_text()):
+            path = re.sub(r"\$\{[^}]+\}", "00000000-0000-0000-0000-000000000000", url)
+            calls.append((method or "GET", path, source.name))
+    return calls
+
+
+class TestAdminTokenRoutes:
+    """Admin UI actions must reach real endpoints."""
+
+    def test_every_ui_fetch_resolves_to_a_route(self):
+        from starlette.routing import Match
+        calls = _ui_fetch_calls()
+        assert len(calls) >= 10, "fetch() extraction found too few calls"
+        for method, path, source in calls:
+            scope = {"type": "http", "method": method, "path": path, "root_path": "",
+                     "query_string": b"", "headers": []}
+            assert any(route.matches(scope)[0] == Match.FULL for route in app.routes), \
+                f"{source}: {method} {path} matches no route"
+
+    def test_admin_revoke_purge_and_list(self):
+        from app import database
+        from app.auth import create_session_token
+        from app.models import User
+
+        async def seed():
+            async with database.async_session_maker() as db:
+                admin = User(email="routes-admin@example.com", name="A",
+                             unity_id="routes-admin", is_admin=True)
+                db.add(admin)
+                await db.commit()
+                await db.refresh(admin)
+                tokens = [Token(user_id=admin.id, token_hash=hash_token(generate_token()),
+                                name=f"t{i}") for i in range(2)]
+                db.add_all(tokens)
+                await db.commit()
+                return create_session_token(admin), [t.id for t in tokens]
+
+        with TestClient(app) as client:
+            session, (revoked_id, kept_id) = client.portal.call(seed)
+            client.cookies.set("access_token", session)
+            client.cookies.set("csrf_token", "c")
+            csrf = {"X-CSRF-Token": "c"}
+            assert client.delete(f"/api/admin/tokens/{revoked_id}", headers=csrf).status_code == 200
+            assert client.delete("/api/admin/tokens/revoked", headers=csrf).status_code == 200
+            listing = client.get("/api/admin/tokens", params={"page_size": 100})
+            assert listing.headers["content-type"].startswith("application/json")
+            ids = {t["id"] for t in listing.json()}
+            assert kept_id in ids and revoked_id not in ids
+            assert client.get("/admin/tokens", params={"page": 0}).status_code == 422

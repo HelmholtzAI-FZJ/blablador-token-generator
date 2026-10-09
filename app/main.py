@@ -2,7 +2,7 @@ from contextlib import asynccontextmanager
 from urllib.parse import urlencode
 import secrets as _secrets
 from secrets import compare_digest
-from fastapi import FastAPI, Request, Depends, HTTPException, Form
+from fastapi import FastAPI, Request, Depends, HTTPException, Form, Query
 from fastapi.responses import RedirectResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -249,7 +249,7 @@ async def dashboard(
 async def admin_tokens(
     request: Request,
     search: str | None = None,
-    page: int = 1,
+    page: int = Query(1, ge=1),
     admin: User = Depends(get_current_admin),
     db: AsyncSession = Depends(get_db)
 ):
