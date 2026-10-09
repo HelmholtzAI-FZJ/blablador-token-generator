@@ -16,13 +16,6 @@ app:
   api_url: "http://localhost:8080"
   # Set to true in production behind TLS to mark auth cookies as Secure
   secure_cookies: false
-  # Per-client-IP limit for POST /api/v1/auth/validate. The API gateway
-  # usually calls this from a single IP on behalf of all users.
-  validate_rate_limit: "600/minute"
-  # Where rate-limit counters are stored. "memory://" is per process, so with
-  # several workers or replicas use Redis, e.g. "redis://:password@redis:6379/0".
-  # Env override: RATE_LIMIT_STORAGE_URI.
-  rate_limit_storage_uri: "memory://"
 
 database:
   url: "sqlite+aiosqlite:///./tokens.db"
@@ -61,6 +54,27 @@ tokens:
   max_expiration_days: 365
   token_length_bytes: 32
   token_prefix: blablador
+
+rate_limits:
+  # Where counters are stored. "memory://" is per process, so with several
+  # workers or replicas use Redis, e.g. "redis://:password@redis:6379/0".
+  # Env override: RATE_LIMIT_STORAGE_URI.
+  storage_uri: "memory://"
+  # Unauthenticated endpoints, per client IP. Many users may share one
+  # address (campus NAT, VPN, a course), so keep these generous.
+  pages: "120/minute"
+  oauth_callback: "60/minute"
+  local_login: "10/minute"
+  # Authenticated endpoints, per signed-in user.
+  tokens_read: "60/minute"
+  tokens_write: "30/minute"
+  session: "30/minute"
+  account_delete: "5/minute"
+  admin: "120/minute"
+  # POST /api/v1/auth/validate, per client IP. List the API gateway's
+  # addresses or CIDRs in token_validation_exempt so its traffic is never limited.
+  token_validation: "600/minute"
+  token_validation_exempt: []
 
 admin:
   # OAuth subject IDs ("sub") promoted to admin at login. Preferred: the

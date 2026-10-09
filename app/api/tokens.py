@@ -7,15 +7,13 @@ from app.database import get_db
 from app.models import User, Token
 from app.auth import get_current_user, generate_token, hash_token
 from app.config import get_config
-from app.rate_limit import limiter
+from app.rate_limit import limiter, RATE_LIMITS, user_or_ip
 
 router = APIRouter(prefix="/tokens", tags=["tokens"])
 
-# Rate limits for token endpoints — applied in addition to the
-# global limiter.  These protect against brute-force token enumeration
-# and runaway scripts.
-TOKEN_LIST_LIMIT = "60/minute"
-TOKEN_MUTATE_LIMIT = "30/minute"
+# Per signed-in user, so people behind one NAT address do not share a budget.
+TOKEN_READ_LIMIT = RATE_LIMITS.tokens_read
+TOKEN_WRITE_LIMIT = RATE_LIMITS.tokens_write
 
 
 class CreateTokenRequest(BaseModel):
@@ -42,7 +40,7 @@ class TokenWithValueResponse(BaseModel):
 
 
 @router.post("", response_model=TokenWithValueResponse)
-@limiter.limit(TOKEN_MUTATE_LIMIT)
+@limiter.limit(TOKEN_WRITE_LIMIT, key_func=user_or_ip)
 async def create_token(
     request: Request,
     body: CreateTokenRequest,
@@ -98,7 +96,7 @@ async def create_token(
 
 
 @router.get("", response_model=list[TokenResponse])
-@limiter.limit(TOKEN_LIST_LIMIT)
+@limiter.limit(TOKEN_READ_LIMIT, key_func=user_or_ip)
 async def list_tokens(
     request: Request,
     user: User = Depends(get_current_user),
@@ -125,7 +123,7 @@ async def list_tokens(
 
 
 @router.delete("/{token_id}")
-@limiter.limit(TOKEN_MUTATE_LIMIT)
+@limiter.limit(TOKEN_WRITE_LIMIT, key_func=user_or_ip)
 async def revoke_token(
     request: Request,
     token_id: str,
@@ -151,7 +149,7 @@ async def revoke_token(
 
 
 @router.delete("/{token_id}/permanent")
-@limiter.limit(TOKEN_MUTATE_LIMIT)
+@limiter.limit(TOKEN_WRITE_LIMIT, key_func=user_or_ip)
 async def delete_token(
     request: Request,
     token_id: str,
@@ -182,7 +180,7 @@ class RenewTokenRequest(BaseModel):
 
 
 @router.post("/{token_id}/renew", response_model=TokenResponse)
-@limiter.limit(TOKEN_MUTATE_LIMIT)
+@limiter.limit(TOKEN_WRITE_LIMIT, key_func=user_or_ip)
 async def renew_token(
     request: Request,
     token_id: str,

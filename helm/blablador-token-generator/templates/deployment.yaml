@@ -59,7 +59,7 @@ spec:
             - name: CONFIG_PATH
               value: /app/config/config.yaml
             - name: FORWARDED_ALLOW_IPS
-              value: {{ .Values.forwardedAllowIps | quote }}
+              value: {{ required "forwardedAllowIps is required: the ingress controller's pod CIDR, or 127.0.0.1 without a proxy" .Values.forwardedAllowIps | quote }}
             {{- if .Values.postgresql.enabled }}
             - name: DATABASE_URL
               valueFrom:

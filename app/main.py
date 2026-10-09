@@ -21,7 +21,7 @@ from app.auth import (
     decode_access_token, revoke_jwt,
 )
 from app.api import tokens, validate, admin
-from app.rate_limit import limiter
+from app.rate_limit import limiter, RATE_LIMITS, user_or_ip
 
 config = get_config()
 
@@ -159,7 +159,7 @@ async def healthz():
 
 
 @app.get("/", response_class=HTMLResponse)
-@limiter.limit("30/minute")
+@limiter.limit(RATE_LIMITS.pages)
 async def home(request: Request):
     return templates.TemplateResponse(request, "index.html", {
         "app_name": config.app.name,
@@ -170,7 +170,7 @@ async def home(request: Request):
 
 
 @app.get("/login")
-@limiter.limit("30/minute")
+@limiter.limit(RATE_LIMITS.pages)
 async def login(request: Request):
     # Generate a random state and store it in a short-lived cookie
     state = _secrets.token_hex(16)
@@ -188,7 +188,7 @@ async def login(request: Request):
 
 
 @app.get("/oauth/openid/callback")
-@limiter.limit("10/minute")
+@limiter.limit(RATE_LIMITS.oauth_callback)
 async def openid_callback(request: Request, code: str | None = None, state: str | None = None, error: str | None = None, error_description: str | None = None, db: AsyncSession = Depends(get_db)):
     if error:
         return {"detail": "OAuth authentication failed"}
@@ -221,7 +221,7 @@ async def openid_callback(request: Request, code: str | None = None, state: str 
 
 
 @app.get("/dashboard", response_class=HTMLResponse)
-@limiter.limit("60/minute")
+@limiter.limit(RATE_LIMITS.pages, key_func=user_or_ip)
 async def dashboard(
     request: Request,
     user: User = Depends(get_current_user),
@@ -245,7 +245,7 @@ async def dashboard(
 
 
 @app.get("/admin/tokens", response_class=HTMLResponse)
-@limiter.limit("60/minute")
+@limiter.limit(RATE_LIMITS.admin, key_func=user_or_ip)
 async def admin_tokens(
     request: Request,
     search: str | None = None,
@@ -300,7 +300,7 @@ async def admin_tokens(
 
 
 @app.post("/logout")
-@limiter.limit("10/minute")
+@limiter.limit(RATE_LIMITS.session, key_func=user_or_ip)
 async def logout(request: Request, db: AsyncSession = Depends(get_db)):
     # Revoke the JWT so it can't be replayed after logout
     token = request.cookies.get("access_token")
@@ -321,7 +321,7 @@ _account_logger = _logging.getLogger("token_generator.account")
 
 
 @app.post("/account/delete")
-@limiter.limit("5/minute")
+@limiter.limit(RATE_LIMITS.account_delete, key_func=user_or_ip)
 async def delete_my_account(
     request: Request,
     user: User = Depends(get_current_user),
@@ -370,7 +370,7 @@ async def delete_my_account(
 
 
 @app.get("/login/local", response_class=HTMLResponse)
-@limiter.limit("30/minute")
+@limiter.limit(RATE_LIMITS.pages)
 async def login_local_form(request: Request):
     if not config.local.enabled:
         raise HTTPException(status_code=404, detail="Local login disabled")
@@ -388,7 +388,7 @@ async def login_local_form(request: Request):
 
 
 @app.post("/login/local")
-@limiter.limit("5/minute")
+@limiter.limit(RATE_LIMITS.local_login)
 async def login_local(
     request: Request,
     email: str = Form(...),
