@@ -165,23 +165,11 @@ Or using docker-compose:
 docker-compose up -d
 ```
 
-The database is stored in `/app/data/tokens.db` and persisted via a Docker volume (`tokens-data`).
+docker-compose runs the app with PostgreSQL (volume `postgres-data`) and Redis; secrets come from a `.env` file next to `docker-compose.yaml`.
 
-### Kubernetes
+### Kubernetes (Helm Chart)
 
-Create a Secret with your config:
-
-```bash
-kubectl create secret generic token-generator-config \
-  --from-file=config.yaml=/path/to/config.yaml \
-  --namespace=your-namespace
-```
-
-The Kubernetes manifest in `k8s/` expects this secret at `token-generator-config`.
-
-The database is stored in `/app/data/tokens.db` and persisted via a PersistentVolumeClaim (`token-generator-db`).
-
-### Helm Chart
+Deploy to Kubernetes with the Helm chart; there are no separate raw manifests.
 
 ```bash
 # Install with custom values
@@ -208,7 +196,7 @@ helm install token-generator -f values-production.yaml .
 
 The Helm chart generates a Kubernetes Secret from the `config.*` values in `values.yaml`.
 
-The database is stored in `/app/data/tokens.db` and persisted via a PersistentVolumeClaim (enabled by default in `values.yaml`).
+By default the chart deploys PostgreSQL (StatefulSet with its own volume) and Redis for shared rate-limit counters, with NetworkPolicies that only let the app reach them. Setting `postgresql.enabled: false` falls back to SQLite on a PersistentVolumeClaim, which only supports `replicaCount: 1`.
 
 ## Development
 

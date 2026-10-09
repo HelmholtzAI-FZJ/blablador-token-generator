@@ -5,9 +5,7 @@ Get the application URL by running these commands:
 {{- end }}
 {{- end }}
 
-The config is stored in a Kubernetes Secret. Update it with:
-  kubectl create secret generic token-generator-config \
-    --from-file=config.yaml=/path/to/config.yaml \
-    --namespace={{ .Release.Namespace }} \
-    -o yaml > config-secret.yaml
-  kubectl apply -f config-secret.yaml
+The configuration is rendered from the chart values into the Secret
+{{ include "blablador-token-generator.fullname" . }}-config. Change it with
+"helm upgrade" (the pods restart automatically); edits made directly to the
+Secret are overwritten on the next upgrade.
