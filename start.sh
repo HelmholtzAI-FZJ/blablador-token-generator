@@ -32,7 +32,7 @@ case "${1:-development}" in
         ;;
     production)
         echo "Starting in production mode with ${WORKERS} workers..."
-        exec uvicorn app.main:app --host "${HOST}" --port "${PORT}" --workers "${WORKERS}"
+        exec uvicorn app.main:app --host "${HOST}" --port "${PORT}" --workers "${WORKERS}" --proxy-headers --forwarded-allow-ips "${FORWARDED_ALLOW_IPS:-127.0.0.1}"
         ;;
     help|--help|-h)
         show_usage

@@ -12,6 +12,9 @@ app:
   api_url: "http://localhost:8080"
   # Set to true in production behind TLS to mark auth cookies as Secure
   secure_cookies: false
+  # Per-client-IP limit for POST /api/v1/auth/validate. The API gateway
+  # usually calls this from a single IP on behalf of all users.
+  validate_rate_limit: "600/minute"
 
 database:
   url: "sqlite+aiosqlite:///./tokens.db"

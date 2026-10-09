@@ -8,6 +8,7 @@ import logging as _logging
 from app.database import get_db
 from app.models import Token, User, DeletedUser
 from app.auth import hash_token
+from app.config import get_config
 from app.rate_limit import limiter
 
 router = APIRouter(prefix="/api/v1/auth", tags=["auth"])
@@ -38,7 +39,7 @@ async def extract_bearer_token(authorization: str | None = Header(None)) -> str 
 
 
 @router.post("/validate", response_model=ValidateResponse)
-@limiter.limit("30/minute")
+@limiter.limit(get_config().app.validate_rate_limit)
 async def validate_token(
     request: Request,
     bearer_token: str = Depends(extract_bearer_token),
