@@ -18,6 +18,8 @@ class AppConfig(BaseModel):
     secure_cookies: bool = False
     jwt_expiration_hours: int = 24
     validate_rate_limit: str = "600/minute"
+    # "memory://" is per process; use redis://... with multiple workers/pods.
+    rate_limit_storage_uri: str = "memory://"
 
 
 class DatabaseConfig(BaseModel):
@@ -137,6 +139,10 @@ def get_config() -> Config:
     secret_key = os.environ.get("JWT_SECRET_KEY")
     if secret_key:
         config.app.secret_key = secret_key
+
+    rate_limit_storage_uri = os.environ.get("RATE_LIMIT_STORAGE_URI")
+    if rate_limit_storage_uri:
+        config.app.rate_limit_storage_uri = rate_limit_storage_uri
 
     token_hash_key = os.environ.get("TOKEN_HASH_KEY")
     if token_hash_key:
