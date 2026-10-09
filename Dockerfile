@@ -9,7 +9,11 @@ RUN uv pip install --system -e .
 
 COPY . .
 
-RUN mkdir -p /app/data
+RUN useradd --system --uid 10001 --no-create-home app \
+    && mkdir -p /app/data \
+    && chown app /app/data
+
+USER 10001
 
 EXPOSE 8080
 
