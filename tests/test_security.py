@@ -132,9 +132,10 @@ class TestTimingSafeComparison:
     def test_csrf_uses_constant_time_comparison(self):
         """CSRF validation must use secrets.compare_digest to prevent timing attacks."""
         import inspect
-        from app.main import login_local
-        source = inspect.getsource(login_local)
-        assert "compare_digest" in source
+        from app.main import admin_token_search, form_csrf_valid, login_local
+        assert "compare_digest" in inspect.getsource(form_csrf_valid)
+        assert "form_csrf_valid" in inspect.getsource(login_local)
+        assert "form_csrf_valid" in inspect.getsource(admin_token_search)
 
 
 class TestCommitErrorHandling:
@@ -722,3 +723,36 @@ class TestLocalLoginFirstVisit:
         assert r.status_code == 401
         assert re.search(r'name="csrf_token" value="([^"]+)"', r.text), \
             "error page must keep a usable CSRF field"
+
+
+class TestAdminTokenSearch:
+    """Searching by plaintext token must not put the token in a URL."""
+
+    def test_search_by_post_without_echoing_the_token(self):
+        from app import database
+        from app.auth import create_session_token
+        from app.models import User
+
+        plain = generate_token()
+
+        async def seed():
+            async with database.async_session_maker() as db:
+                admin = User(email="search-admin@example.com", name="A",
+                             unity_id="search-admin", is_admin=True)
+                db.add(admin)
+                await db.commit()
+                await db.refresh(admin)
+                db.add(Token(user_id=admin.id, token_hash=hash_token(plain), name="needle-token"))
+                await db.commit()
+                return create_session_token(admin)
+
+        with TestClient(app) as client:
+            client.cookies.set("access_token", client.portal.call(seed))
+            client.cookies.set("csrf_token", "c")
+            found = client.post("/admin/tokens/search", data={"token": plain, "csrf_token": "c"})
+            assert found.status_code == 200
+            assert "needle-token" in found.text and plain not in found.text
+            forged = client.post("/admin/tokens/search", data={"token": plain, "csrf_token": "x"})
+            assert forged.status_code == 403
+            page = client.get("/admin/tokens")
+            assert 'method="post" action="/admin/tokens/search"' in page.text

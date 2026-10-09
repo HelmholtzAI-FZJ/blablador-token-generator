@@ -102,16 +102,17 @@
             <div class="card">
                 <h2>All Tokens</h2>
                 <div style="margin-bottom: 1rem; display: flex; gap: 0.5rem; align-items: center;">
-                    <form method="get" action="/admin/tokens" style="flex: 1; display: flex; gap: 0.5rem;">
-                        <input type="text" name="search" placeholder="Paste token to search..." value="{{ search }}" style="flex: 1; padding: 0.5rem; border: 1px solid #ddd; border-radius: 4px;">
+                    <form method="post" action="/admin/tokens/search" style="flex: 1; display: flex; gap: 0.5rem;">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                        <input type="text" name="token" placeholder="Paste token to search..." autocomplete="off" spellcheck="false" required style="flex: 1; padding: 0.5rem; border: 1px solid #ddd; border-radius: 4px;">
                         <button type="submit" class="btn">Search</button>
-                        {% if search %}
+                        {% if searched %}
                         <a href="/admin/tokens" class="btn" style="background: #95a5a6;">Clear</a>
                         {% endif %}
                     </form>
                     <button class="btn btn-danger" onclick="deleteRevokedTokens()"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg> Delete Revoked</button>
                 </div>
-                {% if search %}
+                {% if searched %}
                 <p style="margin-bottom: 1rem; color: #666;">Showing result for token search</p>
                 {% endif %}
                 {% if tokens_with_users %}
@@ -156,7 +157,7 @@
                     </tbody>
                 </table>
                 {% else %}
-                <p class="empty">No tokens in the system.</p>
+                <p class="empty">{% if searched %}No token matches.{% else %}No tokens in the system.{% endif %}</p>
                 {% endif %}
             </div>
         </div>
