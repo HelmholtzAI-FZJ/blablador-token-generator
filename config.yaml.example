@@ -61,6 +61,8 @@ tokens:
   max_expiration_days: 365
   token_length_bytes: 32
   token_prefix: blablador
+  # Tokens a user may hold (any state) before having to delete some.
+  max_tokens_per_user: 100
 
 rate_limits:
   # Where counters are stored. "memory://" is per process, so with several

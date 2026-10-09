@@ -148,6 +148,7 @@ config:
     default_expiration_days: 365
     max_expiration_days: 365
     token_length_bytes: 32
+    max_tokens_per_user: 100
   # Counter storage comes from the bundled Redis (see "redis" above).
   rate_limits:
     pages: "120/minute"

@@ -2,7 +2,7 @@ import logging
 from datetime import datetime, timedelta, timezone
 from fastapi import APIRouter, Depends, HTTPException, status, Body, Request
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import func, select
 from pydantic import BaseModel, Field
 from app.database import get_db
 from app.models import User, Token
@@ -50,6 +50,16 @@ async def create_token(
     db: AsyncSession = Depends(get_db),
 ):
     config = get_config()
+
+    token_count = (
+        await db.execute(select(func.count()).select_from(Token).where(Token.user_id == user.id))
+    ).scalar_one()
+    if token_count >= config.tokens.max_tokens_per_user:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Token limit reached ({config.tokens.max_tokens_per_user}). "
+                   "Delete tokens you no longer need.",
+        )
 
     plain_token = generate_token()
     token_hash = hash_token(plain_token)
