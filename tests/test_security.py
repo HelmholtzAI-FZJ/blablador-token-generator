@@ -394,3 +394,40 @@ class TestHasPasswordField:
 
     async def test_has_password_false_for_oauth_user(self, test_db, test_user):
         assert test_user.password_hash is None
+
+
+class TestOAuthAccountLinking:
+    """OAuth login must not take over accounts bound to another identity."""
+
+    @pytest.mark.asyncio
+    async def test_same_email_different_subject_rejected(self, test_db, test_user):
+        from app.auth import get_or_create_user
+        with pytest.raises(HTTPException) as exc:
+            await get_or_create_user(
+                {"sub": "attacker-sub", "email": test_user.email}, test_db
+            )
+        assert exc.value.status_code == 403
+
+    @pytest.mark.asyncio
+    async def test_local_account_linked_on_first_oauth_login(self, test_db):
+        from app.auth import get_or_create_user
+        from app.models import User
+        local = User(email="local@example.com", name="Local", password_hash="x")
+        test_db.add(local)
+        await test_db.commit()
+        user = await get_or_create_user(
+            {"sub": "sub-1", "email": "local@example.com"}, test_db
+        )
+        assert user.id == local.id and user.unity_id == "sub-1"
+
+    @pytest.mark.asyncio
+    async def test_unverified_email_not_linked(self, test_db):
+        from app.auth import get_or_create_user
+        from app.models import User
+        test_db.add(User(email="local2@example.com", name="L", password_hash="x"))
+        await test_db.commit()
+        with pytest.raises(HTTPException):
+            await get_or_create_user(
+                {"sub": "s", "email": "local2@example.com", "email_verified": False},
+                test_db,
+            )
