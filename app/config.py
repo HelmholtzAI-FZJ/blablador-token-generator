@@ -10,6 +10,12 @@ class AppConfig(BaseModel):
     host: str = "0.0.0.0"
     port: int = 8080
     secret_key: str = "change-me"
+    # Keys the HMAC of stored API tokens. Kept separate from secret_key so
+    # rotating the session signing key does not invalidate API tokens.
+    token_hash_key: str = ""
+    # Accept tokens hashed with secret_key (pre-token_hash_key) and rehash
+    # them on use. Disable once all active tokens have been migrated.
+    legacy_token_hash_fallback: bool = True
     debug: bool = False
     api_url: str = "http://localhost:8080"
     secure_cookies: bool = False
@@ -95,19 +101,22 @@ class Config(BaseModel):
         Raises:
             ValueError: If the secret_key is weak, default, or too short.
         """
-        secret = self.app.secret_key
-        if secret in Config.WEAK_SECRET_VALUES:
-            raise ValueError(
-                f"JWT secret_key must not be a default or weak value ('{secret}'). "
-                "Set a strong, unique secret_key in config.yaml. "
-                'Generate one with: python -c "import secrets; print(secrets.token_hex(32))"'
-            )
-        if len(secret) < 32:
-            raise ValueError(
-                f"JWT secret_key must be at least 32 characters long "
-                f"(current: {len(secret)}). Use a strong, random secret. "
-                'Generate one with: python -c "import secrets; print(secrets.token_hex(32))"'
-            )
+        for field in ("secret_key", "token_hash_key"):
+            secret = getattr(self.app, field)
+            if secret in Config.WEAK_SECRET_VALUES:
+                raise ValueError(
+                    f"{field} must not be a default or weak value. "
+                    f"Set a strong, unique {field} in config.yaml. "
+                    'Generate one with: python -c "import secrets; print(secrets.token_hex(32))"'
+                )
+            if len(secret) < 32:
+                raise ValueError(
+                    f"{field} must be at least 32 characters long "
+                    f"(current: {len(secret)}). Use a strong, random secret. "
+                    'Generate one with: python -c "import secrets; print(secrets.token_hex(32))"'
+                )
+        if self.app.token_hash_key == self.app.secret_key:
+            raise ValueError("token_hash_key must differ from secret_key")
 
 
 @lru_cache()
@@ -127,6 +136,10 @@ def get_config() -> Config:
     secret_key = os.environ.get("JWT_SECRET_KEY")
     if secret_key:
         config.app.secret_key = secret_key
+
+    token_hash_key = os.environ.get("TOKEN_HASH_KEY")
+    if token_hash_key:
+        config.app.token_hash_key = token_hash_key
 
     oauth_client_secret = os.environ.get("OAUTH_CLIENT_SECRET")
     if oauth_client_secret:

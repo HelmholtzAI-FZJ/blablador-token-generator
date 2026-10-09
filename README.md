@@ -35,6 +35,7 @@ app:
   host: "0.0.0.0"
   port: 8080
   secret_key: "your-secure-secret-key"
+  token_hash_key: "a-different-secure-key"  # hashes stored API tokens
 
 database:
   url: "sqlite+aiosqlite:///./tokens.db"
@@ -93,6 +94,7 @@ app:
   host: "0.0.0.0"
   port: 8080
   secret_key: "your-secure-secret-key"
+  token_hash_key: "a-different-secure-key"  # hashes stored API tokens
 
 login:
   name: "JSC Login"                          # Login button text

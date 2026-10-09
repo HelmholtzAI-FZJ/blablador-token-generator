@@ -63,7 +63,11 @@ Last full audit: 2026-10-09. All fixes are committed individually on `main`.
 - **Container**: non-root user, locked + hash-verified dependencies.
 - **Input bounds**: bearer token capped at 256 chars (header + body);
   admin search capped at 128; `expires_at` parsed with error handling (400, not 500).
-- **Token storage**: HMAC-SHA256 keyed hash (not plain SHA256).
+- **Token storage**: HMAC-SHA256 keyed with `token_hash_key`, separate from the
+  JWT `secret_key`, so rotating the session key keeps API tokens valid. Tokens
+  hashed with `secret_key` (before this split) are rehashed on first validation
+  while `legacy_token_hash_fallback` is true; turn it off once migrated, after
+  which `secret_key` can be rotated freely.
 - **DB failure handling**: commit/rollback with friendly 500 on all mutating paths.
 - **Last-admin guard**: cannot demote or delete the last remaining admin.
 - **Deletion tombstone**: deleted users are recorded in `deleted_users` so OAuth
@@ -90,8 +94,6 @@ Last full audit: 2026-10-09. All fixes are committed individually on `main`.
 - Changing a password or demoting an admin does not end other sessions of that
   user (JWTs stay valid until expiry). Needs a per-user session epoch column,
   which needs a schema migration.
-- `secret_key` both signs session JWTs and keys the API token HMAC: rotating it
-  after a leak invalidates every API token. Consider a separate token-hash key.
 - Rate limits are in-memory, per worker and per pod (`replicaCount: 2`, 2
   workers), so effective limits are ~4x the configured value. Use a shared
   storage backend (Redis) for slowapi.
