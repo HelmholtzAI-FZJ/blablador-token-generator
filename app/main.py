@@ -84,13 +84,17 @@ async def csrf_middleware(request: Request, call_next):
     if authorization.startswith("Bearer ") and request.url.path.startswith(BEARER_PATH_PREFIX):
         return await call_next(request)
 
+    cookie_token = request.cookies.get("csrf_token")
+    # Pages render this value into forms, so on a first visit the form
+    # token matches the cookie set on the same response.
+    request.state.csrf_token = cookie_token or _secrets.token_hex(32)
+
     if request.method in SAFE_METHODS:
         response = await call_next(request)
-        # Set/refresh CSRF cookie on safe requests
-        if not request.cookies.get("csrf_token"):
+        if not cookie_token:
             response.set_cookie(
                 key="csrf_token",
-                value=_secrets.token_hex(32),
+                value=request.state.csrf_token,
                 httponly=False,
                 samesite="lax",
                 secure=config.app.secure_cookies,
@@ -99,7 +103,6 @@ async def csrf_middleware(request: Request, call_next):
         return response
 
     # State-changing request: validate CSRF token
-    cookie_token = request.cookies.get("csrf_token")
     header_token = request.headers.get("x-csrf-token")
 
     if header_token:
@@ -374,15 +377,9 @@ async def delete_my_account(
 async def login_local_form(request: Request):
     if not config.local.enabled:
         raise HTTPException(status_code=404, detail="Local login disabled")
-    # Use the cookie value if the browser already has one; otherwise generate
-    # one now so the form hidden field matches the cookie that the CSRF
-    # middleware will set on the response.
-    csrf_value = request.cookies.get("csrf_token")
-    if not csrf_value:
-        csrf_value = _secrets.token_hex(32)
     return templates.TemplateResponse(request, "login_local.html", {
         "app_name": config.app.name,
-        "csrf_token": csrf_value,
+        "csrf_token": request.state.csrf_token,
         "error": None
     })
 
@@ -403,14 +400,16 @@ async def login_local(
     cookie_csrf = request.cookies.get("csrf_token")
     if not cookie_csrf or not compare_digest(csrf_token, cookie_csrf):
         return templates.TemplateResponse(request, "login_local.html", {
-        "app_name": config.app.name,
+            "app_name": config.app.name,
+            "csrf_token": request.state.csrf_token,
             "error": "Invalid CSRF token"
         }, status_code=403)
 
     user = await authenticate_local_user(email, password, db)
     if not user:
         return templates.TemplateResponse(request, "login_local.html", {
-        "app_name": config.app.name,
+            "app_name": config.app.name,
+            "csrf_token": request.state.csrf_token,
             "error": "Invalid email or password"
         }, status_code=401)
 

@@ -706,3 +706,19 @@ class TestRateLimitKeys:
         from app.config import RateLimitConfig
         with pytest.raises(ValidationError):
             RateLimitConfig(token_validation_exempt=["not-a-network"])
+
+
+class TestLocalLoginFirstVisit:
+    """A browser without cookies must be able to log in on its first try."""
+
+    def test_form_token_matches_cookie_on_first_visit(self):
+        import re
+        client = TestClient(app, follow_redirects=False)
+        page = client.get("/login/local")
+        field = re.search(r'name="csrf_token" value="([^"]+)"', page.text).group(1)
+        assert field == page.cookies.get("csrf_token")
+        r = client.post("/login/local", data={"email": "nobody@example.com",
+                                               "password": "wrong", "csrf_token": field})
+        assert r.status_code == 401
+        assert re.search(r'name="csrf_token" value="([^"]+)"', r.text), \
+            "error page must keep a usable CSRF field"
