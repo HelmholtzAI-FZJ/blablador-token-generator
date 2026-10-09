@@ -10,6 +10,7 @@ from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from app.config import get_config
+from app.cookies import SESSION_COOKIE
 from app.database import get_db
 from app.models import User, Token, RevokedJWT, DeletedUser
 
@@ -152,7 +153,7 @@ async def get_current_user(
     request: Request,
     db: AsyncSession = Depends(get_db)
 ) -> User:
-    token = request.cookies.get("access_token")
+    token = request.cookies.get(SESSION_COOKIE)
     if not token:
         raise HTTPException(status_code=302, detail="Not authenticated")
 
