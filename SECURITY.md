@@ -97,7 +97,6 @@ Last full audit: 2026-10-09. All fixes are committed individually on `main`.
 - SQLite on a `ReadWriteOnce` PVC with `replicaCount: 2`: the second pod cannot
   mount the volume on another node, and concurrent writers will hit locks. Use
   PostgreSQL or a single replica.
-- `python-jose` is barely maintained; consider PyJWT.
 
 ## Testing
 
