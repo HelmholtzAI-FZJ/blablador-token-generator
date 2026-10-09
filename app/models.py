@@ -55,8 +55,8 @@ class RevokedJWT(Base):
     """Tracks revoked session JWTs (the access_token cookie).
 
     When a user logs out, their JWT jti is added here so the token
-    can't be replayed even if stolen.  Entries are purged once the
-    JWT's natural expiry has passed.
+    can't be replayed even if stolen.  Entries are purged (on the next
+    logout) once the JWT's natural expiry has passed.
     """
 
     __tablename__ = "revoked_jwts"
@@ -66,7 +66,7 @@ class RevokedJWT(Base):
         String(36), ForeignKey("users.id", ondelete="CASCADE"), index=True
     )
     revoked_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
-    expires_at: Mapped[datetime] = mapped_column(DateTime)
+    expires_at: Mapped[datetime] = mapped_column(DateTime, index=True)
 
 
 class DeletedUser(Base):
