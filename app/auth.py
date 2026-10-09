@@ -1,3 +1,4 @@
+import base64
 import hashlib
 import secrets
 import bcrypt
@@ -87,6 +88,17 @@ def hash_token(token: str) -> str:
         token.encode(),
         hashlib.sha256,
     ).hexdigest()
+
+
+def new_pkce_verifier() -> str:
+    """PKCE code verifier (RFC 7636): 86 URL-safe characters."""
+    return secrets.token_urlsafe(64)
+
+
+def pkce_challenge(verifier: str) -> str:
+    """S256 code challenge for a PKCE verifier."""
+    digest = hashlib.sha256(verifier.encode()).digest()
+    return base64.urlsafe_b64encode(digest).rstrip(b"=").decode()
 
 
 def generate_token() -> str:
@@ -195,8 +207,7 @@ async def get_current_admin(
     return user
 
 
-async def get_unity_userinfo(code: str) -> dict:
-    import base64
+async def get_unity_userinfo(code: str, code_verifier: str) -> dict:
     async with httpx.AsyncClient() as client:
         auth_header = base64.b64encode(
             f"{config.oauth.client_id}:{config.oauth.client_secret}".encode()
@@ -208,6 +219,7 @@ async def get_unity_userinfo(code: str) -> dict:
                 "grant_type": "authorization_code",
                 "code": code,
                 "redirect_uri": config.oauth.redirect_uri,
+                "code_verifier": code_verifier,
             },
             headers={
                 "Authorization": f"Basic {auth_header}",
