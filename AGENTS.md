@@ -258,7 +258,6 @@ token_generator/
 ├── config.yaml.example  # Configuration template
 ├── Dockerfile
 ├── docker-compose.yaml
-├── k8s/                 # Kubernetes manifests
 └── helm/                # Helm chart
 ```
 
