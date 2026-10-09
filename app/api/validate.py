@@ -6,7 +6,8 @@ from sqlalchemy.orm import joinedload
 from pydantic import BaseModel, Field
 import logging as _logging
 from app.database import get_db
-from app.models import Token, User, DeletedUser
+from app.models import Token, User
+from app.tombstones import is_user_deleted
 from app.auth import hash_token
 from app.rate_limit import limiter, RATE_LIMITS, is_token_validation_exempt
 
@@ -63,23 +64,18 @@ async def validate_token(
         raise HTTPException(status_code=401, detail="Token not found or revoked")
     
     # Check if the account was deleted after this token was created
-    if token.user:
-        match = DeletedUser.email == token.user.email
-        if token.user.unity_id is not None:
-            match = match | (DeletedUser.unity_id == token.user.unity_id)
-        tombstone = (await db.execute(select(DeletedUser).where(match))).first()
-        if tombstone:
-            _audit.warning(
-                "user=%s action=revoked_token_used_by_deleted_account "
-                "token_id=%s user_email=%s",
-                token.user_id,
-                token.id,
-                token.user.email,
-            )
-            raise HTTPException(
-                status_code=401,
-                detail="Token invalid: account has been deleted"
-            )
+    if token.user and await is_user_deleted(db, token.user):
+        _audit.warning(
+            "user=%s action=revoked_token_used_by_deleted_account "
+            "token_id=%s user_email=%s",
+            token.user_id,
+            token.id,
+            token.user.email,
+        )
+        raise HTTPException(
+            status_code=401,
+            detail="Token invalid: account has been deleted"
+        )
     
     now = datetime.now(timezone.utc)
     if token.expires_at:

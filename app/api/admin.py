@@ -6,9 +6,11 @@ from sqlalchemy import select, func
 from sqlalchemy.orm import joinedload
 from pydantic import BaseModel, Field
 from app.database import get_db
-from app.models import User, Token, DeletedUser
+from app.models import User, Token
+from app.tombstones import lift_deletions_for_email, record_deletion
 from app.auth import (
-    get_current_admin, hash_password, invalidate_sessions, validate_password_strength,
+    get_current_admin, hash_password, invalidate_sessions, normalize_email,
+    validate_password_strength,
 )
 from app.rate_limit import limiter, RATE_LIMITS, user_or_ip
 
@@ -226,24 +228,19 @@ async def create_user(
     admin: User = Depends(get_current_admin),
     db: AsyncSession = Depends(get_db),
 ):
-    # Prevent privilege escalation: only existing admins can grant admin status
-    result = await db.execute(select(User).where(User.email == body.email))
-    existing = result.scalar_one_or_none()
-    if existing:
+    email = normalize_email(body.email)
+    # Local accounts log in by email, so it must be unique among them.
+    result = await db.execute(select(User).where(User.email == email, User.unity_id.is_(None)))
+    if result.scalar_one_or_none():
         raise HTTPException(status_code=400, detail="User with this email already exists")
 
     validate_password_strength(body.password)
 
-    # Explicit admin re-creation lifts the deletion tombstone,
-    # allowing the account back even if it was previously deleted.
-    tombstone = (
-        await db.execute(select(DeletedUser).where(DeletedUser.email == body.email))
-    ).scalar_one_or_none()
-    if tombstone:
-        await db.delete(tombstone)
+    # Explicit admin re-creation lifts deletion records for this email.
+    await lift_deletions_for_email(db, email)
 
     user = User(
-        email=body.email,
+        email=email,
         name=body.name,
         password_hash=hash_password(body.password),
         is_admin=body.is_admin,
@@ -352,8 +349,8 @@ async def delete_user(
             detail="Cannot delete the last remaining admin",
         )
 
-    # Tombstone so the account isn't resurrected by OAuth login
-    db.add(DeletedUser(unity_id=user.unity_id, email=user.email))
+    # Tombstone so the account isn't resurrected by logging in again
+    record_deletion(db, user)
     await db.delete(user)
     try:
         await db.commit()
