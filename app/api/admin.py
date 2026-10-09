@@ -312,10 +312,12 @@ async def update_user(
         raise HTTPException(status_code=500, detail="Failed to update user")
 
     logger.info(
-        "admin=%s action=update_user user_id=%s is_admin=%s",
+        "admin=%s action=update_user user_id=%s is_admin=%s password_changed=%s name_changed=%s",
         admin.id,
         user.id,
         user.is_admin,
+        body.password is not None,
+        body.name is not None,
     )
     return UserResponse(
         id=user.id,

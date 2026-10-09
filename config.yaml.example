@@ -16,6 +16,8 @@ app:
   api_url: "http://localhost:8080"
   # Set to true in production behind TLS to mark auth cookies as Secure
   secure_cookies: false
+  # Level of the audit log (admin actions, logins, token changes) on stderr.
+  log_level: "INFO"
 
 database:
   url: "sqlite+aiosqlite:///./tokens.db"

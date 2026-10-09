@@ -756,3 +756,37 @@ class TestAdminTokenSearch:
             assert forged.status_code == 403
             page = client.get("/admin/tokens")
             assert 'method="post" action="/admin/tokens/search"' in page.text
+
+
+class TestAuditLogging:
+    """Audit events must actually be written somewhere."""
+
+    def test_app_loggers_have_an_info_handler(self):
+        import logging
+        import app.main  # noqa: F401  (configures logging on import)
+        logger = logging.getLogger("token_generator")
+        assert logger.handlers and logger.getEffectiveLevel() <= logging.INFO
+        assert logging.getLogger("token_generator.audit").isEnabledFor(logging.INFO)
+
+    @pytest.mark.asyncio
+    async def test_password_reset_is_audited(self, test_db, test_admin):
+        import logging
+        from app.api.admin import update_user, UpdateUserRequest
+        from app.models import User
+        local = User(email="audited@example.com", name="L", password_hash="x")
+        test_db.add(local)
+        await test_db.commit()
+        records = []
+        handler = logging.Handler()
+        handler.emit = records.append
+        audit = logging.getLogger("token_generator.audit")
+        audit.addHandler(handler)
+        try:
+            req = Request({"type": "http", "method": "PATCH", "path": "/", "query_string": b"",
+                           "headers": [], "client": ("127.0.0.4", 0)})
+            await update_user.__wrapped__(req, local.id, UpdateUserRequest(password="NewPassw0rd"),
+                                          test_admin, test_db)
+        finally:
+            audit.removeHandler(handler)
+        assert any("action=update_user" in r.getMessage() and "password_changed=True" in r.getMessage()
+                   for r in records)

@@ -1,3 +1,4 @@
+import logging
 from datetime import datetime, timedelta, timezone
 from fastapi import APIRouter, Depends, HTTPException, status, Body, Request
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -10,6 +11,7 @@ from app.config import get_config
 from app.rate_limit import limiter, RATE_LIMITS, user_or_ip
 
 router = APIRouter(prefix="/tokens", tags=["tokens"])
+logger = logging.getLogger("token_generator.audit")
 
 # Per signed-in user, so people behind one NAT address do not share a budget.
 TOKEN_READ_LIMIT = RATE_LIMITS.tokens_read
@@ -85,6 +87,8 @@ async def create_token(
     except Exception:
         await db.rollback()
         raise HTTPException(status_code=500, detail="Failed to create token")
+    logger.info("user=%s action=create_token token_id=%s expires_at=%s",
+                user.id, token.id, token.expires_at.isoformat())
 
     return TokenWithValueResponse(
         id=token.id,
@@ -144,6 +148,7 @@ async def revoke_token(
     except Exception:
         await db.rollback()
         raise HTTPException(status_code=500, detail="Failed to revoke token")
+    logger.info("user=%s action=revoke_token token_id=%s", user.id, token.id)
 
     return {"message": "Token revoked successfully"}
 
@@ -170,6 +175,7 @@ async def delete_token(
     except Exception:
         await db.rollback()
         raise HTTPException(status_code=500, detail="Failed to delete token")
+    logger.info("user=%s action=delete_token token_id=%s", user.id, token_id)
 
     return {"message": "Token deleted successfully"}
 
@@ -228,6 +234,8 @@ async def renew_token(
     except Exception:
         await db.rollback()
         raise HTTPException(status_code=500, detail="Failed to renew token")
+    logger.info("user=%s action=renew_token token_id=%s expires_at=%s",
+                user.id, token.id, token.expires_at.isoformat())
 
     return TokenResponse(
         id=token.id,

@@ -18,6 +18,8 @@ class AppConfig(BaseModel):
     api_url: str = "http://localhost:8080"
     secure_cookies: bool = False
     jwt_expiration_hours: int = 24
+    # Level for the token_generator.* audit/account loggers.
+    log_level: str = "INFO"
 
 
 class DatabaseConfig(BaseModel):
