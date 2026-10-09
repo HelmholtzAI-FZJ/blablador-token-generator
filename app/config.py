@@ -20,6 +20,8 @@ class AppConfig(BaseModel):
     jwt_expiration_hours: int = 24
     # Level for the token_generator.* audit/account loggers.
     log_level: str = "INFO"
+    # Largest accepted request body; every endpoint needs only a few KB.
+    max_body_bytes: int = 65536
 
 
 class DatabaseConfig(BaseModel):

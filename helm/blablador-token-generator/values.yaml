@@ -18,7 +18,8 @@ ingress:
   enabled: true
   className: "nginx"
   annotations:
-    nginx.ingress.kubernetes.io/proxy-body-size: "10m"
+    # Every endpoint needs only a few KB; matches app.max_body_bytes.
+    nginx.ingress.kubernetes.io/proxy-body-size: "64k"
   hosts:
     - host: tokens.example.com
       paths:
