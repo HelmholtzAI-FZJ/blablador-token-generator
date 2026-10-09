@@ -14,6 +14,7 @@ class AppConfig(BaseModel):
     api_url: str = "http://localhost:8080"
     secure_cookies: bool = False
     jwt_expiration_hours: int = 24
+    validate_rate_limit: str = "600/minute"
 
 
 class DatabaseConfig(BaseModel):

@@ -13,4 +13,8 @@ RUN mkdir -p /app/data
 
 EXPOSE 8080
 
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8080", "--workers", "2"]
+# Trust X-Forwarded-For only from the ingress so per-IP rate limits see
+# the real client. Set FORWARDED_ALLOW_IPS to the ingress pod CIDR.
+ENV FORWARDED_ALLOW_IPS=127.0.0.1
+
+CMD ["sh", "-c", "exec uvicorn app.main:app --host 0.0.0.0 --port 8080 --workers 2 --proxy-headers --forwarded-allow-ips \"$FORWARDED_ALLOW_IPS\""]

@@ -41,7 +41,7 @@ Last full audit: 2026-08-23. All fixes are committed individually on `main`.
 ### Token validation (bearer)
 | Method | Endpoint                | Rate limit |
 |--------|-------------------------|------------|
-| POST   | `/api/v1/auth/validate` | 30/min     |
+| POST   | `/api/v1/auth/validate` | configurable (default 600/min) |
 
 ## Hardening applied (summary across both audit passes)
 
