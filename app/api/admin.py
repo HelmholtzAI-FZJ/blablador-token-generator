@@ -7,7 +7,9 @@ from sqlalchemy.orm import joinedload
 from pydantic import BaseModel, Field
 from app.database import get_db
 from app.models import User, Token, DeletedUser
-from app.auth import get_current_admin, hash_password, validate_password_strength
+from app.auth import (
+    get_current_admin, hash_password, invalidate_sessions, validate_password_strength,
+)
 from app.rate_limit import limiter
 
 logger = logging.getLogger("token_generator.audit")
@@ -292,13 +294,15 @@ async def update_user(
     if body.password is not None:
         validate_password_strength(body.password)
         user.password_hash = hash_password(body.password)
+        invalidate_sessions(user)
     if body.is_admin is False and await is_last_admin(db, user_id):
         raise HTTPException(
             status_code=400,
             detail="Cannot demote the last remaining admin",
         )
-    if body.is_admin is not None:
+    if body.is_admin is not None and body.is_admin != user.is_admin:
         user.is_admin = body.is_admin
+        invalidate_sessions(user)
 
     try:
         await db.commit()

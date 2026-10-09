@@ -168,7 +168,19 @@ async def get_current_user(
     if user is None:
         raise HTTPException(status_code=302, detail="User not found")
 
+    if payload.get("sep") != user.session_epoch:
+        raise HTTPException(status_code=302, detail="Session expired")
+
     return user
+
+
+def create_session_token(user: User) -> str:
+    return create_access_token(data={"sub": user.id, "sep": user.session_epoch})
+
+
+def invalidate_sessions(user: User) -> None:
+    """End every existing session of the user (takes effect on commit)."""
+    user.session_epoch = (user.session_epoch or 0) + 1
 
 
 async def get_current_admin(
