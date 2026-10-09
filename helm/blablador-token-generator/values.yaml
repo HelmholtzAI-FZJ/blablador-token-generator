@@ -58,6 +58,20 @@ readinessProbe:
 # one rate-limit budget.
 forwardedAllowIps: ""
 
+networkPolicy:
+  # Only the app pods may reach the bundled PostgreSQL and Redis.
+  enabled: true
+  app:
+    # Optionally restrict who may reach the app pods. Enable only with a
+    # "from" list covering every client (ingress controller, API gateway):
+    # on RKE2 the ingress controller may run with hostNetwork, so its
+    # traffic comes from node addresses (use an ipBlock for those).
+    enabled: false
+    from: []
+    # - namespaceSelector:
+    #     matchLabels:
+    #       kubernetes.io/metadata.name: ingress-nginx
+
 # Shared rate-limit counters for all workers and replicas.
 redis:
   enabled: true
