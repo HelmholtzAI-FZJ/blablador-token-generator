@@ -66,6 +66,9 @@ Last full audit: 2026-10-09. All fixes are committed individually on `main`.
 - **Token storage**: HMAC-SHA256 keyed with `token_hash_key`, separate from the
   JWT `secret_key`, so rotating the session key keeps API tokens valid.
 - **DB failure handling**: commit/rollback with friendly 500 on all mutating paths.
+- **Session invalidation**: session JWTs carry the user's `session_epoch`; an
+  admin password reset or admin-role change bumps it, ending all existing
+  sessions of that user immediately.
 - **Last-admin guard**: cannot demote or delete the last remaining admin.
 - **Deletion tombstone**: deleted users are recorded in `deleted_users` so OAuth
   login cannot silently resurrect them; explicit admin re-creation lifts it.
@@ -88,9 +91,6 @@ Last full audit: 2026-10-09. All fixes are committed individually on `main`.
   unverified email, an admin-created local account (no `unity_id`) can still be
   linked by an OAuth user presenting that email, and `admin_emails` promotion
   is only as strong as the IdP's email verification.
-- Changing a password or demoting an admin does not end other sessions of that
-  user (JWTs stay valid until expiry). Needs a per-user session epoch column,
-  which needs a schema migration.
 - Rate limits are in-memory, per worker and per pod (`replicaCount: 2`, 2
   workers), so effective limits are ~4x the configured value. Use a shared
   storage backend (Redis) for slowapi.

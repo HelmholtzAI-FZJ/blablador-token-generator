@@ -482,3 +482,47 @@ class TestSeparateTokenHashKey:
         from app.config import get_config
         legacy = hmac.new(get_config().app.secret_key.encode(), b"tok", hashlib.sha256).hexdigest()
         assert hash_token("tok") != legacy
+
+
+class TestSessionInvalidation:
+    """Password resets and role changes must end existing sessions."""
+
+    @staticmethod
+    def cookie_request(jwt_value: str) -> Request:
+        return Request({
+            "type": "http", "method": "GET", "path": "/", "query_string": b"",
+            "headers": [(b"cookie", f"access_token={jwt_value}".encode())],
+        })
+
+    @pytest.mark.asyncio
+    async def test_session_valid_until_epoch_bumped(self, test_db, test_user):
+        from app.auth import create_session_token, get_current_user, invalidate_sessions
+        session = create_session_token(test_user)
+        assert (await get_current_user(self.cookie_request(session), test_db)).id == test_user.id
+        invalidate_sessions(test_user)
+        await test_db.commit()
+        with pytest.raises(HTTPException) as exc:
+            await get_current_user(self.cookie_request(session), test_db)
+        assert exc.value.status_code == 302
+        fresh = create_session_token(test_user)
+        assert (await get_current_user(self.cookie_request(fresh), test_db)).id == test_user.id
+
+    @pytest.mark.asyncio
+    async def test_token_without_epoch_rejected(self, test_db, test_user):
+        from app.auth import create_access_token, get_current_user
+        old = create_access_token(data={"sub": test_user.id})
+        with pytest.raises(HTTPException):
+            await get_current_user(self.cookie_request(old), test_db)
+
+    @pytest.mark.asyncio
+    async def test_admin_password_reset_and_demotion_bump_epoch(self, test_db, test_user, test_admin):
+        from app.api.admin import update_user, UpdateUserRequest
+        req = Request({"type": "http", "method": "PATCH", "path": "/", "query_string": b"",
+                       "headers": [], "client": ("127.0.0.2", 0)})
+        before = test_user.session_epoch
+        await update_user.__wrapped__(req, test_user.id, UpdateUserRequest(password="NewPassw0rd"), test_admin, test_db)
+        assert test_user.session_epoch == before + 1
+        await update_user.__wrapped__(req, test_user.id, UpdateUserRequest(is_admin=True), test_admin, test_db)
+        assert test_user.session_epoch == before + 2
+        await update_user.__wrapped__(req, test_user.id, UpdateUserRequest(name="Renamed"), test_admin, test_db)
+        assert test_user.session_epoch == before + 2

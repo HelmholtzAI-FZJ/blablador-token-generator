@@ -16,7 +16,7 @@ from app.database import init_db, close_db, get_db
 from app.models import User, Token, DeletedUser
 from app.auth import (
     get_current_user, get_current_admin,
-    get_or_create_user, get_unity_userinfo, create_access_token,
+    get_or_create_user, get_unity_userinfo, create_session_token,
     hash_token, authenticate_local_user,
     decode_access_token, revoke_jwt,
 )
@@ -204,7 +204,7 @@ async def openid_callback(request: Request, code: str | None = None, state: str 
     userinfo = await get_unity_userinfo(code)
     user = await get_or_create_user(userinfo, db)
 
-    access_token = create_access_token(data={"sub": user.id})
+    access_token = create_session_token(user)
     response = RedirectResponse(url="/dashboard", status_code=303)
     response.set_cookie(
         key="access_token",
@@ -419,7 +419,7 @@ async def login_local(
             "error": "Invalid email or password"
         }, status_code=401)
 
-    access_token = create_access_token(data={"sub": user.id})
+    access_token = create_session_token(user)
     response = RedirectResponse(url="/dashboard", status_code=303)
     response.set_cookie(
         key="access_token",
