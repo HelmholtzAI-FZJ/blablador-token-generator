@@ -57,9 +57,10 @@ Last full audit: 2026-10-09. All fixes are committed individually on `main`.
   session cookie TTL now derives from `jwt_expiration_hours`.
 - **XSS**: `escapeHtml` (quotes included) on user-controlled values; values used
   by inline handlers go through `data-*` attributes. CSP header set.
-- **OAuth account linking**: an email match is only linked to an account with no
-  OAuth identity yet; emails flagged `email_verified: false` are never trusted
-  for linking, admin promotion or email updates.
+- **OAuth account linking**: an OAuth login never attaches to an existing
+  account by email; it is refused instead. `admin_emails` only promotes when the
+  provider sends `email_verified: true` (or `oauth.trust_provider_emails` is
+  set); `admin_subjects` promotes by OAuth subject and is preferred.
 - **Container**: non-root user, locked + hash-verified dependencies.
 - **Input bounds**: bearer token capped at 256 chars (header + body);
   admin search capped at 128; `expires_at` parsed with error handling (400, not 500).
@@ -87,10 +88,6 @@ Last full audit: 2026-10-09. All fixes are committed individually on `main`.
 
 ## Open items (2026-10-09 audit)
 
-- Verify what Unity-IDM asserts in `email`/`email_verified`. If users can set an
-  unverified email, an admin-created local account (no `unity_id`) can still be
-  linked by an OAuth user presenting that email, and `admin_emails` promotion
-  is only as strong as the IdP's email verification.
 - Rate limits are in-memory, per worker and per pod (`replicaCount: 2`, 2
   workers), so effective limits are ~4x the configured value. Use a shared
   storage backend (Redis) for slowapi.

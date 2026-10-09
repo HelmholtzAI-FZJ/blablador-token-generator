@@ -410,28 +410,34 @@ class TestOAuthAccountLinking:
         assert exc.value.status_code == 403
 
     @pytest.mark.asyncio
-    async def test_local_account_linked_on_first_oauth_login(self, test_db):
+    async def test_local_account_never_linked(self, test_db):
         from app.auth import get_or_create_user
         from app.models import User
-        local = User(email="local@example.com", name="Local", password_hash="x")
-        test_db.add(local)
+        test_db.add(User(email="local@example.com", name="Local", password_hash="x"))
         await test_db.commit()
-        user = await get_or_create_user(
-            {"sub": "sub-1", "email": "local@example.com"}, test_db
-        )
-        assert user.id == local.id and user.unity_id == "sub-1"
+        with pytest.raises(HTTPException) as exc:
+            await get_or_create_user(
+                {"sub": "s", "email": "local@example.com", "email_verified": True}, test_db
+            )
+        assert exc.value.status_code == 403
 
     @pytest.mark.asyncio
-    async def test_unverified_email_not_linked(self, test_db):
-        from app.auth import get_or_create_user
-        from app.models import User
-        test_db.add(User(email="local2@example.com", name="L", password_hash="x"))
-        await test_db.commit()
-        with pytest.raises(HTTPException):
-            await get_or_create_user(
-                {"sub": "s", "email": "local2@example.com", "email_verified": False},
-                test_db,
-            )
+    async def test_admin_email_requires_verified_email(self, test_db, monkeypatch):
+        from app.auth import get_or_create_user, config
+        monkeypatch.setattr(config.admin, "admin_emails", ["boss@example.com"])
+        user = await get_or_create_user({"sub": "s1", "email": "boss@example.com"}, test_db)
+        assert not user.is_admin
+        user = await get_or_create_user(
+            {"sub": "s1", "email": "boss@example.com", "email_verified": True}, test_db
+        )
+        assert user.is_admin
+
+    @pytest.mark.asyncio
+    async def test_admin_subject_promotes(self, test_db, monkeypatch):
+        from app.auth import get_or_create_user, config
+        monkeypatch.setattr(config.admin, "admin_subjects", ["sub-admin"])
+        user = await get_or_create_user({"sub": "sub-admin", "email": "x@example.com"}, test_db)
+        assert user.is_admin
 
 
 class TestValidateLocalUserTombstones:

@@ -32,6 +32,9 @@ class OAuthConfig(BaseModel):
     userinfo_url: str = ""
     redirect_uri: str = ""
     scopes: List[str] = []
+    # Treat the provider's email as verified even without an
+    # email_verified=true claim. Only enable if the IdP guarantees it.
+    trust_provider_emails: bool = False
 
 
 class TokenConfig(BaseModel):
@@ -53,6 +56,7 @@ class LocalAuthConfig(BaseModel):
 
 class AdminConfig(BaseModel):
     admin_emails: List[str] = []
+    admin_subjects: List[str] = []
 
 
 class ModelConfig(BaseModel):
