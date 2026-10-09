@@ -13,7 +13,7 @@ from app.auth import (
 from app.rate_limit import limiter
 
 logger = logging.getLogger("token_generator.audit")
-router = APIRouter(prefix="/admin", tags=["admin"])
+router = APIRouter(prefix="/api/admin", tags=["admin"])
 
 ADMIN_RATE_LIMIT = "60/minute"
 MAX_PAGE_SIZE = 100
@@ -100,6 +100,34 @@ async def list_all_tokens(
     ]
 
 
+@router.delete("/tokens/revoked")
+@limiter.limit(ADMIN_RATE_LIMIT)
+async def delete_revoked_tokens(
+    request: Request,
+    admin: User = Depends(get_current_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(select(Token).where(Token.revoked_at.isnot(None)))
+    tokens = result.scalars().all()
+
+    count = 0
+    for token in tokens:
+        await db.delete(token)
+        count += 1
+
+    try:
+        await db.commit()
+    except Exception:
+        await db.rollback()
+        raise HTTPException(status_code=500, detail="Failed to delete revoked tokens")
+    logger.info(
+        "admin=%s action=delete_revoked_tokens count=%d",
+        admin.id,
+        count,
+    )
+    return {"message": f"Deleted {count} revoked tokens"}
+
+
 @router.delete("/tokens/{token_id}")
 @limiter.limit(ADMIN_RATE_LIMIT)
 async def revoke_token_admin(
@@ -156,34 +184,6 @@ async def delete_token_admin(
         token.user_id,
     )
     return {"message": "Token deleted successfully"}
-
-
-@router.delete("/tokens/revoked")
-@limiter.limit(ADMIN_RATE_LIMIT)
-async def delete_revoked_tokens(
-    request: Request,
-    admin: User = Depends(get_current_admin),
-    db: AsyncSession = Depends(get_db),
-):
-    result = await db.execute(select(Token).where(Token.revoked_at.isnot(None)))
-    tokens = result.scalars().all()
-
-    count = 0
-    for token in tokens:
-        await db.delete(token)
-        count += 1
-
-    try:
-        await db.commit()
-    except Exception:
-        await db.rollback()
-        raise HTTPException(status_code=500, detail="Failed to delete revoked tokens")
-    logger.info(
-        "admin=%s action=delete_revoked_tokens count=%d",
-        admin.id,
-        count,
-    )
-    return {"message": f"Deleted {count} revoked tokens"}
 
 
 @router.get("/users", response_model=list[UserResponse])
