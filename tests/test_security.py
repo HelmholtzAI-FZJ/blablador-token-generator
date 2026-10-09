@@ -125,15 +125,16 @@ class TestTimingSafeComparison:
     def test_oauth_state_uses_constant_time_comparison(self):
         """OAuth state check must use secrets.compare_digest to prevent timing attacks."""
         import inspect
-        from app.main import openid_callback
-        source = inspect.getsource(openid_callback)
-        assert "compare_digest" in source
+        from app.main import openid_callback, secure_equals
+        assert "compare_digest" in inspect.getsource(secure_equals)
+        assert "secure_equals" in inspect.getsource(openid_callback)
 
     def test_csrf_uses_constant_time_comparison(self):
         """CSRF validation must use secrets.compare_digest to prevent timing attacks."""
         import inspect
-        from app.main import admin_token_search, form_csrf_valid, login_local
-        assert "compare_digest" in inspect.getsource(form_csrf_valid)
+        from app.main import admin_token_search, csrf_middleware, form_csrf_valid, login_local
+        assert "secure_equals" in inspect.getsource(form_csrf_valid)
+        assert "secure_equals" in inspect.getsource(csrf_middleware)
         assert "form_csrf_valid" in inspect.getsource(login_local)
         assert "form_csrf_valid" in inspect.getsource(admin_token_search)
 
@@ -815,3 +816,25 @@ class TestBodySizeLimit:
         r = client.post("/tokens", json={"name": "ok"}, headers={"X-CSRF-Token": "c"},
                         follow_redirects=False)
         assert r.status_code not in (400, 413)
+
+
+class TestNonAsciiSecrets:
+    """Non-ASCII input to secret comparisons must be rejected, not crash."""
+
+    def test_csrf_header(self):
+        client = TestClient(app, raise_server_exceptions=False)
+        client.cookies.set("csrf_token", "abc")
+        r = client.post("/tokens", json={}, headers={"X-CSRF-Token": "é".encode()})
+        assert r.status_code == 403
+
+    def test_oauth_state(self):
+        client = TestClient(app, raise_server_exceptions=False)
+        client.cookies.set("oauth_state", "abc")
+        r = client.get("/oauth/openid/callback", params={"state": "é", "code": "x"})
+        assert r.status_code == 400
+
+    def test_form_csrf_field(self):
+        client = TestClient(app, raise_server_exceptions=False)
+        client.cookies.set("csrf_token", "abc")
+        r = client.post("/login/local", data={"email": "a@b.c", "password": "x", "csrf_token": "é"})
+        assert r.status_code == 403

@@ -76,6 +76,12 @@ templates.env.globals['now'] = datetime.utcnow
 # State-changing requests must send the cookie value in the X-CSRF-Token
 # header (fetch API) or as a "csrf_token" form field (plain HTML forms).
 SAFE_METHODS = {"GET", "HEAD", "OPTIONS", "TRACE"}
+
+
+def secure_equals(a: str, b: str) -> bool:
+    """Constant-time comparison; compare_digest raises on non-ASCII str."""
+    return compare_digest(a.encode(), b.encode())
+
 FORM_CSRF_PATHS = {"/login/local", "/admin/tokens/search"}
 BEARER_PATH_PREFIX = "/api/v1/"
 
@@ -112,7 +118,7 @@ async def csrf_middleware(request: Request, call_next):
 
     if header_token:
         # Fetch API: header must match cookie
-        if not cookie_token or not compare_digest(cookie_token, header_token):
+        if not cookie_token or not secure_equals(cookie_token, header_token):
             return JSONResponse(
                 status_code=403,
                 content={"detail": "CSRF token missing or invalid"}
@@ -208,7 +214,7 @@ async def openid_callback(request: Request, code: str | None = None, state: str 
 
     # Verify OAuth state to prevent login CSRF
     cookie_state = request.cookies.get("oauth_state")
-    if not state or not cookie_state or not compare_digest(state, cookie_state):
+    if not state or not cookie_state or not secure_equals(state, cookie_state):
         raise HTTPException(status_code=400, detail="Invalid OAuth state")
 
     if not code:
@@ -261,7 +267,7 @@ async def dashboard(
 def form_csrf_valid(request: Request, submitted: str) -> bool:
     """Check a csrf_token form field against the cookie (for FORM_CSRF_PATHS)."""
     cookie_token = request.cookies.get("csrf_token")
-    return bool(cookie_token) and compare_digest(submitted, cookie_token)
+    return bool(cookie_token) and secure_equals(submitted, cookie_token)
 
 
 def render_admin_tokens(request: Request, admin: User, tokens: list[Token], searched: bool):
