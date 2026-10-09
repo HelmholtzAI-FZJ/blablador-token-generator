@@ -7,6 +7,7 @@ from starlette.requests import Request
 
 from app.auth import decode_access_token
 from app.config import get_config
+from app.cookies import SESSION_COOKIE
 
 RATE_LIMITS = get_config().rate_limits
 _TOKEN_VALIDATION_EXEMPT = [
@@ -35,7 +36,7 @@ def user_or_ip(request: Request) -> str:
 
     Users behind one NAT address must not share a budget.
     """
-    session = request.cookies.get("access_token")
+    session = request.cookies.get(SESSION_COOKIE)
     if session:
         try:
             return f"user:{decode_access_token(session)['sub']}"

@@ -25,6 +25,9 @@ from app.api import tokens, validate, admin
 from app.rate_limit import limiter, RATE_LIMITS, user_or_ip
 from app.logging_config import configure_logging
 from app.body_limit import BodySizeLimitMiddleware
+from app.cookies import (
+    CSRF_COOKIE, OAUTH_STATE_COOKIE, SESSION_COOKIE, delete_cookie, set_cookie,
+)
 
 config = get_config()
 configure_logging(config.app.log_level)
@@ -72,9 +75,10 @@ templates.env.globals['now'] = datetime.utcnow
 
 
 # CSRF protection: double-submit cookie pattern.
-# Safe methods (GET, HEAD, OPTIONS, TRACE) receive a csrf_token cookie.
-# State-changing requests must send the cookie value in the X-CSRF-Token
-# header (fetch API) or as a "csrf_token" form field (plain HTML forms).
+# Safe methods (GET, HEAD, OPTIONS, TRACE) receive an HttpOnly CSRF cookie;
+# pages expose the same value in <meta name="csrf-token"> for scripts.
+# State-changing requests must send it in the X-CSRF-Token header (fetch
+# API) or as a "csrf_token" form field (plain HTML forms).
 SAFE_METHODS = {"GET", "HEAD", "OPTIONS", "TRACE"}
 
 
@@ -95,7 +99,7 @@ async def csrf_middleware(request: Request, call_next):
     if authorization.startswith("Bearer ") and request.url.path.startswith(BEARER_PATH_PREFIX):
         return await call_next(request)
 
-    cookie_token = request.cookies.get("csrf_token")
+    cookie_token = request.cookies.get(CSRF_COOKIE)
     # Pages render this value into forms, so on a first visit the form
     # token matches the cookie set on the same response.
     request.state.csrf_token = cookie_token or _secrets.token_hex(32)
@@ -103,14 +107,7 @@ async def csrf_middleware(request: Request, call_next):
     if request.method in SAFE_METHODS:
         response = await call_next(request)
         if not cookie_token:
-            response.set_cookie(
-                key="csrf_token",
-                value=request.state.csrf_token,
-                httponly=False,
-                samesite="lax",
-                secure=config.app.secure_cookies,
-                path="/",
-            )
+            set_cookie(response, CSRF_COOKIE, request.state.csrf_token)
         return response
 
     # State-changing request: validate CSRF token
@@ -194,15 +191,7 @@ async def login(request: Request):
     # Generate a random state and store it in a short-lived cookie
     state = _secrets.token_hex(16)
     response = RedirectResponse(get_oauth_login_url(state))
-    response.set_cookie(
-        key="oauth_state",
-        value=state,
-        httponly=True,
-        samesite="lax",
-        secure=config.app.secure_cookies,
-        path="/",
-        max_age=300  # 5 minutes
-    )
+    set_cookie(response, OAUTH_STATE_COOKIE, state, max_age=300)
     return response
 
 
@@ -213,7 +202,7 @@ async def openid_callback(request: Request, code: str | None = None, state: str 
         return {"detail": "OAuth authentication failed"}
 
     # Verify OAuth state to prevent login CSRF
-    cookie_state = request.cookies.get("oauth_state")
+    cookie_state = request.cookies.get(OAUTH_STATE_COOKIE)
     if not state or not cookie_state or not secure_equals(state, cookie_state):
         raise HTTPException(status_code=400, detail="Invalid OAuth state")
 
@@ -224,19 +213,10 @@ async def openid_callback(request: Request, code: str | None = None, state: str 
     user = await get_or_create_user(userinfo, db)
     _audit.info("user=%s action=login method=oauth", user.id)
 
-    access_token = create_session_token(user)
     response = RedirectResponse(url="/dashboard", status_code=303)
-    response.set_cookie(
-        key="access_token",
-        value=access_token,
-        httponly=True,
-        samesite="lax",
-        secure=config.app.secure_cookies,
-        path="/",
-        max_age=config.app.jwt_expiration_hours * 3600
-    )
-    # Clear the OAuth state cookie
-    response.delete_cookie("oauth_state", path="/")
+    set_cookie(response, SESSION_COOKIE, create_session_token(user),
+               max_age=config.app.jwt_expiration_hours * 3600)
+    delete_cookie(response, OAUTH_STATE_COOKIE)
     return response
 
 
@@ -266,7 +246,7 @@ async def dashboard(
 
 def form_csrf_valid(request: Request, submitted: str) -> bool:
     """Check a csrf_token form field against the cookie (for FORM_CSRF_PATHS)."""
-    cookie_token = request.cookies.get("csrf_token")
+    cookie_token = request.cookies.get(CSRF_COOKIE)
     return bool(cookie_token) and secure_equals(submitted, cookie_token)
 
 
@@ -326,7 +306,7 @@ async def admin_token_search(
 @limiter.limit(RATE_LIMITS.session, key_func=user_or_ip)
 async def logout(request: Request, db: AsyncSession = Depends(get_db)):
     # Revoke the JWT so it can't be replayed after logout
-    token = request.cookies.get("access_token")
+    token = request.cookies.get(SESSION_COOKIE)
     if token:
         try:
             payload = decode_access_token(token)
@@ -335,7 +315,7 @@ async def logout(request: Request, db: AsyncSession = Depends(get_db)):
             pass  # Token is invalid, proceed with logout anyway
 
     response = JSONResponse(status_code=200, content={"detail": "Logged out"})
-    response.delete_cookie("access_token")
+    delete_cookie(response, SESSION_COOKIE)
     return response
 
 
@@ -387,7 +367,7 @@ async def delete_my_account(
         status_code=200,
         content={"detail": "Account deleted. All tokens have been revoked."},
     )
-    response.delete_cookie("access_token")
+    delete_cookie(response, SESSION_COOKIE)
     return response
 
 
@@ -433,17 +413,9 @@ async def login_local(
         }, status_code=401)
 
     _audit.info("user=%s action=login method=local", user.id)
-    access_token = create_session_token(user)
     response = RedirectResponse(url="/dashboard", status_code=303)
-    response.set_cookie(
-        key="access_token",
-        value=access_token,
-        httponly=True,
-        samesite="lax",
-        secure=config.app.secure_cookies,
-        path="/",
-        max_age=config.app.jwt_expiration_hours * 3600
-    )
+    set_cookie(response, SESSION_COOKIE, create_session_token(user),
+               max_age=config.app.jwt_expiration_hours * 3600)
     return response
 
 
