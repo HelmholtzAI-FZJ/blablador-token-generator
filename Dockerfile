@@ -2,10 +2,13 @@ FROM python:3.12-slim
 
 WORKDIR /app
 
-RUN pip install uv
+RUN pip install --no-cache-dir uv==0.11.21
 
-COPY pyproject.toml ./
-RUN uv pip install --system -e .
+# Install exactly the locked, hash-verified dependency set.
+COPY pyproject.toml uv.lock ./
+RUN uv export --frozen --no-dev --no-emit-project -o /tmp/requirements.txt \
+    && uv pip install --system --require-hashes -r /tmp/requirements.txt \
+    && rm /tmp/requirements.txt
 
 COPY . .
 
