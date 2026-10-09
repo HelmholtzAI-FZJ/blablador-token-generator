@@ -53,6 +53,8 @@ Last full audit: 2026-10-09. All fixes are committed individually on `main`.
 - **Rate limiting**: every endpoint has a limit; per-IP via slowapi. The client
   IP comes from `X-Forwarded-For` only when sent by `FORWARDED_ALLOW_IPS`
   (set it to the ingress controller's pod CIDR).
+  Counters are stored in Redis (`rate_limit_storage_uri`) so limits hold
+  across workers and replicas.
 - **Cookies**: `HttpOnly`, `SameSite=lax`, `Secure` (configurable, on by default in Helm);
   session cookie TTL now derives from `jwt_expiration_hours`.
 - **XSS**: `escapeHtml` (quotes included) on user-controlled values; values used
@@ -88,9 +90,6 @@ Last full audit: 2026-10-09. All fixes are committed individually on `main`.
 
 ## Open items (2026-10-09 audit)
 
-- Rate limits are in-memory, per worker and per pod (`replicaCount: 2`, 2
-  workers), so effective limits are ~4x the configured value. Use a shared
-  storage backend (Redis) for slowapi.
 - SQLite on a `ReadWriteOnce` PVC with `replicaCount: 2`: the second pod cannot
   mount the volume on another node, and concurrent writers will hit locks. Use
   PostgreSQL or a single replica.

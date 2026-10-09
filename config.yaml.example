@@ -19,6 +19,10 @@ app:
   # Per-client-IP limit for POST /api/v1/auth/validate. The API gateway
   # usually calls this from a single IP on behalf of all users.
   validate_rate_limit: "600/minute"
+  # Where rate-limit counters are stored. "memory://" is per process, so with
+  # several workers or replicas use Redis, e.g. "redis://:password@redis:6379/0".
+  # Env override: RATE_LIMIT_STORAGE_URI.
+  rate_limit_storage_uri: "memory://"
 
 database:
   url: "sqlite+aiosqlite:///./tokens.db"

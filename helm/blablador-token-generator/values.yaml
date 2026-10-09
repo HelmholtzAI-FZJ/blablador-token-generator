@@ -54,6 +54,22 @@ readinessProbe:
 # Source IPs (ingress controller pods) allowed to set X-Forwarded-For.
 forwardedAllowIps: "127.0.0.1"
 
+# Shared rate-limit counters for all workers and replicas.
+redis:
+  enabled: true
+  # Required; generate with: openssl rand -hex 32
+  password: ""
+  image:
+    repository: redis
+    tag: "7.4-alpine"
+  resources:
+    limits:
+      cpu: 200m
+      memory: 128Mi
+    requests:
+      cpu: 50m
+      memory: 64Mi
+
 persistence:
   enabled: true
   storageClass: ""

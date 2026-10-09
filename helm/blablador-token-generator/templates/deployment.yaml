@@ -54,6 +54,13 @@ spec:
               value: /app/config/config.yaml
             - name: FORWARDED_ALLOW_IPS
               value: {{ .Values.forwardedAllowIps | quote }}
+            {{- if .Values.redis.enabled }}
+            - name: RATE_LIMIT_STORAGE_URI
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "blablador-token-generator.fullname" . }}-redis
+                  key: storage-uri
+            {{- end }}
           ports:
             - name: http
               containerPort: {{ .Values.service.targetPort }}
