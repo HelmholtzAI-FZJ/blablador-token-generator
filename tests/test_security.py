@@ -1045,3 +1045,24 @@ class TestSecureDefaults:
         from app import database
         assert database.engine is not None
         assert database.engine.sync_engine.hide_parameters is True
+
+
+class TestTokenLimits:
+    @pytest.mark.asyncio
+    async def test_tokens_per_user_capped(self, test_db, test_user, monkeypatch):
+        from app.api.tokens import CreateTokenRequest, create_token
+        from app.config import get_config
+        monkeypatch.setattr(get_config().tokens, "max_tokens_per_user", 2)
+        req = Request({"type": "http", "method": "POST", "path": "/tokens", "query_string": b"",
+                       "headers": [], "client": ("127.0.0.6", 0)})
+        for i in range(2):
+            await create_token.__wrapped__(req, CreateTokenRequest(name=f"t{i}"), test_user, test_db)
+        with pytest.raises(HTTPException) as exc:
+            await create_token.__wrapped__(req, CreateTokenRequest(name="t2"), test_user, test_db)
+        assert exc.value.status_code == 400
+
+    def test_short_tokens_rejected_in_config(self):
+        from pydantic import ValidationError
+        from app.config import TokenConfig
+        with pytest.raises(ValidationError):
+            TokenConfig(token_length_bytes=8)

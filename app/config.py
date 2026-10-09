@@ -2,7 +2,7 @@ import yaml
 from ipaddress import ip_network
 from pathlib import Path
 from functools import lru_cache
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, Field, field_validator
 from typing import ClassVar, List
 
 
@@ -48,8 +48,11 @@ class OAuthConfig(BaseModel):
 class TokenConfig(BaseModel):
     default_expiration_days: int = 90
     max_expiration_days: int = 365
-    token_length_bytes: int = 32
+    # Random bytes per token; below 16 tokens become guessable.
+    token_length_bytes: int = Field(32, ge=16)
     token_prefix: str = "blablador"
+    # Tokens a user may hold (active, expired or revoked) before deleting some.
+    max_tokens_per_user: int = Field(100, ge=1)
 
 
 class LoginConfig(BaseModel):
