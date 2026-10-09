@@ -10,12 +10,12 @@ from app.models import User, Token, DeletedUser
 from app.auth import (
     get_current_admin, hash_password, invalidate_sessions, validate_password_strength,
 )
-from app.rate_limit import limiter
+from app.rate_limit import limiter, RATE_LIMITS, user_or_ip
 
 logger = logging.getLogger("token_generator.audit")
 router = APIRouter(prefix="/api/admin", tags=["admin"])
 
-ADMIN_RATE_LIMIT = "60/minute"
+ADMIN_RATE_LIMIT = RATE_LIMITS.admin
 MAX_PAGE_SIZE = 100
 
 
@@ -66,7 +66,7 @@ class UpdateUserRequest(BaseModel):
 
 
 @router.get("/tokens", response_model=list[AdminTokenResponse])
-@limiter.limit(ADMIN_RATE_LIMIT)
+@limiter.limit(ADMIN_RATE_LIMIT, key_func=user_or_ip)
 async def list_all_tokens(
     request: Request,
     page: int = Query(1, ge=1),
@@ -101,7 +101,7 @@ async def list_all_tokens(
 
 
 @router.delete("/tokens/revoked")
-@limiter.limit(ADMIN_RATE_LIMIT)
+@limiter.limit(ADMIN_RATE_LIMIT, key_func=user_or_ip)
 async def delete_revoked_tokens(
     request: Request,
     admin: User = Depends(get_current_admin),
@@ -129,7 +129,7 @@ async def delete_revoked_tokens(
 
 
 @router.delete("/tokens/{token_id}")
-@limiter.limit(ADMIN_RATE_LIMIT)
+@limiter.limit(ADMIN_RATE_LIMIT, key_func=user_or_ip)
 async def revoke_token_admin(
     request: Request,
     token_id: str,
@@ -158,7 +158,7 @@ async def revoke_token_admin(
 
 
 @router.delete("/tokens/{token_id}/permanent")
-@limiter.limit(ADMIN_RATE_LIMIT)
+@limiter.limit(ADMIN_RATE_LIMIT, key_func=user_or_ip)
 async def delete_token_admin(
     request: Request,
     token_id: str,
@@ -187,7 +187,7 @@ async def delete_token_admin(
 
 
 @router.get("/users", response_model=list[UserResponse])
-@limiter.limit(ADMIN_RATE_LIMIT)
+@limiter.limit(ADMIN_RATE_LIMIT, key_func=user_or_ip)
 async def list_users(
     request: Request,
     page: int = Query(1, ge=1),
@@ -219,7 +219,7 @@ async def list_users(
 
 
 @router.post("/users", response_model=UserResponse)
-@limiter.limit(ADMIN_RATE_LIMIT)
+@limiter.limit(ADMIN_RATE_LIMIT, key_func=user_or_ip)
 async def create_user(
     request: Request,
     body: CreateUserRequest,
@@ -276,7 +276,7 @@ async def create_user(
 
 
 @router.patch("/users/{user_id}", response_model=UserResponse)
-@limiter.limit(ADMIN_RATE_LIMIT)
+@limiter.limit(ADMIN_RATE_LIMIT, key_func=user_or_ip)
 async def update_user(
     request: Request,
     user_id: str,
@@ -329,7 +329,7 @@ async def update_user(
 
 
 @router.delete("/users/{user_id}")
-@limiter.limit(ADMIN_RATE_LIMIT)
+@limiter.limit(ADMIN_RATE_LIMIT, key_func=user_or_ip)
 async def delete_user(
     request: Request,
     user_id: str,

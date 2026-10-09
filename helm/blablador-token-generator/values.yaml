@@ -51,8 +51,11 @@ readinessProbe:
   initialDelaySeconds: 5
   periodSeconds: 10
 
-# Source IPs (ingress controller pods) allowed to set X-Forwarded-For.
-forwardedAllowIps: "127.0.0.1"
+# Required. Source IPs/CIDRs allowed to set X-Forwarded-For: the ingress
+# controller's pod CIDR (or "127.0.0.1" if nothing proxies the pods).
+# Without it every client appears as the ingress pod and all users share
+# one rate-limit budget.
+forwardedAllowIps: ""
 
 # Shared rate-limit counters for all workers and replicas.
 redis:
@@ -109,7 +112,6 @@ config:
     debug: false
     api_url: "https://tokens.example.com"
     secure_cookies: true
-    validate_rate_limit: "600/minute"
   database:
     url: "sqlite+aiosqlite:///./data/tokens.db"
   oauth:
@@ -131,6 +133,19 @@ config:
     default_expiration_days: 365
     max_expiration_days: 365
     token_length_bytes: 32
+  # Counter storage comes from the bundled Redis (see "redis" above).
+  rate_limits:
+    pages: "120/minute"
+    oauth_callback: "60/minute"
+    local_login: "10/minute"
+    tokens_read: "60/minute"
+    tokens_write: "30/minute"
+    session: "30/minute"
+    account_delete: "5/minute"
+    admin: "120/minute"
+    token_validation: "600/minute"
+    # API gateway addresses/CIDRs that are never rate limited on validate.
+    token_validation_exempt: []
   admin:
     admin_subjects: []
     admin_emails: []

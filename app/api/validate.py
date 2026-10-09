@@ -8,8 +8,7 @@ import logging as _logging
 from app.database import get_db
 from app.models import Token, User, DeletedUser
 from app.auth import hash_token
-from app.config import get_config
-from app.rate_limit import limiter
+from app.rate_limit import limiter, RATE_LIMITS, is_token_validation_exempt
 
 router = APIRouter(prefix="/api/v1/auth", tags=["auth"])
 
@@ -39,7 +38,7 @@ async def extract_bearer_token(authorization: str | None = Header(None)) -> str 
 
 
 @router.post("/validate", response_model=ValidateResponse)
-@limiter.limit(get_config().app.validate_rate_limit)
+@limiter.limit(RATE_LIMITS.token_validation, exempt_when=is_token_validation_exempt)
 async def validate_token(
     request: Request,
     bearer_token: str = Depends(extract_bearer_token),

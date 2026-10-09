@@ -659,3 +659,50 @@ class TestRateLimitStorageOutage:
         client = TestClient(mini)
         statuses = [client.get("/limited").status_code for _ in range(4)]
         assert statuses == [200, 200, 200, 429]
+
+
+class TestRateLimitKeys:
+    """NAT users get separate budgets; the API gateway can be exempted."""
+
+    @staticmethod
+    def request_from(host: str, cookie: str | None = None) -> Request:
+        headers = [(b"cookie", f"access_token={cookie}".encode())] if cookie else []
+        return Request({"type": "http", "method": "GET", "path": "/", "query_string": b"",
+                        "headers": headers, "client": (host, 0)})
+
+    def test_authenticated_requests_are_keyed_by_user(self):
+        from app.auth import create_access_token
+        from app.rate_limit import user_or_ip
+        session = create_access_token({"sub": "user-a", "sep": 0})
+        assert user_or_ip(self.request_from("10.0.0.1", session)) == "user:user-a"
+        assert user_or_ip(self.request_from("10.0.0.1", "forged")) == "10.0.0.1"
+        assert user_or_ip(self.request_from("10.0.0.1")) == "10.0.0.1"
+
+    def test_gateway_exempt_from_token_validation_limit(self, monkeypatch):
+        from ipaddress import ip_network
+        from fastapi import FastAPI
+        from slowapi import _rate_limit_exceeded_handler
+        from slowapi.errors import RateLimitExceeded
+        import app.rate_limit as rl
+
+        monkeypatch.setattr(rl, "_TOKEN_VALIDATION_EXEMPT", [ip_network("10.43.0.0/16")])
+        limiter = rl.build_limiter("memory://")
+        mini = FastAPI()
+        mini.state.limiter = limiter
+        mini.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+        @mini.post("/validate")
+        @limiter.limit("2/minute", exempt_when=rl.is_token_validation_exempt)
+        async def validate(request: Request):
+            return {"ok": True}
+
+        gateway = TestClient(mini, client=("10.43.7.9", 1234))
+        assert {gateway.post("/validate").status_code for _ in range(5)} == {200}
+        outsider = TestClient(mini, client=("192.0.2.10", 1234))
+        assert [outsider.post("/validate").status_code for _ in range(3)] == [200, 200, 429]
+
+    def test_invalid_exempt_network_rejected(self):
+        from pydantic import ValidationError
+        from app.config import RateLimitConfig
+        with pytest.raises(ValidationError):
+            RateLimitConfig(token_validation_exempt=["not-a-network"])

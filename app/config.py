@@ -1,7 +1,8 @@
 import yaml
+from ipaddress import ip_network
 from pathlib import Path
 from functools import lru_cache
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 from typing import ClassVar, List
 
 
@@ -17,9 +18,6 @@ class AppConfig(BaseModel):
     api_url: str = "http://localhost:8080"
     secure_cookies: bool = False
     jwt_expiration_hours: int = 24
-    validate_rate_limit: str = "600/minute"
-    # "memory://" is per process; use redis://... with multiple workers/pods.
-    rate_limit_storage_uri: str = "memory://"
 
 
 class DatabaseConfig(BaseModel):
@@ -56,6 +54,34 @@ class LocalAuthConfig(BaseModel):
     allow_registration: bool = False
 
 
+class RateLimitConfig(BaseModel):
+    # Counter storage. "memory://" is per process; use Redis
+    # ("redis://:password@host:6379/0") with several workers or replicas.
+    storage_uri: str = "memory://"
+    # Unauthenticated endpoints, per client IP. Many users can share one
+    # address (campus NAT, VPN, a course), so these are generous.
+    pages: str = "120/minute"
+    oauth_callback: str = "60/minute"
+    local_login: str = "10/minute"
+    # Authenticated endpoints, per signed-in user.
+    tokens_read: str = "60/minute"
+    tokens_write: str = "30/minute"
+    session: str = "30/minute"
+    account_delete: str = "5/minute"
+    admin: str = "120/minute"
+    # Token validation, per client IP. Addresses or CIDRs listed in
+    # token_validation_exempt (e.g. the API gateway) are not limited.
+    token_validation: str = "600/minute"
+    token_validation_exempt: List[str] = []
+
+    @field_validator("token_validation_exempt")
+    @classmethod
+    def _check_networks(cls, value: List[str]) -> List[str]:
+        for entry in value:
+            ip_network(entry, strict=False)
+        return value
+
+
 class AdminConfig(BaseModel):
     admin_emails: List[str] = []
     admin_subjects: List[str] = []
@@ -81,6 +107,7 @@ class Config(BaseModel):
     login: LoginConfig = LoginConfig()
     local: LocalAuthConfig = LocalAuthConfig()
     tokens: TokenConfig = TokenConfig()
+    rate_limits: RateLimitConfig = RateLimitConfig()
     admin: AdminConfig = AdminConfig()
     blablador: BlabladorConfig = BlabladorConfig()
 
@@ -146,7 +173,7 @@ def get_config() -> Config:
 
     rate_limit_storage_uri = os.environ.get("RATE_LIMIT_STORAGE_URI")
     if rate_limit_storage_uri:
-        config.app.rate_limit_storage_uri = rate_limit_storage_uri
+        config.rate_limits.storage_uri = rate_limit_storage_uri
 
     token_hash_key = os.environ.get("TOKEN_HASH_KEY")
     if token_hash_key:
