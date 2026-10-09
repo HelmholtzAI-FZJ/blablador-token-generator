@@ -9,7 +9,7 @@ from fastapi import HTTPException, status, Depends, Request, Form
 from fastapi.responses import RedirectResponse
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from app.config import get_config
 from app.cookies import SESSION_COOKIE
 from app.database import get_db
@@ -134,7 +134,11 @@ def decode_access_token(token: str) -> dict:
 
 
 async def revoke_jwt(payload: dict, db: AsyncSession) -> None:
-    """Add a JWT's jti to the revocation blacklist."""
+    """Add a JWT's jti to the revocation blacklist.
+
+    Entries for sessions that have expired anyway are purged on the way, so
+    the table only ever holds still-valid revoked sessions.
+    """
     jti = payload.get("jti")
     if not jti:
         return
@@ -143,6 +147,7 @@ async def revoke_jwt(payload: dict, db: AsyncSession) -> None:
     existing = await db.execute(select(RevokedJWT).where(RevokedJWT.jti == jti))
     if existing.scalar_one_or_none() is None:
         try:
+            await db.execute(delete(RevokedJWT).where(RevokedJWT.expires_at < datetime.utcnow()))
             db.add(RevokedJWT(
                 jti=jti,
                 user_id=payload.get("sub", ""),

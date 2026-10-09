@@ -993,3 +993,20 @@ class TestTombstonePrivacy:
             email="Former-Local@example.com", name="F", password="Passw0rdOK"), test_admin, test_db)
         assert not await is_user_deleted(test_db, local)
         assert (await test_db.execute(select(func.count()).select_from(DeletedUser))).scalar_one() == 1
+
+
+class TestRevokedSessionPurge:
+    """Revocation entries for already-expired sessions are removed."""
+
+    @pytest.mark.asyncio
+    async def test_expired_entries_purged_on_logout(self, test_db, test_user):
+        from datetime import datetime, timedelta
+        from app.auth import create_session_token, decode_access_token, revoke_jwt
+        from app.models import RevokedJWT
+        test_db.add(RevokedJWT(jti="old", user_id=test_user.id,
+                               expires_at=datetime.utcnow() - timedelta(hours=1)))
+        await test_db.commit()
+        payload = decode_access_token(create_session_token(test_user))
+        await revoke_jwt(payload, test_db)
+        jtis = set((await test_db.execute(select(RevokedJWT.jti))).scalars().all())
+        assert jtis == {payload["jti"]}
