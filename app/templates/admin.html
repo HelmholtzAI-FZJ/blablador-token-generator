@@ -89,14 +89,14 @@
         <div class="header-right">
             <span>{{ user.name }} ({{ user.email }})</span>
             <a href="/dashboard" style="color: #f39c12; font-weight: bold;">Dashboard</a>
-            <a href="/logout" onclick="event.preventDefault(); fetch('/logout',{method:'POST',headers:{'X-CSRF-Token':getCsrfToken()}}).then(()=>window.location.href='/');" style="color: white; text-decoration: none; cursor: pointer;">Logout</a>
+            <a href="/logout" data-action="logout" style="color: white; text-decoration: none; cursor: pointer;">Logout</a>
         </div>
     </header>
     
     <div class="container">
         <div class="tabs">
-            <div class="tab active" onclick="switchTab('tokens')">Tokens</div>
-            <div class="tab" onclick="switchTab('users')">Users</div>
+            <div class="tab active" data-action="switch-tab" data-tab="tokens">Tokens</div>
+            <div class="tab" data-action="switch-tab" data-tab="users">Users</div>
         </div>
 
         <div id="tokens-tab" class="tab-content active">
@@ -111,7 +111,7 @@
                         <a href="/admin/tokens" class="btn" style="background: #95a5a6;">Clear</a>
                         {% endif %}
                     </form>
-                    <button class="btn btn-danger" onclick="deleteRevokedTokens()"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg> Delete Revoked</button>
+                    <button class="btn btn-danger" data-action="delete-revoked"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg> Delete Revoked</button>
                 </div>
                 {% if searched %}
                 <p style="margin-bottom: 1rem; color: #666;">Showing result for token search</p>
@@ -148,9 +148,9 @@
                             </td>
                             <td>
                                 {% if item.token.revoked_at %}
-                                <button class="btn" style="background: #e74c3c;" onclick="deleteToken('{{ item.token.id }}')"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg> Delete</button>
+                                <button class="btn" style="background: #e74c3c;" data-action="delete-token" data-id="{{ item.token.id }}"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg> Delete</button>
                                 {% else %}
-                                <button class="btn btn-danger" onclick="revokeToken('{{ item.token.id }}')"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"></line></svg> Revoke</button>
+                                <button class="btn btn-danger" data-action="revoke-token" data-id="{{ item.token.id }}"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"></line></svg> Revoke</button>
                                 {% endif %}
                             </td>
                         </tr>
@@ -210,272 +210,6 @@
         </div>
     </div>
     
-    <script>
-        // CSRF: the server renders the token into <meta name="csrf-token">;
-        // attach it as the X-CSRF-Token header on every state-changing fetch.
-        function getCsrfToken() {
-            const meta = document.querySelector('meta[name="csrf-token"]');
-            return meta ? meta.content : '';
-        }
-
-        function escapeHtml(str) {
-            const div = document.createElement('div');
-            div.textContent = str;
-            return div.innerHTML.replace(/"/g, '&quot;').replace(/'/g, '&#39;');
-        }
-
-        function csrfHeaders(extra = {}) {
-            const token = getCsrfToken();
-            const headers = {...extra};
-            if (token) headers['X-CSRF-Token'] = token;
-            return headers;
-        }
-
-        function toLocalDateTime(utcStr) {
-            if (!utcStr) return '';
-            const date = new Date(utcStr);
-            return date.toLocaleString();
-        }
-        
-        function toLocalDate(utcStr) {
-            if (!utcStr) return '';
-            const date = new Date(utcStr);
-            return date.toLocaleDateString();
-        }
-        
-        document.querySelectorAll('.datetime').forEach(el => {
-            const utc = el.dataset.utc;
-            if (utc) el.textContent = toLocalDateTime(utc);
-        });
-        document.querySelectorAll('.datetime-date').forEach(el => {
-            const utc = el.dataset.utc;
-            if (utc) el.textContent = toLocalDate(utc);
-        });
-        
-        function switchTab(tabName) {
-            document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
-            document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
-            
-            event.target.classList.add('active');
-            document.getElementById(tabName + '-tab').classList.add('active');
-            
-            if (tabName === 'users') {
-                loadUsers();
-            }
-        }
-        
-        async function loadUsers() {
-            const tbody = document.getElementById('usersTableBody');
-            try {
-                const response = await fetch('/api/admin/users');
-                const users = await response.json();
-                
-                if (users.length === 0) {
-                    tbody.innerHTML = '<tr><td colspan="6" class="empty">No users</td></tr>';
-                    return;
-                }
-                
-                tbody.innerHTML = users.map(user => `
-                    <tr>
-                        <td>${escapeHtml(user.email)}</td>
-                        <td>${escapeHtml(user.name)}</td>
-                        <td>
-                            ${user.has_password ? '<span class="badge badge-local">Local</span>' : ''}
-                            ${user.unity_id ? '<span class="badge badge-oauth">OAuth</span>' : ''}
-                        </td>
-                        <td>${user.is_admin ? 'Yes' : 'No'}</td>
-                        <td>${new Date(user.created_at).toLocaleString()}</td>
-                        <td>
-                            ${user.has_password
-                                ? `<button class="btn btn-small" data-id="${escapeHtml(user.id)}" onclick="openPasswordModal(this.dataset.id)">Reset Password</button>`
-                                : ''}
-                            <button class="btn btn-small btn-danger" data-id="${escapeHtml(user.id)}" data-email="${escapeHtml(user.email)}" onclick="deleteUser(this.dataset.id, this.dataset.email)">Delete</button>
-                        </td>
-                    </tr>
-                `).join('');
-            } catch (e) {
-                tbody.innerHTML = '<tr><td colspan="6" class="empty">Failed to load users</td></tr>';
-            }
-        }
-        
-        document.getElementById('createUserForm').addEventListener('submit', async (e) => {
-            e.preventDefault();
-            const email = document.getElementById('userEmail').value;
-            const name = document.getElementById('userName').value;
-            const password = document.getElementById('userPassword').value;
-            const isAdmin = document.getElementById('userIsAdmin').checked;
-            
-            try {
-                const response = await fetch('/api/admin/users', {
-                    method: 'POST',
-                    headers: csrfHeaders({'Content-Type': 'application/json'}),
-                    body: JSON.stringify({email, name, password, is_admin: isAdmin})
-                });
-                
-                if (response.ok) {
-                    alert('User created successfully');
-                    document.getElementById('createUserForm').reset();
-                    loadUsers();
-                } else {
-                    const error = await response.json();
-                    alert('Failed to create user: ' + (error.detail || 'Unknown error'));
-                }
-            } catch (e) {
-                alert('Failed to create user: ' + e.message);
-            }
-        });
-        
-        async function resetPassword(userId) {
-            const newPassword = prompt('Enter new password:');
-            if (!newPassword) return;
-
-            try {
-                const response = await fetch(`/api/admin/users/${userId}`, {
-                    method: 'PATCH',
-                    headers: csrfHeaders({'Content-Type': 'application/json'}),
-                    body: JSON.stringify({password: newPassword})
-                });
-
-                if (response.ok) {
-                    alert('Password reset successfully');
-                    loadUsers();
-                } else {
-                    alert('Failed to reset password');
-                }
-            } catch (e) {
-                alert('Failed to reset password');
-            }
-        }
-        
-        // Password reset modal: hidden input with eye-icon toggle
-        let _passwordModalUserId = null;
-        
-        function openPasswordModal(userId) {
-            _passwordModalUserId = userId;
-            document.getElementById('passwordModal').style.display = 'block';
-            const input = document.getElementById('newPasswordInput');
-            input.value = '';
-            setTimeout(() => input.focus(), 50);
-        }
-        
-        function closePasswordModal() {
-            document.getElementById('passwordModal').style.display = 'none';
-            _passwordModalUserId = null;
-        }
-        
-        function togglePasswordVisibility() {
-            const input = document.getElementById('newPasswordInput');
-            const eye = document.getElementById('passwordEye');
-            if (input.type === 'password') {
-                input.type = 'text';
-                eye.textContent = '🙈';
-            } else {
-                input.type = 'password';
-                eye.textContent = '👁';
-            }
-        }
-        
-        async function submitPasswordReset() {
-            if (!_passwordModalUserId) return;
-            const newPassword = document.getElementById('newPasswordInput').value;
-            if (!newPassword) {
-                alert('Please enter a new password');
-                return;
-            }
-
-            try {
-                const response = await fetch(`/api/admin/users/${_passwordModalUserId}`, {
-                    method: 'PATCH',
-                    headers: csrfHeaders({'Content-Type': 'application/json'}),
-                    body: JSON.stringify({password: newPassword})
-                });
-
-                if (response.ok) {
-                    closePasswordModal();
-                    loadUsers();
-                } else {
-                    let msg = 'Unknown error';
-                    try {
-                        const error = await response.json();
-                        if (typeof error.detail === 'string') {
-                            msg = error.detail;
-                        } else if (Array.isArray(error.detail)) {
-                            msg = error.detail.map(e => e.msg || JSON.stringify(e)).join('; ');
-                        }
-                    } catch (e) {}
-                    alert('Failed to reset password: ' + msg);
-                }
-            } catch (e) {
-                alert('Failed to reset password: ' + e.message);
-            }
-        }
-        
-        async function deleteUser(userId, email) {
-            if (!confirm(`Delete user ${email}? This cannot be undone.`)) return;
-            
-            try {
-                const response = await fetch(`/api/admin/users/${userId}`, {
-                    method: 'DELETE',
-                    headers: csrfHeaders()
-                });
-                
-                if (response.ok) {
-                    alert('User deleted');
-                    loadUsers();
-                } else {
-                    const error = await response.json();
-                    alert('Failed to delete user: ' + (error.detail || 'Unknown error'));
-                }
-            } catch (e) {
-                alert('Failed to delete user');
-            }
-        }
-        
-        async function revokeToken(tokenId) {
-            if (!confirm('Are you sure you want to revoke this token?')) return;
-            
-            const response = await fetch(`/api/admin/tokens/${tokenId}`, {
-                method: 'DELETE',
-                headers: csrfHeaders()
-            });
-            
-            if (response.ok) {
-                location.reload();
-            } else {
-                alert('Failed to revoke token');
-            }
-        }
-        
-        async function deleteToken(tokenId) {
-            if (!confirm('Are you sure you want to permanently delete this token? This cannot be undone.')) return;
-            
-            const response = await fetch(`/api/admin/tokens/${tokenId}/permanent`, {
-                method: 'DELETE',
-                headers: csrfHeaders()
-            });
-            
-            if (response.ok) {
-                location.reload();
-            } else {
-                alert('Failed to delete token');
-            }
-        }
-        
-        async function deleteRevokedTokens() {
-            if (!confirm('Are you sure you want to delete all revoked tokens? This cannot be undone.')) return;
-            
-            const response = await fetch('/api/admin/tokens/revoked', {
-                method: 'DELETE',
-                headers: csrfHeaders()
-            });
-            
-            if (response.ok) {
-                location.reload();
-            } else {
-                alert('Failed to delete revoked tokens');
-            }
-        }
-    </script>
 
     <!-- Password reset modal -->
     <div id="passwordModal" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.5); z-index:1000; justify-content:center; align-items:center;">
@@ -484,15 +218,17 @@
             <div class="form-group">
                 <label for="newPasswordInput">New Password</label>
                 <div style="display:flex; align-items:center; gap:0.5rem;">
-                    <input type="password" id="newPasswordInput" style="flex:1; padding:0.5rem; border:1px solid #ddd; border-radius:4px;" onkeydown="if(event.key==='Enter') submitPasswordReset()">
-                    <span id="passwordEye" onclick="togglePasswordVisibility()" style="cursor:pointer; font-size:1.5rem;">👁</span>
+                    <input type="password" id="newPasswordInput" style="flex:1; padding:0.5rem; border:1px solid #ddd; border-radius:4px;">
+                    <span id="passwordEye" data-action="toggle-password" style="cursor:pointer; font-size:1.5rem;">👁</span>
                 </div>
             </div>
             <div style="display:flex; gap:0.5rem; margin-top:1rem;">
-                <button class="btn btn-success" onclick="submitPasswordReset()">Reset</button>
-                <button class="btn" style="background:#95a5a6;" onclick="closePasswordModal()">Cancel</button>
+                <button class="btn btn-success" data-action="submit-password">Reset</button>
+                <button class="btn" style="background:#95a5a6;" data-action="close-password">Cancel</button>
             </div>
         </div>
     </div>
+    <script src="/static/common.js"></script>
+    <script src="/static/admin.js"></script>
 </body>
 </html>
