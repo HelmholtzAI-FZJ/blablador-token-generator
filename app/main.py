@@ -152,6 +152,9 @@ async def security_headers_middleware(request: Request, call_next):
     response.headers["Strict-Transport-Security"] = (
         "max-age=31536000; includeSubDomains"
     )
+    # Pages show account data and API responses can carry a new token in
+    # plain text: never let browsers or proxies store them.
+    response.headers.setdefault("Cache-Control", "no-store")
     return response
 
 
