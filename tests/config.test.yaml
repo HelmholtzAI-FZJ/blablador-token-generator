@@ -1,0 +1,21 @@
+# Configuration for the test suite (loaded via CONFIG_PATH in conftest.py).
+# Secrets and the database URL are injected through environment variables.
+app:
+  name: "Token Generator (tests)"
+  debug: false
+  secure_cookies: false
+  api_url: "http://testserver"
+
+oauth:
+  client_id: "test-client"
+  authorize_url: "https://idp.example.org/authorize"
+  token_url: "https://idp.example.org/token"
+  userinfo_url: "https://idp.example.org/userinfo"
+  redirect_uri: "http://testserver/oauth/openid/callback"
+  scopes:
+    - "openid"
+    - "profile"
+    - "email"
+
+local:
+  enabled: true
