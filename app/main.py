@@ -17,7 +17,7 @@ from app.models import User, Token, DeletedUser
 from app.auth import (
     get_current_user, get_current_admin,
     get_or_create_user, get_unity_userinfo, create_access_token,
-    token_hash_candidates, authenticate_local_user,
+    hash_token, authenticate_local_user,
     decode_access_token, revoke_jwt,
 )
 from app.api import tokens, validate, admin
@@ -260,10 +260,11 @@ async def admin_tokens(
     tokens_with_users = []
 
     if search:
+        search_hash = hash_token(search)
         result = await db.execute(
             select(Token)
             .options(joinedload(Token.user))
-            .where(Token.token_hash.in_(token_hash_candidates(search)))
+            .where(Token.token_hash == search_hash)
         )
         token = result.scalar_one_or_none()
         if token:

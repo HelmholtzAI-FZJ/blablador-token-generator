@@ -13,9 +13,6 @@ class AppConfig(BaseModel):
     # Keys the HMAC of stored API tokens. Kept separate from secret_key so
     # rotating the session signing key does not invalidate API tokens.
     token_hash_key: str = ""
-    # Accept tokens hashed with secret_key (pre-token_hash_key) and rehash
-    # them on use. Disable once all active tokens have been migrated.
-    legacy_token_hash_fallback: bool = True
     debug: bool = False
     api_url: str = "http://localhost:8080"
     secure_cookies: bool = False

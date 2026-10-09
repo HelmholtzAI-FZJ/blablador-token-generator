@@ -64,10 +64,7 @@ Last full audit: 2026-10-09. All fixes are committed individually on `main`.
 - **Input bounds**: bearer token capped at 256 chars (header + body);
   admin search capped at 128; `expires_at` parsed with error handling (400, not 500).
 - **Token storage**: HMAC-SHA256 keyed with `token_hash_key`, separate from the
-  JWT `secret_key`, so rotating the session key keeps API tokens valid. Tokens
-  hashed with `secret_key` (before this split) are rehashed on first validation
-  while `legacy_token_hash_fallback` is true; turn it off once migrated, after
-  which `secret_key` can be rotated freely.
+  JWT `secret_key`, so rotating the session key keeps API tokens valid.
 - **DB failure handling**: commit/rollback with friendly 500 on all mutating paths.
 - **Last-admin guard**: cannot demote or delete the last remaining admin.
 - **Deletion tombstone**: deleted users are recorded in `deleted_users` so OAuth
