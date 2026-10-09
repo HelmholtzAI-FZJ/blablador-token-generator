@@ -152,8 +152,7 @@ async def healthz():
 @app.get("/", response_class=HTMLResponse)
 @limiter.limit("30/minute")
 async def home(request: Request):
-    return templates.TemplateResponse("index.html", {
-        "request": request,
+    return templates.TemplateResponse(request, "index.html", {
         "app_name": config.app.name,
         "login_name": config.login.name,
         "login_description": config.login.description,
@@ -226,11 +225,8 @@ async def dashboard(
     )
     user_tokens = result.scalars().all()
 
-    return templates.TemplateResponse(
-        "dashboard.html",
-        {
-            "request": request,
-            "app_name": config.app.name,
+    return templates.TemplateResponse(request, "dashboard.html", {
+        "app_name": config.app.name,
             "api_url": config.app.api_url,
             "user": user,
             "tokens": user_tokens,
@@ -284,11 +280,8 @@ async def admin_tokens(
                 "user": t.user
             })
 
-    return templates.TemplateResponse(
-        "admin.html",
-        {
-            "request": request,
-            "app_name": config.app.name,
+    return templates.TemplateResponse(request, "admin.html", {
+        "app_name": config.app.name,
             "user": admin,
             "tokens_with_users": tokens_with_users,
             "search": search or "",
@@ -383,8 +376,7 @@ async def login_local_form(request: Request):
     csrf_value = request.cookies.get("csrf_token")
     if not csrf_value:
         csrf_value = _secrets.token_hex(32)
-    return templates.TemplateResponse("login_local.html", {
-        "request": request,
+    return templates.TemplateResponse(request, "login_local.html", {
         "app_name": config.app.name,
         "csrf_token": csrf_value,
         "error": None
@@ -406,17 +398,15 @@ async def login_local(
     # Validate CSRF token: form field must match cookie value
     cookie_csrf = request.cookies.get("csrf_token")
     if not cookie_csrf or not compare_digest(csrf_token, cookie_csrf):
-        return templates.TemplateResponse("login_local.html", {
-            "request": request,
-            "app_name": config.app.name,
+        return templates.TemplateResponse(request, "login_local.html", {
+        "app_name": config.app.name,
             "error": "Invalid CSRF token"
         }, status_code=403)
 
     user = await authenticate_local_user(email, password, db)
     if not user:
-        return templates.TemplateResponse("login_local.html", {
-            "request": request,
-            "app_name": config.app.name,
+        return templates.TemplateResponse(request, "login_local.html", {
+        "app_name": config.app.name,
             "error": "Invalid email or password"
         }, status_code=401)
 
