@@ -1,10 +1,8 @@
-__pycache__
-*.pyc
-.venv
-venv
-.git
-*.db
-*.log
-.pytest_cache
-.DS_Store
-config.yaml
+# Allowlist: only what the image needs. Everything else (.env, config.yaml,
+# cookie jars, keys, tests, deployment files) never enters the build context.
+*
+!app/
+!pyproject.toml
+!uv.lock
+**/__pycache__
+**/*.pyc

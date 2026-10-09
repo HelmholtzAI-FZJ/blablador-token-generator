@@ -10,7 +10,7 @@ RUN uv export --frozen --no-dev --no-emit-project -o /tmp/requirements.txt \
     && uv pip install --system --require-hashes -r /tmp/requirements.txt \
     && rm /tmp/requirements.txt
 
-COPY . .
+COPY app/ ./app/
 
 RUN useradd --system --uid 10001 --no-create-home app \
     && mkdir -p /app/data \
