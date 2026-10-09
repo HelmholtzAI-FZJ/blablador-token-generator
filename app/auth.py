@@ -278,31 +278,27 @@ async def get_or_create_user(userinfo: dict, db: AsyncSession) -> User:
     result = await db.execute(select(User).where(User.unity_id == unity_id))
     user = result.scalar_one_or_none()
 
-    # An email the provider explicitly marks as unverified must not be
-    # trusted for account linking or admin promotion.
-    email_trusted = userinfo.get("email_verified") is not False
+    email_trusted = (
+        userinfo.get("email_verified") is True or config.oauth.trust_provider_emails
+    )
 
-    linked = False
-    if user is None and email:
+    # Never attach an OAuth identity to an existing account by email: the
+    # email is only as trustworthy as the IdP that asserted it.
+    if user is None:
         result = await db.execute(select(User).where(User.email == email))
-        user = result.scalar_one_or_none()
-        # Only link to an account that has no OAuth identity yet; an
-        # account bound to a different subject must never be taken over
-        # by someone presenting the same email.
-        if user is not None and (user.unity_id is not None or not email_trusted):
+        if result.scalar_one_or_none() is not None:
             raise HTTPException(
                 status_code=403,
                 detail="An account with this email already exists. Contact an administrator.",
             )
-        if user is not None:
-            user.unity_id = unity_id
-            linked = True
 
     # Promote admin status from config on every login so that
-    # adding emails to admin_emails takes effect for existing
-    # users. Never demote here — revocation is an explicit admin
-    # action that must not be silently undone at login.
-    in_admin_config = email_trusted and email in config.admin.admin_emails
+    # additions take effect for existing users. Never demote here —
+    # revocation is an explicit admin action that must not be silently
+    # undone at login.
+    in_admin_config = unity_id in config.admin.admin_subjects or (
+        email_trusted and email in config.admin.admin_emails
+    )
 
     if user is None:
         user = User(unity_id=unity_id, email=email, name=name, is_admin=in_admin_config)
@@ -319,7 +315,7 @@ async def get_or_create_user(userinfo: dict, db: AsyncSession) -> User:
             if user is None:
                 raise HTTPException(status_code=500, detail="Failed to create user")
     else:
-        dirty = linked
+        dirty = False
         if in_admin_config and not user.is_admin:
             user.is_admin = True
             dirty = True

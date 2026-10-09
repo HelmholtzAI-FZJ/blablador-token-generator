@@ -35,6 +35,9 @@ oauth:
     - "openid"
     - "profile"
     - "email"
+  # Trust the provider's email claim without email_verified: true. Enable only
+  # if the IdP guarantees every asserted email is verified.
+  trust_provider_emails: false
 
 # Display name for the login button
 login:
@@ -56,7 +59,11 @@ tokens:
   token_prefix: blablador
 
 admin:
-  # Admin emails (users with these emails will be admins WHEN CREATING THE USER ON THE DATABASE - this should be set before the user exists)
+  # OAuth subject IDs ("sub") promoted to admin at login. Preferred: the
+  # subject cannot be spoofed by choosing an email address.
+  admin_subjects: []
+  # Emails promoted to admin at login, only when the provider marks the email
+  # verified (email_verified: true) or oauth.trust_provider_emails is true.
   admin_emails:
     - "admin@example.com"
     - "another-admin@example.com"

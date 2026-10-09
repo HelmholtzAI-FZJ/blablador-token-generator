@@ -85,6 +85,7 @@ config:
       - openid
       - profile
       - email
+    trust_provider_emails: false
   login:
     name: "JSC Login"
     description: "Authenticate with JSC Login"
@@ -93,4 +94,5 @@ config:
     max_expiration_days: 365
     token_length_bytes: 32
   admin:
+    admin_subjects: []
     admin_emails: []
