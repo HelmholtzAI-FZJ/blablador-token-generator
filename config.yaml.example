@@ -18,6 +18,8 @@ app:
   secure_cookies: false
   # Level of the audit log (admin actions, logins, token changes) on stderr.
   log_level: "INFO"
+  # Largest accepted request body in bytes (the ingress should match).
+  max_body_bytes: 65536
 
 database:
   url: "sqlite+aiosqlite:///./tokens.db"

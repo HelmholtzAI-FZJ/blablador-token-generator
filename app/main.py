@@ -24,6 +24,7 @@ from app.auth import (
 from app.api import tokens, validate, admin
 from app.rate_limit import limiter, RATE_LIMITS, user_or_ip
 from app.logging_config import configure_logging
+from app.body_limit import BodySizeLimitMiddleware
 
 config = get_config()
 configure_logging(config.app.log_level)
@@ -147,6 +148,11 @@ async def security_headers_middleware(request: Request, call_next):
         "max-age=31536000; includeSubDomains"
     )
     return response
+
+
+# Added last, so it runs first: oversized bodies are rejected before any
+# other middleware or endpoint touches them.
+app.add_middleware(BodySizeLimitMiddleware, max_bytes=config.app.max_body_bytes)
 
 
 def get_oauth_login_url(state: str) -> str:

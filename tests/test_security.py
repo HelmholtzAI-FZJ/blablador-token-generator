@@ -790,3 +790,28 @@ class TestAuditLogging:
             audit.removeHandler(handler)
         assert any("action=update_user" in r.getMessage() and "password_changed=True" in r.getMessage()
                    for r in records)
+
+
+class TestBodySizeLimit:
+    """Oversized bodies are rejected before parsing, authentication or CSRF."""
+
+    def test_declared_large_body_rejected(self):
+        client = TestClient(app)
+        r = client.post("/tokens", content=b"x" * 70_000,
+                        headers={"Content-Type": "application/json"})
+        assert r.status_code == 413
+
+    def test_chunked_large_body_rejected(self):
+        def chunks():
+            for _ in range(20):
+                yield b"x" * 8192
+        client = TestClient(app)
+        r = client.post("/tokens", content=chunks(), headers={"Content-Type": "application/json"})
+        assert r.status_code == 413
+
+    def test_normal_body_still_accepted(self):
+        client = TestClient(app)
+        client.cookies.set("csrf_token", "c")
+        r = client.post("/tokens", json={"name": "ok"}, headers={"X-CSRF-Token": "c"},
+                        follow_redirects=False)
+        assert r.status_code not in (400, 413)
