@@ -1,7 +1,7 @@
 import os
 from pathlib import Path
-from sqlalchemy import text
-from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
+from sqlalchemy import event, text
+from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine, AsyncSession, async_sessionmaker
 from app.config import get_config
 from app.models import Base
 
@@ -11,12 +11,22 @@ engine = None
 async_session_maker = None
 
 
+def build_engine(url: str, **kwargs) -> AsyncEngine:
+    """Create an async engine; SQLite gets foreign-key enforcement like Postgres."""
+    new_engine = create_async_engine(url, **kwargs)
+    if new_engine.dialect.name == "sqlite":
+        @event.listens_for(new_engine.sync_engine, "connect")
+        def _enable_foreign_keys(dbapi_connection, _record):
+            cursor = dbapi_connection.cursor()
+            cursor.execute("PRAGMA foreign_keys=ON")
+            cursor.close()
+    return new_engine
+
+
 async def init_db():
     global engine, async_session_maker
     config = get_config()
-    engine = create_async_engine(
-        config.database.url, echo=config.app.debug, pool_pre_ping=True
-    )
+    engine = build_engine(config.database.url, echo=config.app.debug, pool_pre_ping=True)
     async_session_maker = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
     async with engine.begin() as conn:
