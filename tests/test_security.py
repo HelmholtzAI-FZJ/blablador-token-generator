@@ -477,28 +477,8 @@ class TestSeparateTokenHashKey:
             Config(app=AppConfig(secret_key="a" * 64, token_hash_key="a" * 64)).validate_security()
 
     def test_hash_does_not_use_secret_key(self):
-        from app.auth import legacy_hash_token
-        assert hash_token("tok") != legacy_hash_token("tok")
-
-    @pytest.mark.asyncio
-    async def test_legacy_token_validated_and_rehashed(self, test_db, test_user):
-        from app.auth import legacy_hash_token
-        plain = generate_token()
-        token = Token(user_id=test_user.id, token_hash=legacy_hash_token(plain), name="old")
-        test_db.add(token)
-        await test_db.commit()
-        result = await validate_token(make_request(), bearer_token=plain, db=test_db)
-        assert result.valid
-        await test_db.refresh(token)
-        assert token.token_hash == hash_token(plain)
-
-    @pytest.mark.asyncio
-    async def test_legacy_token_rejected_when_fallback_disabled(self, test_db, test_user, monkeypatch):
-        from app.auth import legacy_hash_token, config
-        monkeypatch.setattr(config.app, "legacy_token_hash_fallback", False)
-        plain = generate_token()
-        test_db.add(Token(user_id=test_user.id, token_hash=legacy_hash_token(plain), name="old"))
-        await test_db.commit()
-        with pytest.raises(HTTPException) as exc:
-            await validate_token(make_request(), bearer_token=plain, db=test_db)
-        assert exc.value.status_code == 401
+        import hashlib
+        import hmac
+        from app.config import get_config
+        legacy = hmac.new(get_config().app.secret_key.encode(), b"tok", hashlib.sha256).hexdigest()
+        assert hash_token("tok") != legacy

@@ -68,7 +68,6 @@ config:
     secret_key: "change-me-in-production"
     # Must differ from secret_key; never change once tokens exist.
     token_hash_key: ""
-    legacy_token_hash_fallback: true
     debug: false
     api_url: "https://tokens.example.com"
     secure_cookies: true

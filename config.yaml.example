@@ -12,9 +12,6 @@ app:
   # secret_key), so rotating secret_key does not invalidate API tokens.
   # Env override: TOKEN_HASH_KEY. Never change it once tokens exist.
   token_hash_key: "REPLACE_WITH_A_DIFFERENT_GENERATED_KEY_AT_LEAST_32_CHARS"
-  # Accept tokens hashed with secret_key before token_hash_key existed and
-  # rehash them on first use. Set to false once migration is complete.
-  legacy_token_hash_fallback: true
   debug: false
   api_url: "http://localhost:8080"
   # Set to true in production behind TLS to mark auth cookies as Secure

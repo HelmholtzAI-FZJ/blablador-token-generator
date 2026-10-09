@@ -7,7 +7,7 @@ from pydantic import BaseModel, Field
 import logging as _logging
 from app.database import get_db
 from app.models import Token, User, DeletedUser
-from app.auth import hash_token, token_hash_candidates
+from app.auth import hash_token
 from app.config import get_config
 from app.rate_limit import limiter
 
@@ -48,11 +48,13 @@ async def validate_token(
     if not bearer_token:
         raise HTTPException(status_code=401, detail="No token provided. Use Bearer token.")
     
+    token_hash = hash_token(bearer_token)
+    
     result = await db.execute(
         select(Token)
         .options(joinedload(Token.user))
         .where(
-            Token.token_hash.in_(token_hash_candidates(bearer_token)),
+            Token.token_hash == token_hash,
             Token.revoked_at.is_(None)
         )
     )
@@ -89,8 +91,6 @@ async def validate_token(
             raise HTTPException(status_code=401, detail="Token has expired")
 
     token.last_used_at = now.replace(tzinfo=None)
-    # Migrate tokens still stored under the legacy secret_key hash.
-    token.token_hash = hash_token(bearer_token)
     try:
         await db.commit()
     except Exception:
