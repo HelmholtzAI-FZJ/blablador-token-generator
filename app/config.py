@@ -16,7 +16,9 @@ class AppConfig(BaseModel):
     token_hash_key: str = ""
     debug: bool = False
     api_url: str = "http://localhost:8080"
-    secure_cookies: bool = False
+    # Secure, __Host- prefixed cookies. Only disable for local development
+    # over plain http.
+    secure_cookies: bool = True
     jwt_expiration_hours: int = 24
     # Level for the token_generator.* audit/account loggers.
     log_level: str = "INFO"
@@ -26,6 +28,8 @@ class AppConfig(BaseModel):
 
 class DatabaseConfig(BaseModel):
     url: str = "sqlite+aiosqlite:///./tokens.db"
+    # Log SQL statements (never their parameters) for debugging.
+    echo: bool = False
 
 
 class OAuthConfig(BaseModel):
