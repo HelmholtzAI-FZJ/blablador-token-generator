@@ -26,7 +26,14 @@ def build_engine(url: str, **kwargs) -> AsyncEngine:
 async def init_db():
     global engine, async_session_maker
     config = get_config()
-    engine = build_engine(config.database.url, echo=config.app.debug, pool_pre_ping=True)
+    # hide_parameters keeps bound values (password hashes, token hashes,
+    # emails) out of logs and error messages.
+    engine = build_engine(
+        config.database.url,
+        echo=config.database.echo,
+        hide_parameters=True,
+        pool_pre_ping=True,
+    )
     async_session_maker = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
     async with engine.begin() as conn:

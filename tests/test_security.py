@@ -1034,3 +1034,14 @@ class TestStrictCsp:
             text = path.read_text()
             assert not handler.search(text), f"inline event handler in {path}"
             assert not inline_script.search(text), f"inline <script> in {path}"
+
+
+class TestSecureDefaults:
+    def test_cookies_secure_by_default(self):
+        from app.config import AppConfig
+        assert AppConfig().secure_cookies is True
+
+    def test_sql_parameters_never_logged(self):
+        from app import database
+        assert database.engine is not None
+        assert database.engine.sync_engine.hide_parameters is True

@@ -14,8 +14,9 @@ app:
   token_hash_key: "REPLACE_WITH_A_DIFFERENT_GENERATED_KEY_AT_LEAST_32_CHARS"
   debug: false
   api_url: "http://localhost:8080"
-  # Set to true in production behind TLS to mark auth cookies as Secure
-  secure_cookies: false
+  # Secure, __Host- prefixed cookies (default true). Set to false only for
+  # local development over plain http, where browsers drop Secure cookies.
+  secure_cookies: true
   # Level of the audit log (admin actions, logins, token changes) on stderr.
   log_level: "INFO"
   # Largest accepted request body in bytes (the ingress should match).
@@ -23,6 +24,8 @@ app:
 
 database:
   url: "sqlite+aiosqlite:///./tokens.db"
+  # Log SQL statements (parameters are never logged).
+  echo: false
 
 oauth:
   # OAuth2 configuration

@@ -204,9 +204,13 @@ By default the chart deploys PostgreSQL (StatefulSet with its own volume) and Re
 # Install dev dependencies
 uv pip install -e ".[dev]"
 
-# Run tests
+# Run tests (they use tests/config.test.yaml, not your config.yaml)
 pytest tests/ -v
 ```
+
+When running locally over plain `http://`, set `app.secure_cookies: false` in
+your `config.yaml`; browsers drop the Secure, `__Host-` prefixed cookies used
+in production otherwise.
 
 ## License
 
