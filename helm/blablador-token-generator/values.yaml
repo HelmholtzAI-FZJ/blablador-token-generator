@@ -39,17 +39,20 @@ resources:
 
 livenessProbe:
   httpGet:
-    path: /docs
+    path: /healthz
     port: 8080
   initialDelaySeconds: 10
   periodSeconds: 30
 
 readinessProbe:
   httpGet:
-    path: /docs
+    path: /healthz
     port: 8080
   initialDelaySeconds: 5
   periodSeconds: 10
+
+# Source IPs (ingress controller pods) allowed to set X-Forwarded-For.
+forwardedAllowIps: "127.0.0.1"
 
 persistence:
   enabled: true
@@ -65,6 +68,8 @@ config:
     secret_key: "change-me-in-production"
     debug: false
     api_url: "https://tokens.example.com"
+    secure_cookies: true
+    validate_rate_limit: "600/minute"
   database:
     url: "sqlite+aiosqlite:///./data/tokens.db"
   oauth:
@@ -83,6 +88,7 @@ config:
     description: "Authenticate with JSC Login"
   tokens:
     default_expiration_days: 365
+    max_expiration_days: 365
     token_length_bytes: 32
   admin:
     admin_emails: []

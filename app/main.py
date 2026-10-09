@@ -144,6 +144,11 @@ def get_oauth_login_url(state: str) -> str:
     return f"{config.oauth.authorize_url}?{urlencode(params)}"
 
 
+@app.get("/healthz")
+async def healthz():
+    return {"status": "ok"}
+
+
 @app.get("/", response_class=HTMLResponse)
 @limiter.limit("30/minute")
 async def home(request: Request):

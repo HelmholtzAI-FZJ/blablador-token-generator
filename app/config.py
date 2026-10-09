@@ -112,7 +112,9 @@ class Config(BaseModel):
 
 @lru_cache()
 def get_config() -> Config:
-    config_path = Path(__file__).parent.parent / "config.yaml"
+    import os
+    default_path = Path(__file__).parent.parent / "config.yaml"
+    config_path = Path(os.environ.get("CONFIG_PATH", default_path))
     if config_path.exists():
         with open(config_path) as f:
             data = yaml.safe_load(f)
@@ -122,7 +124,6 @@ def get_config() -> Config:
 
     # Allow secrets to be overridden by environment variables.
     # This prevents storing secrets in config files on disk.
-    import os
     secret_key = os.environ.get("JWT_SECRET_KEY")
     if secret_key:
         config.app.secret_key = secret_key
