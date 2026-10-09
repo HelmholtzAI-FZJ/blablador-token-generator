@@ -219,7 +219,7 @@
         function escapeHtml(str) {
             const div = document.createElement('div');
             div.textContent = str;
-            return div.innerHTML;
+            return div.innerHTML.replace(/"/g, '&quot;').replace(/'/g, '&#39;');
         }
 
         function csrfHeaders(extra = {}) {
@@ -285,9 +285,9 @@
                         <td>${new Date(user.created_at).toLocaleString()}</td>
                         <td>
                             ${user.has_password
-                                ? `<button class="btn btn-small" onclick="openPasswordModal('${user.id}')">Reset Password</button>`
+                                ? `<button class="btn btn-small" data-id="${escapeHtml(user.id)}" onclick="openPasswordModal(this.dataset.id)">Reset Password</button>`
                                 : ''}
-                            <button class="btn btn-small btn-danger" onclick="deleteUser('${user.id}', '${escapeHtml(user.email)}')">Delete</button>
+                            <button class="btn btn-small btn-danger" data-id="${escapeHtml(user.id)}" data-email="${escapeHtml(user.email)}" onclick="deleteUser(this.dataset.id, this.dataset.email)">Delete</button>
                         </td>
                     </tr>
                 `).join('');
