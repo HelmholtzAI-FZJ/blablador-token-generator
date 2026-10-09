@@ -235,9 +235,9 @@ class TestDeletionTombstone:
     """Security: a deleted account must not be resurrected by OAuth login."""
 
     async def test_deleted_user_blocked_from_login(self, test_db, test_user):
-        from app.models import DeletedUser
+        from app.tombstones import record_deletion
         from app.auth import get_or_create_user
-        test_db.add(DeletedUser(unity_id=test_user.unity_id, email=test_user.email))
+        record_deletion(test_db, test_user)
         await test_db.commit()
 
         userinfo = {"sub": test_user.unity_id, "email": test_user.email, "name": test_user.name}
@@ -330,14 +330,14 @@ class TestAccountDeletion:
         assert all(v is None for v in before.values()), "all should start un-revoked"
 
         # Simulate the self-delete: revoke tokens + write tombstone + delete user
-        from app.models import DeletedUser
+        from app.tombstones import record_deletion
         now = datetime.utcnow()
         result = await test_db.execute(
             select(Token).where(Token.user_id == test_user.id)
         )
         for t in result.scalars().all():
             t.revoked_at = now
-        test_db.add(DeletedUser(unity_id=test_user.unity_id, email=test_user.email))
+        record_deletion(test_db, test_user)
         await test_db.delete(test_user)
         await test_db.commit()
 
@@ -348,9 +348,9 @@ class TestAccountDeletion:
         assert all(v is not None for v in after.values()), "all should be revoked"
 
     async def test_deleted_user_tombstone_blocks_login(self, test_db, test_user):
-        from app.models import DeletedUser
+        from app.tombstones import record_deletion
         from app.auth import get_or_create_user
-        test_db.add(DeletedUser(unity_id=test_user.unity_id, email=test_user.email))
+        record_deletion(test_db, test_user)
         await test_db.commit()
         userinfo = {"sub": test_user.unity_id, "email": test_user.email, "name": test_user.name}
         with pytest.raises(HTTPException) as exc:
@@ -363,7 +363,8 @@ class TestValidateDeletedAccount:
 
     async def test_deleted_user_token_rejected_and_logged(self, test_db, test_user):
         from app.auth import generate_token, hash_token
-        from app.models import Token, DeletedUser
+        from app.models import Token
+        from app.tombstones import record_deletion
         from datetime import datetime, timedelta
         token_hash = hash_token(generate_token())
         test_db.add(Token(
@@ -376,7 +377,7 @@ class TestValidateDeletedAccount:
         await test_db.commit()
 
         # Now delete the account (tombstone)
-        test_db.add(DeletedUser(unity_id=test_user.unity_id, email=test_user.email))
+        record_deletion(test_db, test_user)
         await test_db.delete(test_user)
         await test_db.commit()
 
@@ -515,11 +516,12 @@ class TestValidateLocalUserTombstones:
 
     @pytest.mark.asyncio
     async def test_other_local_tombstones_ignored(self, test_db):
-        from app.models import User, DeletedUser
+        from app.models import User
+        from app.tombstones import record_deletion
         user = User(email="keep@example.com", name="Keep", password_hash="x")
         test_db.add(user)
-        test_db.add(DeletedUser(unity_id=None, email="gone1@example.com"))
-        test_db.add(DeletedUser(unity_id=None, email="gone2@example.com"))
+        record_deletion(test_db, User(email="gone1@example.com", name="G1"))
+        record_deletion(test_db, User(email="gone2@example.com", name="G2"))
         await test_db.commit()
         plain = generate_token()
         test_db.add(Token(user_id=user.id, token_hash=hash_token(plain), name="t"))
@@ -961,3 +963,33 @@ class TestLocalEmailUniqueness:
         with pytest.raises(IntegrityError):
             await test_db.commit()
         await test_db.rollback()
+
+
+class TestTombstonePrivacy:
+    """Deletion records keep only keyed hashes of identifiers."""
+
+    @pytest.mark.asyncio
+    async def test_no_plaintext_identifiers_and_lift_by_email(self, test_db, test_admin):
+        from sqlalchemy import func
+        from app.api.admin import CreateUserRequest, create_user
+        from app.models import DeletedUser, User
+        from app.tombstones import is_user_deleted, record_deletion
+
+        gone = User(email="Gone.Person@example.com", name="G", unity_id="gone-sub")
+        record_deletion(test_db, gone)
+        local = User(email="former-local@example.com", name="F")
+        record_deletion(test_db, local)
+        await test_db.commit()
+
+        rows = (await test_db.execute(select(DeletedUser))).scalars().all()
+        dump = " ".join(f"{r.unity_id_hash} {r.email_hash}" for r in rows)
+        assert "gone" not in dump.lower() and "example.com" not in dump
+        assert await is_user_deleted(test_db, gone)
+        assert await is_user_deleted(test_db, local)
+
+        req = Request({"type": "http", "method": "POST", "path": "/", "query_string": b"",
+                       "headers": [], "client": ("127.0.0.5", 0)})
+        await create_user.__wrapped__(req, CreateUserRequest(
+            email="Former-Local@example.com", name="F", password="Passw0rdOK"), test_admin, test_db)
+        assert not await is_user_deleted(test_db, local)
+        assert (await test_db.execute(select(func.count()).select_from(DeletedUser))).scalar_one() == 1
