@@ -140,6 +140,10 @@ def get_config() -> Config:
     if secret_key:
         config.app.secret_key = secret_key
 
+    database_url = os.environ.get("DATABASE_URL")
+    if database_url:
+        config.database.url = database_url
+
     rate_limit_storage_uri = os.environ.get("RATE_LIMIT_STORAGE_URI")
     if rate_limit_storage_uri:
         config.app.rate_limit_storage_uri = rate_limit_storage_uri

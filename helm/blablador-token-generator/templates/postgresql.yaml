@@ -1,0 +1,106 @@
+{{- if .Values.postgresql.enabled }}
+{{- $name := printf "%s-postgresql" (include "blablador-token-generator.fullname" .) }}
+{{- $pg := .Values.postgresql }}
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "blablador-token-generator.labels" . | nindent 4 }}
+type: Opaque
+stringData:
+  password: {{ required "postgresql.password is required when postgresql.enabled" $pg.password | quote }}
+  database-url: {{ printf "postgresql+asyncpg://%s:%s@%s:5432/%s" $pg.username $pg.password $name $pg.database | quote }}
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "blablador-token-generator.labels" . | nindent 4 }}
+spec:
+  serviceName: {{ $name }}
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ $name }}
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: {{ $name }}
+        app.kubernetes.io/instance: {{ .Release.Name }}
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 70
+        fsGroup: 70
+      containers:
+        - name: postgresql
+          image: "{{ $pg.image.repository }}:{{ $pg.image.tag }}"
+          env:
+            - name: POSTGRES_USER
+              value: {{ $pg.username | quote }}
+            - name: POSTGRES_DB
+              value: {{ $pg.database | quote }}
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $name }}
+                  key: password
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+          ports:
+            - name: postgresql
+              containerPort: 5432
+          readinessProbe:
+            exec:
+              command: ["pg_isready", "-U", {{ $pg.username | quote }}, "-d", {{ $pg.database | quote }}]
+            periodSeconds: 10
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            {{- toYaml $pg.resources | nindent 12 }}
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data
+            - name: run
+              mountPath: /var/run/postgresql
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: run
+          emptyDir: {}
+        - name: tmp
+          emptyDir: {}
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        {{- if $pg.storageClass }}
+        storageClassName: {{ $pg.storageClass }}
+        {{- end }}
+        resources:
+          requests:
+            storage: {{ $pg.size }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "blablador-token-generator.labels" . | nindent 4 }}
+spec:
+  type: ClusterIP
+  ports:
+    - port: 5432
+      targetPort: postgresql
+      name: postgresql
+  selector:
+    app.kubernetes.io/name: {{ $name }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+{{- end }}

@@ -1,3 +1,8 @@
+{{- $sqlite := not .Values.postgresql.enabled }}
+{{- if and $sqlite (gt (int .Values.replicaCount) 1) }}
+{{- fail "SQLite supports only replicaCount: 1; enable postgresql for more replicas" }}
+{{- end }}
+{{- if $sqlite }}
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
@@ -14,6 +19,7 @@ spec:
   storageClassName: {{ .Values.persistence.storageClass }}
 {{- end }}
 ---
+{{- end }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -54,6 +60,13 @@ spec:
               value: /app/config/config.yaml
             - name: FORWARDED_ALLOW_IPS
               value: {{ .Values.forwardedAllowIps | quote }}
+            {{- if .Values.postgresql.enabled }}
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "blablador-token-generator.fullname" . }}-postgresql
+                  key: database-url
+            {{- end }}
             {{- if .Values.redis.enabled }}
             - name: RATE_LIMIT_STORAGE_URI
               valueFrom:
@@ -69,8 +82,10 @@ spec:
             - name: config
               mountPath: /app/config
               readOnly: true
+            {{- if $sqlite }}
             - name: token-db
               mountPath: /app/data
+            {{- end }}
             - name: tmp
               mountPath: /tmp
           livenessProbe:
@@ -85,6 +100,8 @@ spec:
         - name: config
           secret:
             secretName: {{ include "blablador-token-generator.fullname" . }}-config
+        {{- if $sqlite }}
         - name: token-db
           persistentVolumeClaim:
             claimName: {{ include "blablador-token-generator.fullname" . }}-db
+        {{- end }}

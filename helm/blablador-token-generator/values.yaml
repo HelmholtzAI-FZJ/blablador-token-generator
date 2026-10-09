@@ -70,6 +70,28 @@ redis:
       cpu: 50m
       memory: 64Mi
 
+# PostgreSQL is required for replicaCount > 1. When disabled, SQLite on the
+# "persistence" volume below is used (single replica only).
+postgresql:
+  enabled: true
+  username: tokens
+  database: tokens
+  # Required; generate with: openssl rand -hex 32
+  password: ""
+  image:
+    repository: postgres
+    tag: "16-alpine"
+  storageClass: ""
+  size: 5Gi
+  resources:
+    limits:
+      cpu: "1"
+      memory: 512Mi
+    requests:
+      cpu: 100m
+      memory: 256Mi
+
+# SQLite volume, used only when postgresql.enabled is false.
 persistence:
   enabled: true
   storageClass: ""

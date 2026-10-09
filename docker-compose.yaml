@@ -1,17 +1,38 @@
-version: '3.8'
-
+# Required environment (e.g. in a .env file next to this file):
+#   JWT_SECRET_KEY, TOKEN_HASH_KEY, POSTGRES_PASSWORD, REDIS_PASSWORD
+# Generate each with: openssl rand -hex 32
 services:
   app:
     build: .
     ports:
       - "8080:8080"
     volumes:
-      - tokens-data:/app/data
+      - ./config.yaml:/app/config/config.yaml:ro
     environment:
       - CONFIG_PATH=/app/config/config.yaml
+      - JWT_SECRET_KEY=${JWT_SECRET_KEY:?set JWT_SECRET_KEY}
+      - TOKEN_HASH_KEY=${TOKEN_HASH_KEY:?set TOKEN_HASH_KEY}
+      - DATABASE_URL=postgresql+asyncpg://tokens:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}@postgres:5432/tokens
       - RATE_LIMIT_STORAGE_URI=redis://:${REDIS_PASSWORD:?set REDIS_PASSWORD}@redis:6379/0
     depends_on:
-      - redis
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: tokens
+      POSTGRES_DB: tokens
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "tokens", "-d", "tokens"]
+      interval: 5s
+      retries: 10
     restart: unless-stopped
 
   redis:
@@ -19,19 +40,5 @@ services:
     command: ["redis-server", "--requirepass", "${REDIS_PASSWORD:?set REDIS_PASSWORD}", "--save", "", "--appendonly", "no"]
     restart: unless-stopped
 
-  # Optional: PostgreSQL for production
-  # postgres:
-  #   image: postgres:16-alpine
-  #   environment:
-  #     POSTGRES_DB: tokens
-  #     POSTGRES_USER: tokens
-  #     POSTGRES_PASSWORD: change-me
-  #   volumes:
-  #     - postgres-data:/var/lib/postgresql/data
-  #   restart: unless-stopped
-
 volumes:
-  tokens-data:
-    driver: local
-  # postgres-data:
-  #   driver: local
+  postgres-data:
