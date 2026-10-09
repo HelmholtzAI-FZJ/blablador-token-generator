@@ -1,4 +1,5 @@
 from contextlib import asynccontextmanager
+import logging as _logging
 from urllib.parse import urlencode
 import secrets as _secrets
 from secrets import compare_digest
@@ -22,8 +23,11 @@ from app.auth import (
 )
 from app.api import tokens, validate, admin
 from app.rate_limit import limiter, RATE_LIMITS, user_or_ip
+from app.logging_config import configure_logging
 
 config = get_config()
+configure_logging(config.app.log_level)
+_audit = _logging.getLogger("token_generator.audit")
 
 
 @asynccontextmanager
@@ -206,6 +210,7 @@ async def openid_callback(request: Request, code: str | None = None, state: str 
 
     userinfo = await get_unity_userinfo(code)
     user = await get_or_create_user(userinfo, db)
+    _audit.info("user=%s action=login method=oauth", user.id)
 
     access_token = create_session_token(user)
     response = RedirectResponse(url="/dashboard", status_code=303)
@@ -322,7 +327,6 @@ async def logout(request: Request, db: AsyncSession = Depends(get_db)):
     return response
 
 
-import logging as _logging
 _account_logger = _logging.getLogger("token_generator.account")
 
 
@@ -408,12 +412,15 @@ async def login_local(
 
     user = await authenticate_local_user(email, password, db)
     if not user:
+        client = request.client.host if request.client else "-"
+        _audit.warning("action=login_failed method=local client=%s", client)
         return templates.TemplateResponse(request, "login_local.html", {
             "app_name": config.app.name,
             "csrf_token": request.state.csrf_token,
             "error": "Invalid email or password"
         }, status_code=401)
 
+    _audit.info("user=%s action=login method=local", user.id)
     access_token = create_session_token(user)
     response = RedirectResponse(url="/dashboard", status_code=303)
     response.set_cookie(
