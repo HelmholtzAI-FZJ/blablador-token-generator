@@ -13,7 +13,8 @@ from sqlalchemy import select
 from app.config import get_config
 from app.cookies import SESSION_COOKIE
 from app.database import get_db
-from app.models import User, Token, RevokedJWT, DeletedUser
+from app.models import User, Token, RevokedJWT
+from app.tombstones import is_subject_deleted
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token", auto_error=False)
 config = get_config()
@@ -268,50 +269,44 @@ async def get_unity_userinfo(code: str, code_verifier: str) -> dict:
         return userinfo
 
 
-async def get_or_create_user(userinfo: dict, db: AsyncSession) -> User:
-    unity_id = userinfo.get("sub")
-    email = userinfo.get("email", "")
-    name = userinfo.get("name", userinfo.get("preferred_username", email))
+PROFILE_FIELD_MAX = 255
 
-    # Tombstone check: a deleted account must not be resurrected
-    # by OAuth login until an admin re-creates it.
-    tombstone_q = select(DeletedUser).where(DeletedUser.email == email)
-    if unity_id:
-        tombstone_q = tombstone_q.union(
-            select(DeletedUser).where(DeletedUser.unity_id == unity_id)
-        )
-    tombstone = (await db.execute(tombstone_q)).first()
-    if tombstone:
+
+def normalize_email(email: str) -> str:
+    return email.strip().lower()
+
+
+async def get_or_create_user(userinfo: dict, db: AsyncSession) -> User:
+    """Find or create the account for an OAuth identity.
+
+    The subject ("sub") is the only identifier. The asserted email is
+    profile data: it never links to, blocks or takes over another account.
+    """
+    unity_id = str(userinfo["sub"])
+    email = str(userinfo.get("email") or "")[:PROFILE_FIELD_MAX]
+    name = str(userinfo.get("name") or userinfo.get("preferred_username") or email)[:PROFILE_FIELD_MAX]
+    email_trusted = (
+        userinfo.get("email_verified") is True or config.oauth.trust_provider_emails
+    )
+
+    # A deleted account must not be resurrected by logging in again until
+    # an admin re-creates it.
+    if await is_subject_deleted(db, unity_id):
         raise HTTPException(
             status_code=403,
             detail="Account has been disabled. Contact an administrator.",
         )
 
-    # First try to find by unity_id
+    # Promote admin status from config on every login so that additions take
+    # effect for existing users. Never demote here: revocation is an explicit
+    # admin action that must not be silently undone at login.
+    admin_emails = {normalize_email(e) for e in config.admin.admin_emails}
+    in_admin_config = unity_id in config.admin.admin_subjects or (
+        email_trusted and normalize_email(email) in admin_emails
+    )
+
     result = await db.execute(select(User).where(User.unity_id == unity_id))
     user = result.scalar_one_or_none()
-
-    email_trusted = (
-        userinfo.get("email_verified") is True or config.oauth.trust_provider_emails
-    )
-
-    # Never attach an OAuth identity to an existing account by email: the
-    # email is only as trustworthy as the IdP that asserted it.
-    if user is None:
-        result = await db.execute(select(User).where(User.email == email))
-        if result.scalar_one_or_none() is not None:
-            raise HTTPException(
-                status_code=403,
-                detail="An account with this email already exists. Contact an administrator.",
-            )
-
-    # Promote admin status from config on every login so that
-    # additions take effect for existing users. Never demote here —
-    # revocation is an explicit admin action that must not be silently
-    # undone at login.
-    in_admin_config = unity_id in config.admin.admin_subjects or (
-        email_trusted and email in config.admin.admin_emails
-    )
 
     if user is None:
         user = User(unity_id=unity_id, email=email, name=name, is_admin=in_admin_config)
@@ -321,36 +316,42 @@ async def get_or_create_user(userinfo: dict, db: AsyncSession) -> User:
             await db.refresh(user)
         except Exception:
             await db.rollback()
-            # Never fall back to an email lookup here: that would hand the
-            # caller an account bound to a different identity.
+            # A concurrent first login of the same subject may have won.
             result = await db.execute(select(User).where(User.unity_id == unity_id))
             user = result.scalar_one_or_none()
             if user is None:
                 raise HTTPException(status_code=500, detail="Failed to create user")
-    else:
-        dirty = False
-        if in_admin_config and not user.is_admin:
-            user.is_admin = True
-            dirty = True
-        # Keep profile attributes up to date with the OAuth provider
-        if user.name != name:
-            user.name = name
-            dirty = True
-        if user.email != email and email_trusted:
-            user.email = email
-            dirty = True
-        if dirty:
-            try:
-                await db.commit()
-                await db.refresh(user)
-            except Exception:
-                await db.rollback()
+        return user
 
+    changed = False
+    if in_admin_config and not user.is_admin:
+        user.is_admin = True
+        changed = True
+    # Keep profile attributes up to date with the identity provider.
+    if user.name != name:
+        user.name = name
+        changed = True
+    if email_trusted and user.email != email:
+        user.email = email
+        changed = True
+    if changed:
+        try:
+            await db.commit()
+        except Exception:
+            await db.rollback()
+        # Rollback expires the instance; reload it so callers can use it.
+        await db.refresh(user)
     return user
 
 
 async def authenticate_local_user(email: str, password: str, db: AsyncSession) -> User | None:
-    result = await db.execute(select(User).where(User.email == email, User.password_hash.isnot(None)))
+    result = await db.execute(
+        select(User).where(
+            User.email == normalize_email(email),
+            User.unity_id.is_(None),
+            User.password_hash.isnot(None),
+        )
+    )
     user = result.scalar_one_or_none()
     stored_hash = user.password_hash if (user and user.password_hash) else _DUMMY_HASH
     # Always run bcrypt so response timing doesn't reveal whether the

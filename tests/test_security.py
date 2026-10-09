@@ -274,24 +274,34 @@ class TestLoginTimingEqualization:
         )
         assert result is None
 
-    async def test_known_user_wrong_password_rejects(self, test_db, test_admin):
-        from app.auth import authenticate_local_user, hash_password
-        test_admin.password_hash = hash_password("CorrectHorse9")
-        await test_db.commit()
-        result = await authenticate_local_user(
-            test_admin.email, "WrongPass1", test_db
-        )
+    @staticmethod
+    async def local_user(db):
+        from app.auth import hash_password
+        from app.models import User
+        user = User(email="local-login@example.com", name="Local",
+                    password_hash=hash_password("CorrectHorse9"))
+        db.add(user)
+        await db.commit()
+        return user
+
+    async def test_known_user_wrong_password_rejects(self, test_db):
+        from app.auth import authenticate_local_user
+        await self.local_user(test_db)
+        result = await authenticate_local_user("local-login@example.com", "WrongPass1", test_db)
         assert result is None
 
-    async def test_known_user_correct_password_ok(self, test_db, test_admin):
+    async def test_known_user_correct_password_ok(self, test_db):
+        from app.auth import authenticate_local_user
+        user = await self.local_user(test_db)
+        result = await authenticate_local_user("Local-Login@Example.com ", "CorrectHorse9", test_db)
+        assert result is not None
+        assert result.id == user.id
+
+    async def test_oauth_account_cannot_use_password_login(self, test_db, test_admin):
         from app.auth import authenticate_local_user, hash_password
         test_admin.password_hash = hash_password("CorrectHorse9")
         await test_db.commit()
-        result = await authenticate_local_user(
-            test_admin.email, "CorrectHorse9", test_db
-        )
-        assert result is not None
-        assert result.id == test_admin.id
+        assert await authenticate_local_user(test_admin.email, "CorrectHorse9", test_db) is None
 
 
 class TestAccountDeletion:
@@ -377,7 +387,7 @@ class TestValidateDeletedAccount:
         # We verify the tombstone blocks the token by checking the check is present.
         import inspect
         source = inspect.getsource(validate_token)
-        assert "DeletedUser" in source, "validate_token must check DeletedUser"
+        assert "is_user_deleted" in source, "validate_token must check deletion records"
 
 
 class TestHasPasswordField:
@@ -403,25 +413,83 @@ class TestOAuthAccountLinking:
     """OAuth login must not take over accounts bound to another identity."""
 
     @pytest.mark.asyncio
-    async def test_same_email_different_subject_rejected(self, test_db, test_user):
+    async def test_same_email_different_subject_gets_separate_account(self, test_db, test_user):
         from app.auth import get_or_create_user
-        with pytest.raises(HTTPException) as exc:
-            await get_or_create_user(
-                {"sub": "attacker-sub", "email": test_user.email}, test_db
-            )
-        assert exc.value.status_code == 403
+        other = await get_or_create_user(
+            {"sub": "attacker-sub", "email": test_user.email, "email_verified": True}, test_db
+        )
+        assert other.id != test_user.id and other.unity_id == "attacker-sub"
+        await test_db.refresh(test_user)
+        assert test_user.unity_id == "test-user-123"
 
     @pytest.mark.asyncio
     async def test_local_account_never_linked(self, test_db):
         from app.auth import get_or_create_user
         from app.models import User
-        test_db.add(User(email="local@example.com", name="Local", password_hash="x"))
+        local = User(email="local@example.com", name="Local", password_hash="x")
+        test_db.add(local)
         await test_db.commit()
-        with pytest.raises(HTTPException) as exc:
-            await get_or_create_user(
-                {"sub": "s", "email": "local@example.com", "email_verified": True}, test_db
-            )
-        assert exc.value.status_code == 403
+        oauth = await get_or_create_user(
+            {"sub": "s", "email": "local@example.com", "email_verified": True}, test_db
+        )
+        assert oauth.id != local.id
+        await test_db.refresh(local)
+        assert local.unity_id is None
+
+    @pytest.mark.asyncio
+    async def test_squatted_email_does_not_lock_out_owner(self, test_db):
+        """Someone asserting the victim's (unverified) email first must not block them."""
+        from app.auth import get_or_create_user
+        squatter = await get_or_create_user({"sub": "squatter", "email": "victim@example.com"}, test_db)
+        victim = await get_or_create_user(
+            {"sub": "victim", "email": "victim@example.com", "email_verified": True}, test_db
+        )
+        assert victim.id != squatter.id
+
+    @pytest.mark.asyncio
+    async def test_deleting_squatter_does_not_block_owner(self, test_db):
+        """A tombstone left by a squatter's self-deletion must not affect the owner."""
+        from app.api.validate import validate_token
+        from app.auth import get_or_create_user
+        from app.tombstones import record_deletion
+        squatter = await get_or_create_user({"sub": "squatter", "email": "victim@example.com"}, test_db)
+        victim = await get_or_create_user(
+            {"sub": "victim", "email": "victim@example.com", "email_verified": True}, test_db
+        )
+        plain = generate_token()
+        test_db.add(Token(user_id=victim.id, token_hash=hash_token(plain), name="t"))
+        record_deletion(test_db, squatter)
+        await test_db.delete(squatter)
+        await test_db.commit()
+        again = await get_or_create_user(
+            {"sub": "victim", "email": "victim@example.com", "email_verified": True}, test_db
+        )
+        assert again.id == victim.id
+        assert (await validate_token(make_request(), bearer_token=plain, db=test_db)).valid
+
+    @pytest.mark.asyncio
+    async def test_long_profile_fields_are_truncated(self, test_db):
+        from app.auth import get_or_create_user
+        user = await get_or_create_user(
+            {"sub": "long", "email": "long@example.com", "name": "N" * 300}, test_db
+        )
+        assert len(user.name) == 255
+
+    @pytest.mark.asyncio
+    async def test_failed_profile_update_still_logs_in(self, test_db, test_user, monkeypatch):
+        from app.auth import create_session_token, get_or_create_user
+        real_commit = test_db.commit
+
+        async def failing_commit():
+            raise RuntimeError("database hiccup")
+
+        monkeypatch.setattr(test_db, "commit", failing_commit)
+        user = await get_or_create_user(
+            {"sub": test_user.unity_id, "email": test_user.email, "name": "Renamed"}, test_db
+        )
+        monkeypatch.setattr(test_db, "commit", real_commit)
+        assert create_session_token(user)
+        assert user.name == "Test User"
 
     @pytest.mark.asyncio
     async def test_admin_email_requires_verified_email(self, test_db, monkeypatch):
@@ -876,3 +944,20 @@ class TestPkce:
             r = client.get("/oauth/openid/callback", params={"state": "s", "code": "c"})
             assert r.status_code == 303
         assert seen == {"code": "c", "verifier": "v" * 43}
+
+
+class TestLocalEmailUniqueness:
+    """Emails are unique among local accounts only."""
+
+    @pytest.mark.asyncio
+    async def test_partial_unique_index(self, test_db):
+        from sqlalchemy.exc import IntegrityError
+        from app.models import User
+        test_db.add_all([User(email="dup@example.com", name="L1", password_hash="x"),
+                         User(email="dup@example.com", name="O1", unity_id="o1"),
+                         User(email="dup@example.com", name="O2", unity_id="o2")])
+        await test_db.commit()
+        test_db.add(User(email="dup@example.com", name="L2", password_hash="y"))
+        with pytest.raises(IntegrityError):
+            await test_db.commit()
+        await test_db.rollback()

@@ -14,7 +14,8 @@ from sqlalchemy import select
 from sqlalchemy.orm import joinedload
 from app.config import get_config
 from app.database import init_db, close_db, get_db
-from app.models import User, Token, DeletedUser
+from app.models import User, Token
+from app.tombstones import record_deletion
 from app.auth import (
     get_current_user, get_current_admin,
     get_or_create_user, get_unity_userinfo, create_session_token,
@@ -351,7 +352,7 @@ async def delete_my_account(
             t.revoked_at = now
 
     # 2. Write tombstone (blocks OAuth resurrection)
-    db.add(DeletedUser(unity_id=user.unity_id, email=user.email))
+    record_deletion(db, user)
 
     # 3. Delete the user row (tokens via ORM cascade, revoked_jwts via FK)
     await db.delete(user)

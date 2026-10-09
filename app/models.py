@@ -1,6 +1,6 @@
 import uuid
 from datetime import datetime
-from sqlalchemy import String, DateTime, Boolean, ForeignKey, Integer
+from sqlalchemy import String, DateTime, Boolean, ForeignKey, Index, Integer, text
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 from sqlalchemy.dialects.sqlite import JSON
 from typing import Optional
@@ -12,10 +12,20 @@ class Base(DeclarativeBase):
 
 class User(Base):
     __tablename__ = "users"
+    __table_args__ = (
+        # Local accounts log in by email, so their emails are unique. OAuth
+        # accounts are identified by subject; their email is profile data an
+        # identity provider may not have verified, so it must not be unique.
+        Index(
+            "uq_users_local_email", "email", unique=True,
+            sqlite_where=text("unity_id IS NULL"),
+            postgresql_where=text("unity_id IS NULL"),
+        ),
+    )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     unity_id: Mapped[str | None] = mapped_column(String(255), unique=True, index=True, nullable=True)
-    email: Mapped[str] = mapped_column(String(255), unique=True, index=True)
+    email: Mapped[str] = mapped_column(String(255), index=True)
     name: Mapped[str] = mapped_column(String(255))
     password_hash: Mapped[str | None] = mapped_column(String(255), nullable=True)
     is_admin: Mapped[bool] = mapped_column(Boolean, default=False)
