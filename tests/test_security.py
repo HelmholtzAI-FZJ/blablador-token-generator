@@ -431,3 +431,21 @@ class TestOAuthAccountLinking:
                 {"sub": "s", "email": "local2@example.com", "email_verified": False},
                 test_db,
             )
+
+
+class TestValidateLocalUserTombstones:
+    """Deleted local users must not invalidate other local users' tokens."""
+
+    @pytest.mark.asyncio
+    async def test_other_local_tombstones_ignored(self, test_db):
+        from app.models import User, DeletedUser
+        user = User(email="keep@example.com", name="Keep", password_hash="x")
+        test_db.add(user)
+        test_db.add(DeletedUser(unity_id=None, email="gone1@example.com"))
+        test_db.add(DeletedUser(unity_id=None, email="gone2@example.com"))
+        await test_db.commit()
+        plain = generate_token()
+        test_db.add(Token(user_id=user.id, token_hash=hash_token(plain), name="t"))
+        await test_db.commit()
+        result = await validate_token(make_request(), bearer_token=plain, db=test_db)
+        assert result.valid
