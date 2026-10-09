@@ -40,6 +40,11 @@ spec:
         - name: {{ .Chart.Name }}
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
+          env:
+            - name: CONFIG_PATH
+              value: /app/config/config.yaml
+            - name: FORWARDED_ALLOW_IPS
+              value: {{ .Values.forwardedAllowIps | quote }}
           ports:
             - name: http
               containerPort: {{ .Values.service.targetPort }}
