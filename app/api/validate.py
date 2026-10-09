@@ -64,14 +64,10 @@ async def validate_token(
     
     # Check if the account was deleted after this token was created
     if token.user:
-        tombstone = (
-            await db.execute(
-                select(DeletedUser).where(
-                    (DeletedUser.unity_id == token.user.unity_id)
-                    | (DeletedUser.email == token.user.email)
-                )
-            )
-        ).scalar_one_or_none()
+        match = DeletedUser.email == token.user.email
+        if token.user.unity_id is not None:
+            match = match | (DeletedUser.unity_id == token.user.unity_id)
+        tombstone = (await db.execute(select(DeletedUser).where(match))).first()
         if tombstone:
             _audit.warning(
                 "user=%s action=revoked_token_used_by_deleted_account "
