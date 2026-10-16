@@ -1,4 +1,6 @@
 
+let usersPage = 1;
+
 function toLocalDateTime(utcStr) {
     if (!utcStr) return '';
     const date = new Date(utcStr);
@@ -33,11 +35,16 @@ function switchTab(tab) {
     }
 }
 
-async function loadUsers() {
+async function loadUsers(page = 1) {
     const tbody = document.getElementById('usersTableBody');
     try {
-        const response = await fetch('/api/admin/users');
+        const response = await fetch(`/api/admin/users?page=${page}&page_size=100`);
+        if (!response.ok) throw new Error('User listing failed');
         const users = await response.json();
+        usersPage = page;
+        document.getElementById('usersPrevious').disabled = page <= 1;
+        document.getElementById('usersNext').disabled = users.length < 100;
+        document.getElementById('usersPage').textContent = `Page ${page}`;
         
         if (users.length === 0) {
             tbody.innerHTML = '<tr><td colspan="6" class="empty">No users</td></tr>';
@@ -58,6 +65,7 @@ async function loadUsers() {
                     ${user.has_password
                         ? `<button class="btn btn-small" data-action="reset-password" data-id="${escapeHtml(user.id)}">Reset Password</button>`
                         : ''}
+                    <button class="btn btn-small btn-danger" data-action="revoke-credentials" data-id="${escapeHtml(user.id)}">Revoke All Credentials</button>
                     <button class="btn btn-small btn-danger" data-action="delete-user" data-id="${escapeHtml(user.id)}" data-email="${escapeHtml(user.email)}">Delete</button>
                 </td>
             </tr>
@@ -109,6 +117,9 @@ function openPasswordModal(userId) {
 function closePasswordModal() {
     document.getElementById('passwordModal').style.display = 'none';
     _passwordModalUserId = null;
+    document.getElementById('newPasswordInput').value = '';
+    document.getElementById('newPasswordInput').type = 'password';
+    document.getElementById('passwordEye').textContent = '👁';
 }
 
 function togglePasswordVisibility() {
@@ -126,8 +137,8 @@ function togglePasswordVisibility() {
 async function submitPasswordReset() {
     if (!_passwordModalUserId) return;
     const newPassword = document.getElementById('newPasswordInput').value;
-    if (!newPassword) {
-        alert('Please enter a new password');
+    if (Array.from(newPassword).length < 15 || new TextEncoder().encode(newPassword).length > 72) {
+        alert('Use at least 15 characters and at most 72 UTF-8 bytes.');
         return;
     }
 
@@ -155,6 +166,35 @@ async function submitPasswordReset() {
         }
     } catch (e) {
         alert('Failed to reset password: ' + e.message);
+    }
+}
+
+async function revokeCredentials(userId) {
+    if (!confirm('Revoke all API tokens and browser sessions for this user?')) return;
+    try {
+        const response = await fetch(`/api/admin/users/${encodeURIComponent(userId)}/revoke-credentials`, {
+            method: 'POST', headers: csrfHeaders(),
+        });
+        if (!response.ok) throw new Error('Revocation failed');
+        location.reload();
+    } catch {
+        alert('Credential revocation could not be completed. Please retry.');
+    }
+}
+
+async function restoreOAuthAccount() {
+    const subject = prompt('Enter the exact OAuth subject ID of the disabled account to restore:');
+    if (!subject || !confirm('Allow this OAuth subject to sign in again?')) return;
+    try {
+        const response = await fetch('/api/admin/users/restore-oauth', {
+            method: 'POST', headers: csrfHeaders({'Content-Type': 'application/json'}),
+            body: JSON.stringify({subject}),
+        });
+        if (!response.ok) throw new Error('Restoration failed');
+        alert('OAuth account restored. The user can sign in again.');
+        loadUsers();
+    } catch {
+        alert('OAuth account restoration could not be completed.');
     }
 }
 
@@ -231,6 +271,10 @@ registerActions({
     'delete-token': (el) => deleteToken(el.dataset.id),
     'reset-password': (el) => openPasswordModal(el.dataset.id),
     'delete-user': (el) => deleteUser(el.dataset.id, el.dataset.email),
+    'revoke-credentials': (el) => revokeCredentials(el.dataset.id),
+    'restore-oauth': () => restoreOAuthAccount(),
+    'users-previous': () => loadUsers(Math.max(1, usersPage - 1)),
+    'users-next': () => loadUsers(usersPage + 1),
     'toggle-password': () => togglePasswordVisibility(),
     'submit-password': () => submitPasswordReset(),
     'close-password': () => closePasswordModal(),

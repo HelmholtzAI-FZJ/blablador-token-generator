@@ -1,35 +1,63 @@
 from datetime import datetime
 import logging
+import unicodedata
+from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, Request, Query
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func
+from sqlalchemy import delete, select, update
 from sqlalchemy.orm import joinedload
-from pydantic import BaseModel, Field
-from app.database import get_db
+from pydantic import BaseModel, Field, field_validator
+from app.database import get_db, lock_user_for_update
 from app.models import User, Token
-from app.tombstones import lift_deletions_for_email, record_deletion
+from app.tombstones import (
+    is_user_deleted, lift_deletions_for_email, lift_deletions_for_subject, record_deletion,
+)
 from app.auth import (
-    get_current_admin, hash_password, invalidate_sessions, normalize_email,
+    get_current_admin, get_current_user, hash_password_async, invalidate_sessions, normalize_email,
     validate_password_strength,
 )
 from app.rate_limit import limiter, RATE_LIMITS, user_or_ip
+from app.cookies import SESSION_COOKIE
 
 logger = logging.getLogger("token_generator.audit")
 router = APIRouter(prefix="/api/admin", tags=["admin"])
 
 ADMIN_RATE_LIMIT = RATE_LIMITS.admin
 MAX_PAGE_SIZE = 100
+MAX_PAGE = 1_000_000
+
+
+async def lock_admin_actor(db: AsyncSession, admin_id: str, request: Request) -> User:
+    admin = await lock_user_for_update(db, admin_id, admin_membership=True)
+    if request.cookies.get(SESSION_COOKIE):
+        await get_current_user(request, db)
+    if admin is None or not admin.is_admin:
+        raise HTTPException(status_code=403, detail="Admin privileges required")
+    return admin
 
 
 async def is_last_admin(db: AsyncSession, user_id: str) -> bool:
-    """Return True if the user with user_id is an admin and the only one."""
-    result = await db.execute(select(func.count()).where(User.is_admin.is_(True)))
-    admin_count = result.scalar_one()
-    if admin_count > 1:
-        return False
+    """Call under the admin membership lock when deciding a mutation."""
     target = await db.execute(select(User).where(User.id == user_id))
     target_user = target.scalar_one_or_none()
-    return bool(target_user and target_user.is_admin)
+    if target_user is None or not target_user.is_admin or await is_user_deleted(db, target_user):
+        return False
+    result = await db.execute(
+        select(User)
+        .where(User.is_admin.is_(True), User.id != user_id)
+        .order_by(User.id)
+        .limit(MAX_PAGE_SIZE + 1)
+    )
+    candidates = result.scalars().all()
+    for candidate in candidates[:MAX_PAGE_SIZE]:
+        if not await is_user_deleted(db, candidate):
+            return False
+    if len(candidates) > MAX_PAGE_SIZE:
+        raise HTTPException(
+            status_code=503,
+            detail="Review disabled administrator accounts before changing administrator access",
+        )
+    return True
 
 
 class AdminTokenResponse(BaseModel):
@@ -60,6 +88,17 @@ class CreateUserRequest(BaseModel):
     password: str = Field(..., min_length=8, max_length=128)
     is_admin: bool = False
 
+    @field_validator("email")
+    @classmethod
+    def validate_local_email(cls, value: str) -> str:
+        if any(character.isspace() or unicodedata.category(character).startswith("C")
+               for character in value):
+            raise ValueError("Email must not contain whitespace or control characters")
+        email = normalize_email(value)
+        if email.count("@") != 1 or not all(email.split("@")):
+            raise ValueError("Invalid email address")
+        return email
+
 
 class UpdateUserRequest(BaseModel):
     name: str | None = Field(None, min_length=1, max_length=255)
@@ -67,11 +106,15 @@ class UpdateUserRequest(BaseModel):
     is_admin: bool | None = None
 
 
+class RestoreOAuthRequest(BaseModel):
+    subject: str = Field(..., min_length=1, max_length=255)
+
+
 @router.get("/tokens", response_model=list[AdminTokenResponse])
 @limiter.limit(ADMIN_RATE_LIMIT, key_func=user_or_ip)
 async def list_all_tokens(
     request: Request,
-    page: int = Query(1, ge=1),
+    page: int = Query(1, ge=1, le=MAX_PAGE),
     page_size: int = Query(20, ge=1, le=MAX_PAGE_SIZE),
     admin: User = Depends(get_current_admin),
     db: AsyncSession = Depends(get_db),
@@ -109,15 +152,10 @@ async def delete_revoked_tokens(
     admin: User = Depends(get_current_admin),
     db: AsyncSession = Depends(get_db),
 ):
-    result = await db.execute(select(Token).where(Token.revoked_at.isnot(None)))
-    tokens = result.scalars().all()
-
-    count = 0
-    for token in tokens:
-        await db.delete(token)
-        count += 1
-
+    admin = await lock_admin_actor(db, admin.id, request)
     try:
+        result = await db.execute(delete(Token).where(Token.revoked_at.isnot(None)))
+        count = result.rowcount
         await db.commit()
     except Exception:
         await db.rollback()
@@ -138,6 +176,7 @@ async def revoke_token_admin(
     admin: User = Depends(get_current_admin),
     db: AsyncSession = Depends(get_db),
 ):
+    admin = await lock_admin_actor(db, admin.id, request)
     result = await db.execute(select(Token).where(Token.id == token_id))
     token = result.scalar_one_or_none()
 
@@ -167,6 +206,7 @@ async def delete_token_admin(
     admin: User = Depends(get_current_admin),
     db: AsyncSession = Depends(get_db),
 ):
+    admin = await lock_admin_actor(db, admin.id, request)
     result = await db.execute(select(Token).where(Token.id == token_id))
     token = result.scalar_one_or_none()
 
@@ -192,15 +232,15 @@ async def delete_token_admin(
 @limiter.limit(ADMIN_RATE_LIMIT, key_func=user_or_ip)
 async def list_users(
     request: Request,
-    page: int = Query(1, ge=1),
-    page_size: int = Query(20, ge=1, le=MAX_PAGE_SIZE),
+    page: Annotated[int, Query(ge=1, le=MAX_PAGE)] = 1,
+    page_size: Annotated[int, Query(ge=1, le=MAX_PAGE_SIZE)] = 20,
     admin: User = Depends(get_current_admin),
     db: AsyncSession = Depends(get_db),
 ):
     offset = (page - 1) * page_size
     result = await db.execute(
         select(User)
-        .order_by(User.created_at.desc())
+        .order_by(User.created_at.desc(), User.id.desc())
         .offset(offset)
         .limit(page_size)
     )
@@ -229,12 +269,15 @@ async def create_user(
     db: AsyncSession = Depends(get_db),
 ):
     email = normalize_email(body.email)
+    if not email:
+        raise HTTPException(status_code=400, detail="Email must not be empty")
+    validate_password_strength(body.password)
+    password_hash = await hash_password_async(body.password)
+    admin = await lock_admin_actor(db, admin.id, request)
     # Local accounts log in by email, so it must be unique among them.
     result = await db.execute(select(User).where(User.email == email, User.unity_id.is_(None)))
     if result.scalar_one_or_none():
         raise HTTPException(status_code=400, detail="User with this email already exists")
-
-    validate_password_strength(body.password)
 
     # Explicit admin re-creation lifts deletion records for this email.
     await lift_deletions_for_email(db, email)
@@ -242,7 +285,7 @@ async def create_user(
     user = User(
         email=email,
         name=body.name,
-        password_hash=hash_password(body.password),
+        password_hash=password_hash,
         is_admin=body.is_admin,
         unity_id=None,
     )
@@ -281,7 +324,15 @@ async def update_user(
     admin: User = Depends(get_current_admin),
     db: AsyncSession = Depends(get_db),
 ):
-    result = await db.execute(select(User).where(User.id == user_id))
+    password_hash = None
+    if body.password is not None:
+        validate_password_strength(body.password)
+        password_hash = await hash_password_async(body.password)
+    admin = await lock_admin_actor(db, admin.id, request)
+    result = await db.execute(
+        select(User).where(User.id == user_id).with_for_update()
+        .execution_options(populate_existing=True)
+    )
     user = result.scalar_one_or_none()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
@@ -294,17 +345,17 @@ async def update_user(
                 status_code=400,
                 detail="OAuth accounts sign in through the identity provider and cannot have a password",
             )
-        validate_password_strength(body.password)
-        user.password_hash = hash_password(body.password)
-        invalidate_sessions(user)
+        user.password_hash = password_hash
     if body.is_admin is False and await is_last_admin(db, user_id):
         raise HTTPException(
             status_code=400,
             detail="Cannot demote the last remaining admin",
         )
-    if body.is_admin is not None and body.is_admin != user.is_admin:
+    role_changed = body.is_admin is not None and body.is_admin != user.is_admin
+    if role_changed:
         user.is_admin = body.is_admin
-        invalidate_sessions(user)
+    if body.password is not None or role_changed:
+        await invalidate_sessions(user, db)
 
     try:
         await db.commit()
@@ -340,7 +391,11 @@ async def delete_user(
     admin: User = Depends(get_current_admin),
     db: AsyncSession = Depends(get_db),
 ):
-    result = await db.execute(select(User).where(User.id == user_id))
+    admin = await lock_admin_actor(db, admin.id, request)
+    result = await db.execute(
+        select(User).where(User.id == user_id).with_for_update()
+        .execution_options(populate_existing=True)
+    )
     user = result.scalar_one_or_none()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
@@ -364,3 +419,56 @@ async def delete_user(
         raise HTTPException(status_code=500, detail="Failed to delete user")
     logger.info("admin=%s action=delete_user user_id=%s", admin.id, user.id)
     return {"message": "User deleted successfully"}
+
+
+@router.post("/users/{user_id}/revoke-credentials")
+@limiter.limit(ADMIN_RATE_LIMIT, key_func=user_or_ip)
+async def revoke_user_credentials(
+    request: Request,
+    user_id: str,
+    admin: User = Depends(get_current_admin),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    admin = await lock_admin_actor(db, admin.id, request)
+    result = await db.execute(
+        select(User).where(User.id == user_id).with_for_update()
+        .execution_options(populate_existing=True)
+    )
+    user = result.scalar_one_or_none()
+    if user is None:
+        raise HTTPException(status_code=404, detail="User not found")
+    try:
+        result = await db.execute(
+            update(Token)
+            .where(Token.user_id == user_id, Token.revoked_at.is_(None))
+            .values(revoked_at=datetime.utcnow())
+        )
+        await invalidate_sessions(user, db)
+        await db.commit()
+    except Exception:
+        await db.rollback()
+        raise HTTPException(status_code=500, detail="Failed to revoke credentials")
+    logger.info(
+        "admin=%s action=revoke_user_credentials user_id=%s count=%d",
+        admin.id, user_id, result.rowcount,
+    )
+    return {"message": "All API tokens and sessions revoked", "tokens_revoked": result.rowcount}
+
+
+@router.post("/users/restore-oauth")
+@limiter.limit(ADMIN_RATE_LIMIT, key_func=user_or_ip)
+async def restore_oauth_identity(
+    request: Request,
+    body: RestoreOAuthRequest,
+    admin: User = Depends(get_current_admin),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    admin = await lock_admin_actor(db, admin.id, request)
+    try:
+        count = await lift_deletions_for_subject(db, body.subject)
+        await db.commit()
+    except Exception:
+        await db.rollback()
+        raise HTTPException(status_code=500, detail="Failed to restore OAuth identity")
+    logger.info("admin=%s action=restore_oauth_identity count=%d", admin.id, count)
+    return {"message": "OAuth identity may sign in again", "deletions_lifted": count}

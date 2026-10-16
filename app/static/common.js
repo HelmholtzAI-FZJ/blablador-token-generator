@@ -38,7 +38,12 @@ document.addEventListener('click', (event) => {
 
 registerActions({
     logout: async () => {
-        await fetch('/logout', {method: 'POST', headers: csrfHeaders()});
-        window.location.href = '/';
+        try {
+            const response = await fetch('/logout', {method: 'POST', headers: csrfHeaders()});
+            if (!response.ok) throw new Error('Logout failed');
+            window.location.href = '/';
+        } catch {
+            alert('Logout could not be completed. Please retry.');
+        }
     },
 });

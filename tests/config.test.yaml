@@ -1,6 +1,7 @@
 # Configuration for the test suite (loaded via CONFIG_PATH in conftest.py).
 # Secrets and the database URL are injected through environment variables.
 app:
+  environment: development
   name: "Token Generator (tests)"
   debug: false
   secure_cookies: false

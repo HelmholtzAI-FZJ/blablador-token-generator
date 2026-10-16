@@ -1,19 +1,20 @@
 # Token Generator Service Configuration
 
 app:
+  environment: "production"
   name: "Token Generator"
   host: "0.0.0.0"
   port: 8080
   # REQUIRED: Set a strong, unique secret key for JWT signing.
   # The application will refuse to start with default/weak values.
   # Generate one with: python -c "import secrets; print(secrets.token_hex(32))"
-  secret_key: "REPLACE_WITH_GENERATED_SECRET_KEY_AT_LEAST_32_CHARS_LONG"
+  secret_key: ""
   # REQUIRED: separate key for hashing stored API tokens (must differ from
   # secret_key), so rotating secret_key does not invalidate API tokens.
   # Env override: TOKEN_HASH_KEY. Never change it once tokens exist.
-  token_hash_key: "REPLACE_WITH_A_DIFFERENT_GENERATED_KEY_AT_LEAST_32_CHARS"
+  token_hash_key: ""
   debug: false
-  api_url: "http://localhost:8080"
+  api_url: "https://tokens.example.com"
   # Secure, __Host- prefixed cookies (default true). Set to false only for
   # local development over plain http, where browsers drop Secure cookies.
   secure_cookies: true
@@ -21,20 +22,31 @@ app:
   log_level: "INFO"
   # Largest accepted request body in bytes (the ingress should match).
   max_body_bytes: 65536
+  body_timeout_seconds: 10.0
+  jwt_expiration_hours: 24
+  admin_jwt_expiration_hours: 1
+  max_concurrent_requests: 128
+  readiness_timeout_seconds: 2.0
 
 database:
-  url: "sqlite+aiosqlite:///./tokens.db"
+  url: "postgresql+asyncpg://tokens:REPLACE_WITH_PERCENT_ENCODED_RUNTIME_PASSWORD@postgres.example.com:5432/tokens"
   # Log SQL statements (parameters are never logged).
   echo: false
+  # CA trust for verified PostgreSQL TLS; mounted by the production chart.
+  ssl_ca_file: "/app/tls/postgresql/ca.crt"
+  connect_timeout_seconds: 5.0
+  statement_timeout_seconds: 5.0
+  lock_timeout_seconds: 2.0
+  idle_transaction_timeout_seconds: 15.0
 
 oauth:
   # OAuth2 configuration
-  client_id: "your-client-id"
-  client_secret: "your-client-secret"
+  client_id: ""
+  client_secret: ""
   authorize_url: "https://login.jsc.fz-juelich.de/oauth2-as/oauth2-authz"
   token_url: "https://login.jsc.fz-juelich.de/oauth2/token"
   userinfo_url: "https://login.jsc.fz-juelich.de/oauth2/userinfo"
-  redirect_uri: "http://localhost:8080/oauth/openid/callback"
+  redirect_uri: "https://tokens.example.com/oauth/openid/callback"
   scopes:
     - "openid"
     - "profile"
@@ -42,6 +54,8 @@ oauth:
   # Trust the provider's email claim without email_verified: true. Enable only
   # if the IdP guarantees every asserted email is verified.
   trust_provider_emails: false
+  request_timeout_seconds: 10.0
+  max_response_bytes: 65536
 
 # Display name for the login button
 login:
@@ -51,6 +65,7 @@ login:
 local:
   enabled: false
   allow_registration: false
+  max_concurrent_password_operations: 4
 
 tokens:
   # Token expiration settings
@@ -63,12 +78,16 @@ tokens:
   token_prefix: blablador
   # Tokens a user may hold (any state) before having to delete some.
   max_tokens_per_user: 100
+  last_used_update_seconds: 60
 
 rate_limits:
   # Where counters are stored. "memory://" is per process, so with several
   # workers or replicas use Redis, e.g. "redis://:password@redis:6379/0".
   # Env override: RATE_LIMIT_STORAGE_URI.
-  storage_uri: "memory://"
+  storage_uri: "rediss://:PASSWORD@redis.example.com:6379/0?ssl_cert_reqs=required&ssl_check_hostname=true"
+  storage_timeout_seconds: 0.5
+  preauth: "240/minute"
+  local_login_account: "5/minute"
   # Unauthenticated endpoints, per client IP. Many users may share one
   # address (campus NAT, VPN, a course), so keep these generous.
   pages: "120/minute"
@@ -86,11 +105,9 @@ rate_limits:
   token_validation_exempt: []
 
 admin:
-  # OAuth subject IDs ("sub") promoted to admin at login. Preferred: the
+  # OAuth subject IDs granted admin ONLY at first account creation. Preferred: the
   # subject cannot be spoofed by choosing an email address.
   admin_subjects: []
-  # Emails promoted to admin at login, only when the provider marks the email
+  # Emails granted admin ONLY at first account creation, when the provider marks the email
   # verified (email_verified: true) or oauth.trust_provider_emails is true.
-  admin_emails:
-    - "admin@example.com"
-    - "another-admin@example.com"
+  admin_emails: []
