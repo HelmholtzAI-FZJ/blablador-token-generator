@@ -14,6 +14,17 @@ function escapeHtml(str) {
     return div.innerHTML.replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 }
 
+// Human-readable reason from an error response ({"detail": "..."} or a
+// list of validation errors).
+async function errorMessage(response) {
+    try {
+        const body = await response.json();
+        if (typeof body.detail === 'string') return body.detail;
+        if (Array.isArray(body.detail)) return body.detail.map(item => item.msg).join('; ');
+    } catch {}
+    return `HTTP ${response.status}`;
+}
+
 function csrfHeaders(extra = {}) {
     const token = getCsrfToken();
     const headers = {...extra};
