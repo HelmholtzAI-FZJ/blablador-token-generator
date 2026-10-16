@@ -55,6 +55,7 @@ spec:
         {{- toYaml . | nindent 8 }}
       {{- end }}
       automountServiceAccountToken: false
+      terminationGracePeriodSeconds: {{ .Values.terminationGracePeriodSeconds }}
       securityContext:
         runAsNonRoot: true
         runAsUser: 10001
@@ -86,6 +87,8 @@ spec:
               value: {{ .Values.workers | quote }}
             - name: FORWARDED_ALLOW_IPS
               value: {{ $forwarded | quote }}
+            - name: GRACEFUL_SHUTDOWN_SECONDS
+              value: {{ max 1 (sub (sub (int .Values.terminationGracePeriodSeconds) (int .Values.shutdownDelaySeconds)) 5) | quote }}
             {{- if .Values.postgresql.enabled }}
             - name: DATABASE_URL
               valueFrom:
@@ -103,6 +106,13 @@ spec:
           ports:
             - name: http
               containerPort: 8080
+          {{- if .Values.shutdownDelaySeconds }}
+          lifecycle:
+            preStop:
+              # Keep serving while the ingress stops routing to this pod.
+              exec:
+                command: ["sleep", {{ .Values.shutdownDelaySeconds | quote }}]
+          {{- end }}
           volumeMounts:
             - name: config
               mountPath: /app/config

@@ -46,6 +46,11 @@ readinessProbe:
   initialDelaySeconds: 5
   periodSeconds: 10
 forwardedAllowIps: ''
+# Rolling updates: keep serving this long after termination starts (the
+# ingress needs a moment to stop routing to the pod), then let in-flight
+# requests finish within the grace period.
+shutdownDelaySeconds: 5
+terminationGracePeriodSeconds: 30
 networkPolicy:
   enabled: true
   app:
@@ -97,6 +102,22 @@ postgresql:
   tls:
     enabled: true
     existingSecret: ''
+  # Nightly pg_dump (custom format) to a dedicated volume, kept for
+  # retentionDays. Copy the volume off the cluster as well: a backup on the
+  # same storage does not survive losing it.
+  backup:
+    enabled: false
+    schedule: '17 2 * * *'
+    retentionDays: 14
+    storageClass: ''
+    size: 5Gi
+    resources:
+      limits:
+        cpu: 500m
+        memory: 256Mi
+      requests:
+        cpu: 50m
+        memory: 64Mi
 persistence:
   enabled: true
   storageClass: ''

@@ -1,0 +1,118 @@
+{{- $pg := .Values.postgresql }}
+{{- if and $pg.enabled $pg.backup.enabled }}
+{{- $name := printf "%s-postgresql" (include "blablador-token-generator.fullname" .) }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ $name }}-backup
+  labels:
+    {{- include "blablador-token-generator.labels" . | nindent 4 }}
+  annotations:
+    # Backups outlive the release.
+    helm.sh/resource-policy: keep
+spec:
+  accessModes: ["ReadWriteOnce"]
+  {{- if $pg.backup.storageClass }}
+  storageClassName: {{ $pg.backup.storageClass }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ $pg.backup.size }}
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ $name }}-backup
+  labels:
+    {{- include "blablador-token-generator.labels" . | nindent 4 }}
+spec:
+  schedule: {{ $pg.backup.schedule | quote }}
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      activeDeadlineSeconds: 3600
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: {{ $name }}-backup
+            app.kubernetes.io/instance: {{ .Release.Name }}
+        spec:
+          restartPolicy: Never
+          automountServiceAccountToken: false
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 70
+            runAsGroup: 70
+            fsGroup: 70
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            - name: backup
+              image: {{ include "blablador-token-generator.image" $pg.image | quote }}
+              command: ["/bin/sh", "-ec"]
+              args:
+                - |
+                  umask 077
+                  stamp=$(date -u +%Y%m%dT%H%M%SZ)
+                  pg_dump --format=custom --no-owner --file="/backup/tokens-$stamp.dump.partial"
+                  mv "/backup/tokens-$stamp.dump.partial" "/backup/tokens-$stamp.dump"
+                  find /backup -name 'tokens-*.dump' -mtime +{{ int $pg.backup.retentionDays }} -delete
+                  find /backup -name 'tokens-*.dump.partial' -mmin +120 -delete
+                  echo "Wrote tokens-$stamp.dump"
+              env:
+                - name: PGHOST
+                  value: {{ $name | quote }}
+                - name: PGPORT
+                  value: "5432"
+                - name: PGDATABASE
+                  value: {{ $pg.database | quote }}
+                - name: PGUSER
+                  value: {{ $pg.username | quote }}
+                - name: PGPASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: {{ include "blablador-token-generator.postgresSecret" . }}
+                      key: password
+                {{- if $pg.tls.enabled }}
+                - name: PGSSLMODE
+                  value: verify-full
+                - name: PGSSLROOTCERT
+                  value: /tls/ca.crt
+                {{- end }}
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop: ["ALL"]
+              resources:
+                {{- toYaml $pg.backup.resources | nindent 16 }}
+              volumeMounts:
+                - name: backup
+                  mountPath: /backup
+                - name: tmp
+                  mountPath: /tmp
+                {{- if $pg.tls.enabled }}
+                - name: ca
+                  mountPath: /tls
+                  readOnly: true
+                {{- end }}
+          volumes:
+            - name: backup
+              persistentVolumeClaim:
+                claimName: {{ $name }}-backup
+            - name: tmp
+              emptyDir:
+                sizeLimit: 16Mi
+            {{- if $pg.tls.enabled }}
+            - name: ca
+              secret:
+                secretName: {{ required "postgresql.tls.existingSecret is required" $pg.tls.existingSecret }}
+                defaultMode: 0440
+                items:
+                  - key: ca.crt
+                    path: ca.crt
+            {{- end }}
+{{- end }}

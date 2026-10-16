@@ -1,0 +1,40 @@
+# Synthetic values for `helm lint` / `helm template` in CI. Every credential
+# here is a placeholder; never deploy with this file.
+image:
+  tag: ci-synthetic
+forwardedAllowIps: 192.0.2.1
+config:
+  app:
+    secret_key: ci-synthetic-session-signing-key-not-for-deployment-0000
+    token_hash_key: ci-synthetic-token-hmac-key-not-for-deployment-11111111
+    api_url: https://tokens.example.com
+  oauth:
+    client_id: ci-synthetic-client
+postgresql:
+  image:
+    tag: ci-synthetic
+  password: ci-synthetic-runtime-password-not-for-deployment
+  adminPassword: ci-synthetic-admin-password-not-for-deployment
+  tls:
+    existingSecret: ci-postgresql-tls
+  backup:
+    enabled: true
+redis:
+  image:
+    tag: ci-synthetic
+  password: ci-synthetic-redis-password-not-for-deployment
+  tls:
+    existingSecret: ci-redis-tls
+networkPolicy:
+  app:
+    from:
+      - ipBlock:
+          cidr: 192.0.2.1/32
+    egress:
+      extraRules:
+        - to:
+            - ipBlock:
+                cidr: 192.0.2.2/32
+          ports:
+            - port: 443
+              protocol: TCP

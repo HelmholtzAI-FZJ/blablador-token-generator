@@ -124,6 +124,58 @@ def test_chart() -> None:
     print("Helm security rendering checks passed")
 
 
+def test_operations() -> None:
+    values = yaml.safe_load((CHART / "ci" / "test-values.yaml").read_text())
+    name = "security-test-blablador-token-generator"
+    mapped = index(render(values))
+    pod = mapped[("Deployment", name)]["spec"]["template"]["spec"]
+    container = pod["containers"][0]
+    environment = {item["name"]: item.get("value") for item in container["env"]}
+    assert pod["terminationGracePeriodSeconds"] == 30
+    assert container["lifecycle"]["preStop"]["exec"]["command"] == ["sleep", "5"]
+    assert environment["GRACEFUL_SHUTDOWN_SECONDS"] == "20"
+
+    backup = mapped[("CronJob", name + "-postgresql-backup")]
+    assert backup["spec"]["concurrencyPolicy"] == "Forbid"
+    job = backup["spec"]["jobTemplate"]["spec"]["template"]["spec"]
+    assert job["automountServiceAccountToken"] is False
+    assert job["securityContext"]["runAsUser"] == 70
+    assert job["securityContext"]["seccompProfile"]["type"] == "RuntimeDefault"
+    job_container = job["containers"][0]
+    assert job_container["securityContext"]["readOnlyRootFilesystem"] is True
+    assert job_container["securityContext"]["capabilities"]["drop"] == ["ALL"]
+    job_env = {item["name"]: item for item in job_container["env"]}
+    assert job_env["PGSSLMODE"]["value"] == "verify-full"
+    assert job_env["PGUSER"]["value"] == "tokens", "backups use the runtime role, not the administrator"
+    assert job_env["PGPASSWORD"]["valueFrom"]["secretKeyRef"]["key"] == "password"
+    claim = mapped[("PersistentVolumeClaim", name + "-postgresql-backup")]
+    assert claim["metadata"]["annotations"]["helm.sh/resource-policy"] == "keep"
+    database_policy = mapped[("NetworkPolicy", name + "-postgresql")]["spec"]["ingress"][0]["from"]
+    assert {"app.kubernetes.io/name": name + "-postgresql-backup",
+            "app.kubernetes.io/instance": "security-test"} in [peer["podSelector"]["matchLabels"] for peer in database_policy]
+    backup_policy = mapped[("NetworkPolicy", name + "-postgresql-backup")]["spec"]
+    assert backup_policy["ingress"] == []
+    assert [rule["ports"][0]["port"] for rule in backup_policy["egress"]] == [53, 5432]
+
+    without_backup = copy.deepcopy(values)
+    without_backup["postgresql"]["backup"]["enabled"] = False
+    resources = index(render(without_backup))
+    assert ("CronJob", name + "-postgresql-backup") not in resources
+    assert ("NetworkPolicy", name + "-postgresql-backup") not in resources
+    no_delay = copy.deepcopy(values)
+    no_delay["shutdownDelaySeconds"] = 0
+    assert "lifecycle" not in index(render(no_delay))[("Deployment", name)]["spec"]["template"]["spec"]["containers"][0]
+    for unsafe in ({"postgresql": {"backup": {"retentionDays": 0}}}, {"shutdownDelaySeconds": 120}):
+        broken = copy.deepcopy(values)
+        for key, value in unsafe.items():
+            if key == "postgresql":
+                broken["postgresql"]["backup"].update(value["backup"])
+            else:
+                broken[key] = value
+        render(broken, valid=False)
+    print("Graceful shutdown and backup rendering checks passed")
+
+
 def test_startup() -> None:
     with tempfile.TemporaryDirectory(prefix="token-generator-start-test-") as directory:
         work = Path(directory)
@@ -186,5 +238,6 @@ def test_postgresql_separation() -> None:
 
 if __name__ == "__main__":
     test_chart()
+    test_operations()
     test_startup()
     test_postgresql_separation()

@@ -468,6 +468,34 @@
               "type": "string"
             }
           }
+        },
+        "backup": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "type": "boolean"
+            },
+            "schedule": {
+              "type": "string",
+              "minLength": 9
+            },
+            "retentionDays": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 3650
+            },
+            "storageClass": {
+              "type": "string"
+            },
+            "size": {
+              "type": "string",
+              "pattern": "^[0-9]+(\\.[0-9]+)?(Ki|Mi|Gi|Ti)$"
+            },
+            "resources": {
+              "type": "object"
+            }
+          }
         }
       }
     },
@@ -516,6 +544,16 @@
           }
         }
       }
+    },
+    "shutdownDelaySeconds": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 60
+    },
+    "terminationGracePeriodSeconds": {
+      "type": "integer",
+      "minimum": 10,
+      "maximum": 600
     }
   }
 }
