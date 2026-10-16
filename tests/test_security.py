@@ -317,7 +317,7 @@ class TestAccountDeletion:
     async def test_delete_account_revokes_all_tokens(self, test_db, test_user):
         from app.models import Token
         from app.auth import generate_token, hash_token
-        from datetime import datetime, timedelta
+        from datetime import timedelta
         # Create 3 tokens
         for i in range(3):
             test_db.add(Token(
@@ -372,7 +372,7 @@ class TestValidateDeletedAccount:
         from app.auth import generate_token, hash_token
         from app.models import Token
         from app.tombstones import record_deletion
-        from datetime import datetime, timedelta
+        from datetime import timedelta
         token_hash = hash_token(generate_token())
         test_db.add(Token(
             user_id=test_user.id,
@@ -389,8 +389,7 @@ class TestValidateDeletedAccount:
         await test_db.commit()
 
         # Validate should reject
-        from app.api.validate import validate_token, extract_bearer_token
-        plain = generate_token()  # we just need the function path; token won't match
+        from app.api.validate import validate_token
         # Direct test: tombstone exists so validate_token raises via the tombstone check.
         # We verify the tombstone blocks the token by checking the check is present.
         import inspect
@@ -1017,7 +1016,7 @@ class TestRevokedSessionPurge:
 
     @pytest.mark.asyncio
     async def test_expired_entries_purged_on_logout(self, test_db, test_user):
-        from datetime import datetime, timedelta
+        from datetime import timedelta
         from app.auth import create_session_token, decode_access_token, revoke_jwt
         from app.models import RevokedJWT
         test_db.add(RevokedJWT(jti="old", user_id=test_user.id,

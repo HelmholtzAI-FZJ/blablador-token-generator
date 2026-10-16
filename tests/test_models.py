@@ -2,7 +2,6 @@ import pytest
 from app.models import User, Token
 from app.auth import hash_token, generate_token
 from app.timeutil import utcnow
-from datetime import datetime
 
 
 class TestUserModel:
