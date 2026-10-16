@@ -1,0 +1,85 @@
+........................................................................ [ 78%]
+....................                                                     [100%]
+=============================== warnings summary ===============================
+tests/test_security.py:15
+  /Users/surak/Devel/blablador/token_generator/tests/test_security.py:15: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.
+    from starlette.testclient import TestClient
+
+tests/test_api.py: 4 warnings
+tests/test_models.py: 5 warnings
+tests/test_security.py: 74 warnings
+  /Users/surak/Devel/blablador/token_generator/.venv/lib/python3.12/site-packages/sqlalchemy/sql/schema.py:3627: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    return util.wrap_callable(lambda ctx: fn(), fn)  # type: ignore
+
+tests/test_api.py::TestValidateEndpoint::test_validate_revoked_token
+  /Users/surak/Devel/blablador/token_generator/tests/test_api.py:49: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    token.revoked_at = datetime.utcnow()
+
+tests/test_models.py::TestTokenModel::test_revoke_token
+  /Users/surak/Devel/blablador/token_generator/tests/test_models.py:47: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    token.revoked_at = datetime.utcnow()
+
+tests/test_security.py::TestAccountDeletion::test_delete_account_revokes_all_tokens
+tests/test_security.py::TestAccountDeletion::test_delete_account_revokes_all_tokens
+tests/test_security.py::TestAccountDeletion::test_delete_account_revokes_all_tokens
+  /Users/surak/Devel/blablador/token_generator/tests/test_security.py:325: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    created_at=datetime.utcnow(),
+
+tests/test_security.py::TestAccountDeletion::test_delete_account_revokes_all_tokens
+tests/test_security.py::TestAccountDeletion::test_delete_account_revokes_all_tokens
+tests/test_security.py::TestAccountDeletion::test_delete_account_revokes_all_tokens
+  /Users/surak/Devel/blablador/token_generator/tests/test_security.py:326: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    expires_at=datetime.utcnow() + timedelta(days=30),
+
+tests/test_security.py::TestAccountDeletion::test_delete_account_revokes_all_tokens
+  /Users/surak/Devel/blablador/token_generator/tests/test_security.py:339: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    now = datetime.utcnow()
+
+tests/test_security.py::TestValidateDeletedAccount::test_deleted_user_token_rejected_and_logged
+  /Users/surak/Devel/blablador/token_generator/tests/test_security.py:379: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    created_at=datetime.utcnow(),
+
+tests/test_security.py::TestValidateDeletedAccount::test_deleted_user_token_rejected_and_logged
+  /Users/surak/Devel/blablador/token_generator/tests/test_security.py:380: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    expires_at=datetime.utcnow() + timedelta(days=30),
+
+tests/test_security.py: 11 warnings
+  /Users/surak/Devel/blablador/token_generator/app/auth.py:115: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    expire = datetime.utcnow() + timedelta(hours=config.app.jwt_expiration_hours)
+
+tests/test_security.py::TestDeleteUserWithRevokedSessions::test_admin_can_delete_user_who_logged_out
+tests/test_security.py::TestDeleteUserWithRevokedSessions::test_user_can_delete_own_account_after_logout
+tests/test_security.py::TestRevokedSessionPurge::test_expired_entries_purged_on_logout
+  /Users/surak/Devel/blablador/token_generator/app/auth.py:146: DeprecationWarning: datetime.datetime.utcfromtimestamp() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.fromtimestamp(timestamp, datetime.UTC).
+    exp = datetime.utcfromtimestamp(exp_ts)
+
+tests/test_security.py::TestDeleteUserWithRevokedSessions::test_admin_can_delete_user_who_logged_out
+tests/test_security.py::TestDeleteUserWithRevokedSessions::test_user_can_delete_own_account_after_logout
+tests/test_security.py::TestRevokedSessionPurge::test_expired_entries_purged_on_logout
+  /Users/surak/Devel/blablador/token_generator/app/auth.py:150: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    await db.execute(delete(RevokedJWT).where(RevokedJWT.expires_at < datetime.utcnow()))
+
+tests/test_security.py::TestDeleteUserWithRevokedSessions::test_user_can_delete_own_account_after_logout
+  /Users/surak/Devel/blablador/token_generator/app/main.py:351: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    now = datetime.utcnow()
+
+tests/test_security.py::TestAdminTokenRoutes::test_admin_revoke_purge_and_list
+  /Users/surak/Devel/blablador/token_generator/app/api/admin.py:147: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    token.revoked_at = datetime.utcnow()
+
+tests/test_security.py::TestRevokedSessionPurge::test_expired_entries_purged_on_logout
+  /Users/surak/Devel/blablador/token_generator/tests/test_security.py:1017: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    expires_at=datetime.utcnow() - timedelta(hours=1)))
+
+tests/test_security.py::TestTokenLimits::test_tokens_per_user_capped
+tests/test_security.py::TestTokenLimits::test_tokens_per_user_capped
+  /Users/surak/Devel/blablador/token_generator/app/api/tokens.py:77: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    expires_at = datetime.utcnow() + timedelta(days=config.tokens.default_expiration_days)
+
+tests/test_security.py::TestTokenLimits::test_tokens_per_user_capped
+tests/test_security.py::TestTokenLimits::test_tokens_per_user_capped
+  /Users/surak/Devel/blablador/token_generator/app/api/tokens.py:79: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    max_expires = datetime.utcnow() + timedelta(days=config.tokens.max_expiration_days)
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+92 passed, 119 warnings in 5.17s

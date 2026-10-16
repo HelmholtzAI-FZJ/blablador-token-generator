@@ -1,0 +1,12 @@
+2026-10-11 20:50:06,665 INFO token_generator.audit user=ec64ed6b-abc9-4419-8af6-e4acc778f848 action=create_token token_id=f54cffd8-cb4f-4756-8503-104e318257d6 expires_at=2027-01-09T18:50:06.662414
+2026-10-11 20:50:06,666 INFO token_generator.audit user=ec64ed6b-abc9-4419-8af6-e4acc778f848 action=create_token token_id=0f6d9b2d-436b-4b08-93a9-6d1d31d58749 expires_at=2027-01-09T18:50:06.662885
+2026-10-11 20:50:06,714 INFO token_generator.account user=eb5ba7d8-cd8c-42ff-9e4e-0f915ea8c71c action=account_deleted token_count=0
+2026-10-11 20:50:06,769 INFO token_generator.audit admin=c172c438-9e07-43a2-8a6a-ff7d4f99d9cd action=update_user user_id=c172c438-9e07-43a2-8a6a-ff7d4f99d9cd is_admin=False password_changed=False name_changed=False
+2026-10-11 20:50:06,769 INFO token_generator.audit admin=c433a20d-91ba-45b1-8323-134447dc44cd action=update_user user_id=c433a20d-91ba-45b1-8323-134447dc44cd is_admin=False password_changed=False name_changed=False
+/private/tmp/token-generator-api-probes-postgres.py:128: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+  db.add(Token(user_id=u.id, token_hash=hash_token(plain), name='Test', expires_at=datetime.utcnow()+timedelta(days=1)))
+quota_race {'configured_max': 1, 'results': ['created', 'created'], 'stored_count': 2}
+last_admin_self_delete {'response_status': 200, 'remaining_admins': 0}
+admin_demotion_race {'results': ['demoted', 'demoted'], 'remaining_admins': 0}
+extreme_date {'result': 'OverflowError'}
+validation_write_failure {'result': 'MissingGreenlet'}

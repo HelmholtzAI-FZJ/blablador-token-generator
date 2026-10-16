@@ -1,5 +1,7 @@
 # Token Authentication Infrastructure Specification
 
+> Historical design specification. Current security behavior, implemented fixes and production requirements are authoritative in [the security audit](security_audit/REPORT.md), [control inventory](security_audit/CONTROLS.md) and [README](README.md). In particular, API tokens use HMAC-SHA256, expiry is bounded, and OAuth does not persist a refresh token.
+
 ## 1. Project Overview
 
 **Project Name:** Token Generator Service  

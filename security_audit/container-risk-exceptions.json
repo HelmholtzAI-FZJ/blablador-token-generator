@@ -1,0 +1,357 @@
+{
+  "scope": "Only the inspected image versions deployed with the enforced production security contexts; assessments expire and changed versions fail the gate. Not a blanket acceptance of operating-system vulnerabilities.",
+  "exceptions": [
+    {
+      "vulnerability_id": "CVE-2026-76642",
+      "package_name": "bsdutils",
+      "installed_version": "1:2.41.5-0+deb13u1",
+      "expires": "2026-11-10",
+      "status": "not_affected",
+      "reason": "The vulnerable privileged mount helper failure path is not called by this Python service. Production requires UID10001, no privilege escalation, ALL capabilities dropped, read-only root, and RuntimeDefault seccomp. No untrusted mount arguments or subprocess invocation exist in application routes."
+    },
+    {
+      "vulnerability_id": "CVE-2026-78408",
+      "package_name": "bsdutils",
+      "installed_version": "1:2.41.5-0+deb13u1",
+      "expires": "2026-11-10",
+      "status": "not_affected",
+      "reason": "The vulnerable privileged nsenter cgroup/descriptor operation is not called by this service. Production drops ALL capabilities, uses UID10001 and no_new_privileges, and prohibits privileged namespace entry. No route executes nsenter."
+    },
+    {
+      "vulnerability_id": "CVE-2026-78409",
+      "package_name": "bsdutils",
+      "installed_version": "1:2.41.5-0+deb13u1",
+      "expires": "2026-11-10",
+      "status": "not_affected",
+      "reason": "The vulnerable privileged X-mount.subdir/detached-tree path is not called by this service. Production drops ALL capabilities, uses UID10001 and no_new_privileges with read-only root. No route constructs mounts."
+    },
+    {
+      "vulnerability_id": "CVE-2026-78410",
+      "package_name": "bsdutils",
+      "installed_version": "1:2.41.5-0+deb13u1",
+      "expires": "2026-11-10",
+      "status": "not_affected",
+      "reason": "The vulnerable restricted bind mount owner/group path is not called by this service. Production drops ALL capabilities and uses UID10001/no_new_privileges with read-only root. No route constructs mounts."
+    },
+    {
+      "vulnerability_id": "CVE-2026-54369",
+      "package_name": "libacl1",
+      "installed_version": "2.3.2-2+b1",
+      "expires": "2026-11-10",
+      "status": "not_affected",
+      "reason": "The service never invokes ACL utilities or performs attacker-selected privileged ACL operations. getfacl is absent; production runs UID10001 without privilege escalation or capabilities and with read-only root. No ACL file path is accepted by any route."
+    },
+    {
+      "vulnerability_id": "CVE-2026-76642",
+      "package_name": "libblkid1",
+      "installed_version": "2.41.5-0+deb13u1",
+      "expires": "2026-11-10",
+      "status": "not_affected",
+      "reason": "The vulnerable privileged mount helper failure path is not called by this Python service. Production requires UID10001, no privilege escalation, ALL capabilities dropped, read-only root, and RuntimeDefault seccomp. No untrusted mount arguments or subprocess invocation exist in application routes."
+    },
+    {
+      "vulnerability_id": "CVE-2026-78408",
+      "package_name": "libblkid1",
+      "installed_version": "2.41.5-0+deb13u1",
+      "expires": "2026-11-10",
+      "status": "not_affected",
+      "reason": "The vulnerable privileged nsenter cgroup/descriptor operation is not called by this service. Production drops ALL capabilities, uses UID10001 and no_new_privileges, and prohibits privileged namespace entry. No route executes nsenter."
+    },
+    {
+      "vulnerability_id": "CVE-2026-78409",
+      "package_name": "libblkid1",
+      "installed_version": "2.41.5-0+deb13u1",
+      "expires": "2026-11-10",
+      "status": "not_affected",
+      "reason": "The vulnerable privileged X-mount.subdir/detached-tree path is not called by this service. Production drops ALL capabilities, uses UID10001 and no_new_privileges with read-only root. No route constructs mounts."
+    },
+    {
+      "vulnerability_id": "CVE-2026-78410",
+      "package_name": "libblkid1",
+      "installed_version": "2.41.5-0+deb13u1",
+      "expires": "2026-11-10",
+      "status": "not_affected",
+      "reason": "The vulnerable restricted bind mount owner/group path is not called by this service. Production drops ALL capabilities and uses UID10001/no_new_privileges with read-only root. No route constructs mounts."
+    },
+    {
+      "vulnerability_id": "CVE-2026-76642",
+      "package_name": "liblastlog2-2",
+      "installed_version": "2.41.5-0+deb13u1",
+      "expires": "2026-11-10",
+      "status": "not_affected",
+      "reason": "The vulnerable privileged mount helper failure path is not called by this Python service. Production requires UID10001, no privilege escalation, ALL capabilities dropped, read-only root, and RuntimeDefault seccomp. No untrusted mount arguments or subprocess invocation exist in application routes."
+    },
+    {
+      "vulnerability_id": "CVE-2026-78408",
+      "package_name": "liblastlog2-2",
+      "installed_version": "2.41.5-0+deb13u1",
+      "expires": "2026-11-10",
+      "status": "not_affected",
+      "reason": "The vulnerable privileged nsenter cgroup/descriptor operation is not called by this service. Production drops ALL capabilities, uses UID10001 and no_new_privileges, and prohibits privileged namespace entry. No route executes nsenter."
+    },
+    {
+      "vulnerability_id": "CVE-2026-78409",
+      "package_name": "liblastlog2-2",
+      "installed_version": "2.41.5-0+deb13u1",
+      "expires": "2026-11-10",
+      "status": "not_affected",
+      "reason": "The vulnerable privileged X-mount.subdir/detached-tree path is not called by this service. Production drops ALL capabilities, uses UID10001 and no_new_privileges with read-only root. No route constructs mounts."
+    },
+    {
+      "vulnerability_id": "CVE-2026-78410",
+      "package_name": "liblastlog2-2",
+      "installed_version": "2.41.5-0+deb13u1",
+      "expires": "2026-11-10",
+      "status": "not_affected",
+      "reason": "The vulnerable restricted bind mount owner/group path is not called by this service. Production drops ALL capabilities and uses UID10001/no_new_privileges with read-only root. No route constructs mounts."
+    },
+    {
+      "vulnerability_id": "CVE-2026-76642",
+      "package_name": "libmount1",
+      "installed_version": "2.41.5-0+deb13u1",
+      "expires": "2026-11-10",
+      "status": "not_affected",
+      "reason": "The vulnerable privileged mount helper failure path is not called by this Python service. Production requires UID10001, no privilege escalation, ALL capabilities dropped, read-only root, and RuntimeDefault seccomp. No untrusted mount arguments or subprocess invocation exist in application routes."
+    },
+    {
+      "vulnerability_id": "CVE-2026-78408",
+      "package_name": "libmount1",
+      "installed_version": "2.41.5-0+deb13u1",
+      "expires": "2026-11-10",
+      "status": "not_affected",
+      "reason": "The vulnerable privileged nsenter cgroup/descriptor operation is not called by this service. Production drops ALL capabilities, uses UID10001 and no_new_privileges, and prohibits privileged namespace entry. No route executes nsenter."
+    },
+    {
+      "vulnerability_id": "CVE-2026-78409",
+      "package_name": "libmount1",
+      "installed_version": "2.41.5-0+deb13u1",
+      "expires": "2026-11-10",
+      "status": "not_affected",
+      "reason": "The vulnerable privileged X-mount.subdir/detached-tree path is not called by this service. Production drops ALL capabilities, uses UID10001 and no_new_privileges with read-only root. No route constructs mounts."
+    },
+    {
+      "vulnerability_id": "CVE-2026-78410",
+      "package_name": "libmount1",
+      "installed_version": "2.41.5-0+deb13u1",
+      "expires": "2026-11-10",
+      "status": "not_affected",
+      "reason": "The vulnerable restricted bind mount owner/group path is not called by this service. Production drops ALL capabilities and uses UID10001/no_new_privileges with read-only root. No route constructs mounts."
+    },
+    {
+      "vulnerability_id": "CVE-2025-69720",
+      "package_name": "libncursesw6",
+      "installed_version": "6.5+20250216-2",
+      "expires": "2026-11-10",
+      "status": "not_affected",
+      "reason": "The vulnerable infocmp parser is installed but never executed by this headless Python HTTP service. Application code has no subprocess execution or terminal/terminfo input path. This assessment does not cover interactive use of the image."
+    },
+    {
+      "vulnerability_id": "CVE-2026-76642",
+      "package_name": "libsmartcols1",
+      "installed_version": "2.41.5-0+deb13u1",
+      "expires": "2026-11-10",
+      "status": "not_affected",
+      "reason": "The vulnerable privileged mount helper failure path is not called by this Python service. Production requires UID10001, no privilege escalation, ALL capabilities dropped, read-only root, and RuntimeDefault seccomp. No untrusted mount arguments or subprocess invocation exist in application routes."
+    },
+    {
+      "vulnerability_id": "CVE-2026-78408",
+      "package_name": "libsmartcols1",
+      "installed_version": "2.41.5-0+deb13u1",
+      "expires": "2026-11-10",
+      "status": "not_affected",
+      "reason": "The vulnerable privileged nsenter cgroup/descriptor operation is not called by this service. Production drops ALL capabilities, uses UID10001 and no_new_privileges, and prohibits privileged namespace entry. No route executes nsenter."
+    },
+    {
+      "vulnerability_id": "CVE-2026-78409",
+      "package_name": "libsmartcols1",
+      "installed_version": "2.41.5-0+deb13u1",
+      "expires": "2026-11-10",
+      "status": "not_affected",
+      "reason": "The vulnerable privileged X-mount.subdir/detached-tree path is not called by this service. Production drops ALL capabilities, uses UID10001 and no_new_privileges with read-only root. No route constructs mounts."
+    },
+    {
+      "vulnerability_id": "CVE-2026-78410",
+      "package_name": "libsmartcols1",
+      "installed_version": "2.41.5-0+deb13u1",
+      "expires": "2026-11-10",
+      "status": "not_affected",
+      "reason": "The vulnerable restricted bind mount owner/group path is not called by this service. Production drops ALL capabilities and uses UID10001/no_new_privileges with read-only root. No route constructs mounts."
+    },
+    {
+      "vulnerability_id": "CVE-2026-16742",
+      "package_name": "libsystemd0",
+      "installed_version": "257.13-1~deb13u1",
+      "expires": "2026-11-10",
+      "status": "not_affected",
+      "reason": "The vulnerable systemd-homed feature is absent from this image (binary checked); shared source-package library matches do not expose it. The image runs Uvicorn as UID10001 without systemd or privilege escalation."
+    },
+    {
+      "vulnerability_id": "CVE-2025-69720",
+      "package_name": "libtinfo6",
+      "installed_version": "6.5+20250216-2",
+      "expires": "2026-11-10",
+      "status": "not_affected",
+      "reason": "The vulnerable infocmp parser is installed but never executed by this headless Python HTTP service. Application code has no subprocess execution or terminal/terminfo input path. This assessment does not cover interactive use of the image."
+    },
+    {
+      "vulnerability_id": "CVE-2026-16742",
+      "package_name": "libudev1",
+      "installed_version": "257.13-1~deb13u1",
+      "expires": "2026-11-10",
+      "status": "not_affected",
+      "reason": "The vulnerable systemd-homed feature is absent from this image (binary checked); shared source-package library matches do not expose it. The image runs Uvicorn as UID10001 without systemd or privilege escalation."
+    },
+    {
+      "vulnerability_id": "CVE-2026-76642",
+      "package_name": "libuuid1",
+      "installed_version": "2.41.5-0+deb13u1",
+      "expires": "2026-11-10",
+      "status": "not_affected",
+      "reason": "The vulnerable privileged mount helper failure path is not called by this Python service. Production requires UID10001, no privilege escalation, ALL capabilities dropped, read-only root, and RuntimeDefault seccomp. No untrusted mount arguments or subprocess invocation exist in application routes."
+    },
+    {
+      "vulnerability_id": "CVE-2026-78408",
+      "package_name": "libuuid1",
+      "installed_version": "2.41.5-0+deb13u1",
+      "expires": "2026-11-10",
+      "status": "not_affected",
+      "reason": "The vulnerable privileged nsenter cgroup/descriptor operation is not called by this service. Production drops ALL capabilities, uses UID10001 and no_new_privileges, and prohibits privileged namespace entry. No route executes nsenter."
+    },
+    {
+      "vulnerability_id": "CVE-2026-78409",
+      "package_name": "libuuid1",
+      "installed_version": "2.41.5-0+deb13u1",
+      "expires": "2026-11-10",
+      "status": "not_affected",
+      "reason": "The vulnerable privileged X-mount.subdir/detached-tree path is not called by this service. Production drops ALL capabilities, uses UID10001 and no_new_privileges with read-only root. No route constructs mounts."
+    },
+    {
+      "vulnerability_id": "CVE-2026-78410",
+      "package_name": "libuuid1",
+      "installed_version": "2.41.5-0+deb13u1",
+      "expires": "2026-11-10",
+      "status": "not_affected",
+      "reason": "The vulnerable restricted bind mount owner/group path is not called by this service. Production drops ALL capabilities and uses UID10001/no_new_privileges with read-only root. No route constructs mounts."
+    },
+    {
+      "vulnerability_id": "CVE-2026-76642",
+      "package_name": "login",
+      "installed_version": "1:4.16.0-2+really2.41.5-0+deb13u1",
+      "expires": "2026-11-10",
+      "status": "not_affected",
+      "reason": "The vulnerable privileged mount helper failure path is not called by this Python service. Production requires UID10001, no privilege escalation, ALL capabilities dropped, read-only root, and RuntimeDefault seccomp. No untrusted mount arguments or subprocess invocation exist in application routes."
+    },
+    {
+      "vulnerability_id": "CVE-2026-78408",
+      "package_name": "login",
+      "installed_version": "1:4.16.0-2+really2.41.5-0+deb13u1",
+      "expires": "2026-11-10",
+      "status": "not_affected",
+      "reason": "The vulnerable privileged nsenter cgroup/descriptor operation is not called by this service. Production drops ALL capabilities, uses UID10001 and no_new_privileges, and prohibits privileged namespace entry. No route executes nsenter."
+    },
+    {
+      "vulnerability_id": "CVE-2026-78409",
+      "package_name": "login",
+      "installed_version": "1:4.16.0-2+really2.41.5-0+deb13u1",
+      "expires": "2026-11-10",
+      "status": "not_affected",
+      "reason": "The vulnerable privileged X-mount.subdir/detached-tree path is not called by this service. Production drops ALL capabilities, uses UID10001 and no_new_privileges with read-only root. No route constructs mounts."
+    },
+    {
+      "vulnerability_id": "CVE-2026-78410",
+      "package_name": "login",
+      "installed_version": "1:4.16.0-2+really2.41.5-0+deb13u1",
+      "expires": "2026-11-10",
+      "status": "not_affected",
+      "reason": "The vulnerable restricted bind mount owner/group path is not called by this service. Production drops ALL capabilities and uses UID10001/no_new_privileges with read-only root. No route constructs mounts."
+    },
+    {
+      "vulnerability_id": "CVE-2026-76642",
+      "package_name": "mount",
+      "installed_version": "2.41.5-0+deb13u1",
+      "expires": "2026-11-10",
+      "status": "not_affected",
+      "reason": "The vulnerable privileged mount helper failure path is not called by this Python service. Production requires UID10001, no privilege escalation, ALL capabilities dropped, read-only root, and RuntimeDefault seccomp. No untrusted mount arguments or subprocess invocation exist in application routes."
+    },
+    {
+      "vulnerability_id": "CVE-2026-78408",
+      "package_name": "mount",
+      "installed_version": "2.41.5-0+deb13u1",
+      "expires": "2026-11-10",
+      "status": "not_affected",
+      "reason": "The vulnerable privileged nsenter cgroup/descriptor operation is not called by this service. Production drops ALL capabilities, uses UID10001 and no_new_privileges, and prohibits privileged namespace entry. No route executes nsenter."
+    },
+    {
+      "vulnerability_id": "CVE-2026-78409",
+      "package_name": "mount",
+      "installed_version": "2.41.5-0+deb13u1",
+      "expires": "2026-11-10",
+      "status": "not_affected",
+      "reason": "The vulnerable privileged X-mount.subdir/detached-tree path is not called by this service. Production drops ALL capabilities, uses UID10001 and no_new_privileges with read-only root. No route constructs mounts."
+    },
+    {
+      "vulnerability_id": "CVE-2026-78410",
+      "package_name": "mount",
+      "installed_version": "2.41.5-0+deb13u1",
+      "expires": "2026-11-10",
+      "status": "not_affected",
+      "reason": "The vulnerable restricted bind mount owner/group path is not called by this service. Production drops ALL capabilities and uses UID10001/no_new_privileges with read-only root. No route constructs mounts."
+    },
+    {
+      "vulnerability_id": "CVE-2025-69720",
+      "package_name": "ncurses-base",
+      "installed_version": "6.5+20250216-2",
+      "expires": "2026-11-10",
+      "status": "not_affected",
+      "reason": "The vulnerable infocmp parser is installed but never executed by this headless Python HTTP service. Application code has no subprocess execution or terminal/terminfo input path. This assessment does not cover interactive use of the image."
+    },
+    {
+      "vulnerability_id": "CVE-2025-69720",
+      "package_name": "ncurses-bin",
+      "installed_version": "6.5+20250216-2",
+      "expires": "2026-11-10",
+      "status": "not_affected",
+      "reason": "The vulnerable infocmp parser is installed but never executed by this headless Python HTTP service. Application code has no subprocess execution or terminal/terminfo input path. This assessment does not cover interactive use of the image."
+    },
+    {
+      "vulnerability_id": "CVE-2026-9538",
+      "package_name": "perl-base",
+      "installed_version": "5.40.1-6+deb13u1",
+      "expires": "2026-11-10",
+      "status": "not_affected",
+      "reason": "The vulnerable Perl Archive::Tar module is absent from perl-base in this image (path checked). Application code does not execute Perl or accept/extract archives."
+    },
+    {
+      "vulnerability_id": "CVE-2026-76642",
+      "package_name": "util-linux",
+      "installed_version": "2.41.5-0+deb13u1",
+      "expires": "2026-11-10",
+      "status": "not_affected",
+      "reason": "The vulnerable privileged mount helper failure path is not called by this Python service. Production requires UID10001, no privilege escalation, ALL capabilities dropped, read-only root, and RuntimeDefault seccomp. No untrusted mount arguments or subprocess invocation exist in application routes."
+    },
+    {
+      "vulnerability_id": "CVE-2026-78408",
+      "package_name": "util-linux",
+      "installed_version": "2.41.5-0+deb13u1",
+      "expires": "2026-11-10",
+      "status": "not_affected",
+      "reason": "The vulnerable privileged nsenter cgroup/descriptor operation is not called by this service. Production drops ALL capabilities, uses UID10001 and no_new_privileges, and prohibits privileged namespace entry. No route executes nsenter."
+    },
+    {
+      "vulnerability_id": "CVE-2026-78409",
+      "package_name": "util-linux",
+      "installed_version": "2.41.5-0+deb13u1",
+      "expires": "2026-11-10",
+      "status": "not_affected",
+      "reason": "The vulnerable privileged X-mount.subdir/detached-tree path is not called by this service. Production drops ALL capabilities, uses UID10001 and no_new_privileges with read-only root. No route constructs mounts."
+    },
+    {
+      "vulnerability_id": "CVE-2026-78410",
+      "package_name": "util-linux",
+      "installed_version": "2.41.5-0+deb13u1",
+      "expires": "2026-11-10",
+      "status": "not_affected",
+      "reason": "The vulnerable restricted bind mount owner/group path is not called by this service. Production drops ALL capabilities and uses UID10001/no_new_privileges with read-only root. No route constructs mounts."
+    }
+  ]
+}
