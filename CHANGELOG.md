@@ -7,7 +7,7 @@ All notable changes to this project are documented here. The format follows
 ## [1.0.0] - 2026-10-16
 
 First production release. It contains the remediation of the October 2026
-security audit ([report](security_audit/REPORT.md)) and the production
+security audit ([report](https://github.com/HelmholtzAI-FZJ/blablador-token-generator/blob/main/security_audit/REPORT.md)) and the production
 hardening listed below.
 
 ### Upgrade notes
@@ -30,6 +30,9 @@ hardening listed below.
 - Alembic migrations (`app/migrations`) with automatic, lock-protected
   startup migration and a `python -m app.migrate [upgrade|check|current]`
   command.
+- Operator commands: `python -m app.manage create-local-admin` and
+  `grant-admin`, for deployments without OAuth and for regaining
+  administrator access.
 - Access log: one line per request with route template, status, duration and
   client address; never query strings (`app.access_log`).
 - Admin UI: grant or remove administrator rights, OAuth subjects shown for
@@ -48,7 +51,7 @@ hardening listed below.
 - The service keeps serving when Redis is unavailable: admission falls back to
   per-process limits and retries Redis every 5 seconds. The per-account local
   password limiter still fails closed. This deliberately reverses the audit's
-  fail-closed choice; see [SECURITY.md](SECURITY.md).
+  fail-closed choice; see [Security](https://helmholtzai-fzj.github.io/blablador-token-generator/security/#deliberate-changes-since-the-audit).
 - The validation API (`/api/v1/`) never needs a CSRF token; a call without a
   bearer token gets `401` with `WWW-Authenticate: Bearer`, and the scheme is
   matched case-insensitively.
@@ -69,7 +72,7 @@ hardening listed below.
 ### Security
 
 - All findings of the October 2026 audit (F01-F34) are fixed in code,
-  deployment templates and tests; see the [report](security_audit/REPORT.md)
+  deployment templates and tests; see the [report](https://github.com/HelmholtzAI-FZJ/blablador-token-generator/blob/main/security_audit/REPORT.md)
   for what still needs evidence from the real environment.
 
 [1.0.0]: https://github.com/HelmholtzAI-FZJ/blablador-token-generator/releases/tag/v1.0.0

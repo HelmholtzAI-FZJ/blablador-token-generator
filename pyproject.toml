@@ -52,3 +52,10 @@ extend-exclude = ["security_audit"]
 # Ruff's defaults: pyflakes plus syntax and runtime errors. (Bugbear's B008
 # flags FastAPI's idiomatic Depends() defaults.)
 select = ["E4", "E7", "E9", "F"]
+
+[dependency-groups]
+docs = [
+    "mkdocs-material>=9.7",
+    # MkDocs 2 drops the plugin and theme system Material relies on.
+    "mkdocs>=1.6,<2",
+]
