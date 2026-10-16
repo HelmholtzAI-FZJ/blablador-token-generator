@@ -13,6 +13,15 @@ RUN uv export --frozen --no-dev --no-emit-project --project /build -o /build/req
 
 FROM python:3.12-slim@sha256:a6e34c598f2467ed0e9a8d349809fcd8b5c603269512df273a0bb1784edc11b1
 
+ARG VERSION=dev
+ARG REVISION=unknown
+LABEL org.opencontainers.image.title="Blablador Token Generator" \
+      org.opencontainers.image.description="API token service for Blablador, with Helmholtz/JSC OAuth sign-in" \
+      org.opencontainers.image.source="https://github.com/HelmholtzAI-FZJ/blablador-token-generator" \
+      org.opencontainers.image.documentation="https://helmholtzai-fzj.github.io/blablador-token-generator/" \
+      org.opencontainers.image.version="${VERSION}" \
+      org.opencontainers.image.revision="${REVISION}"
+
 COPY --from=build /opt/venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH" \
     APP_ENVIRONMENT=production \
@@ -25,7 +34,7 @@ COPY app/ ./app/
 
 RUN /usr/local/bin/python -c 'import pathlib, shutil, sysconfig; site = pathlib.Path(sysconfig.get_paths()["purelib"]); targets = list(site.glob("pip*")) + [pathlib.Path(sysconfig.get_paths()["stdlib"]) / "ensurepip"] + list(pathlib.Path("/usr/local/bin").glob("pip*")); [(shutil.rmtree(p) if p.is_dir() else p.unlink()) for p in targets if p.exists()]' \
     && apt-get update \
-    && apt-get install --no-install-recommends -y liblzma5=5.8.1-1+deb13u2 \
+    && apt-get install --no-install-recommends -y --only-upgrade liblzma5 \
     && rm -rf /var/lib/apt/lists/* \
     && useradd --system --uid 10001 --no-create-home app \
     && mkdir -p /app/data \
