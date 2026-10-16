@@ -18,6 +18,7 @@ os.environ["OAUTH_CLIENT_SECRET"] = "test-oauth-synthetic-secret"
 
 import pytest
 import asyncio
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from app.database import build_engine
 from app.models import Base, User, Token
@@ -33,6 +34,13 @@ def event_loop():
     loop.close()
 
 
+async def drop_schema(conn) -> None:
+    """Drop the tables and the migration record, so that a later init_db()
+    on a shared test database migrates from scratch again."""
+    await conn.run_sync(Base.metadata.drop_all)
+    await conn.execute(text("DROP TABLE IF EXISTS alembic_version"))
+
+
 @pytest.fixture
 async def test_db():
     url = os.environ.get("TEST_DATABASE_URL", "sqlite+aiosqlite:///:memory:")
@@ -46,7 +54,7 @@ async def test_db():
         yield session
 
     async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.drop_all)
+        await drop_schema(conn)
     await engine.dispose()
 
 

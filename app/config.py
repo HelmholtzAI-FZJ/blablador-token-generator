@@ -43,6 +43,9 @@ class DatabaseConfig(SecurityConfigModel):
     # Log SQL statements (never their parameters) for debugging.
     echo: bool = False
     ssl_ca_file: str | None = None
+    # Apply pending schema migrations at startup. When false, startup refuses
+    # an outdated schema; run "python -m app.migrate" separately.
+    auto_migrate: bool = True
     connect_timeout_seconds: float = Field(5.0, gt=0, le=30)
     statement_timeout_seconds: float = Field(5.0, gt=0, le=60)
     lock_timeout_seconds: float = Field(2.0, gt=0, le=30)

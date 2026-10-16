@@ -61,14 +61,14 @@ Follow [the chart guide](helm/blablador-token-generator/README.md) and [security
 
 Helm requires explicit images, TLS/credential Secrets, trusted forwarding and ingress/egress peers. Defaults enforce hardened runtime and reject production transport/storage/network downgrades. Compose binds to loopback, uses constrained-role/ACL initialization and requires reviewed datastore images and certificates; it supplies neither a public HTTPS proxy nor Kubernetes isolation.
 
-Existing PostgreSQL volumes need explicit role/password migration. For existing token tables review/apply the owner-index migration:
+Existing PostgreSQL volumes need explicit role/password migration. Schema changes are Alembic migrations in `app/migrations/`; the service applies pending ones at startup under a PostgreSQL advisory lock (set `database.auto_migrate: false` to run them separately). Databases created before migrations existed are adopted automatically when their tables match the first revision:
 
 ```bash
-uv run --no-sync python -m app.migrate_token_owner_index
-uv run --no-sync python -m app.migrate_token_owner_index --apply
+uv run --no-sync python -m app.migrate check    # exit 1 unless the schema is current
+uv run --no-sync python -m app.migrate          # apply pending migrations
 ```
 
-Review target/backup first. `create_all` is not general schema migration. Runtime is a constrained schema owner; bundled stores are single replicas. Select external HA where required.
+Back up the database before upgrading. Runtime is a constrained schema owner; bundled stores are single replicas. Select external HA where required.
 
 ## Verification
 
