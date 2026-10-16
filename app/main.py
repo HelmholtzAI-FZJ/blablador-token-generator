@@ -32,6 +32,7 @@ from app.api import tokens, validate, admin
 from app.rate_limit import limiter, RATE_LIMITS, user_or_ip
 from app.logging_config import configure_logging
 from app.body_limit import BodySizeLimitMiddleware
+from app.timeutil import isoformat_utc
 from app.cookies import (
     CSRF_COOKIE, OAUTH_STATE_COOKIE, OAUTH_VERIFIER_COOKIE, SESSION_COOKIE,
     delete_cookie, set_cookie,
@@ -80,9 +81,8 @@ async def http_exception_handler(request, exc):
     )
 
 
-from datetime import datetime
 templates = Jinja2Templates(directory="app/templates")
-templates.env.globals['now'] = datetime.utcnow
+templates.env.filters["utc_iso"] = lambda value: isoformat_utc(value) or ""
 
 
 # CSRF protection: double-submit cookie pattern.

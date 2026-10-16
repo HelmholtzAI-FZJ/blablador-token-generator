@@ -33,6 +33,7 @@ from app.database import (
 )
 from app.models import Base, Token, User
 from app.tombstones import is_subject_deleted, record_deletion
+from app.timeutil import utcnow
 
 
 def request(path: str = "/", method: str = "POST", session: str | None = None) -> Request:
@@ -270,7 +271,7 @@ def test_local_account_email_normalizes_case_before_persistence():
 async def test_past_expiration_rejected(test_db, test_user):
     with pytest.raises(HTTPException) as exc:
         await create_token.__wrapped__(request("/tokens"), CreateTokenRequest(
-            name="Expired", expires_at=datetime.utcnow() - timedelta(days=1)), test_user, test_db)
+            name="Expired", expires_at=utcnow() - timedelta(days=1)), test_user, test_db)
     assert exc.value.status_code == 400
     assert (await test_db.execute(select(func.count()).select_from(Token))).scalar_one() == 0
 
@@ -286,7 +287,7 @@ async def test_validation_survives_best_effort_telemetry_failure(mutation_sessio
     plain = generate_token()
     async with mutation_sessions() as db:
         db.add(Token(user_id=user_id, token_hash=hash_token(plain), name="Telemetry",
-                     expires_at=datetime.utcnow() + timedelta(days=1)))
+                     expires_at=utcnow() + timedelta(days=1)))
         await db.commit()
     sessions = async_sessionmaker(mutation_sessions.kw["bind"], class_=CommitFailureSession,
                                  expire_on_commit=False)
@@ -400,7 +401,7 @@ async def test_pre_authenticated_admin_cannot_mutate_after_revoke(test_db, test_
 @pytest.mark.asyncio
 async def test_bulk_purge_keeps_active_tokens(test_db, test_admin):
     revoked = Token(user_id=test_admin.id, token_hash=hash_token(generate_token()), name="Gone",
-                    revoked_at=datetime.utcnow())
+                    revoked_at=utcnow())
     active = Token(user_id=test_admin.id, token_hash=hash_token(generate_token()), name="Keep")
     test_db.add_all([revoked, active])
     await test_db.commit()

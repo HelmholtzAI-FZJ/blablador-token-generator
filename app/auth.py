@@ -4,7 +4,7 @@ import hashlib
 import json
 import logging
 import secrets
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Callable, TypeVar
 from weakref import WeakKeyDictionary
 
@@ -23,6 +23,7 @@ from app.config import get_config
 from app.cookies import SESSION_COOKIE
 from app.database import get_db
 from app.models import User, RevokedJWT
+from app.timeutil import utcnow
 from app.tombstones import is_subject_deleted, is_user_deleted
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token", auto_error=False)
@@ -138,9 +139,9 @@ def generate_token() -> str:
 def create_access_token(data: dict, expires_delta: timedelta | None = None) -> str:
     to_encode = data.copy()
     if expires_delta:
-        expire = datetime.utcnow() + expires_delta
+        expire = datetime.now(UTC) + expires_delta
     else:
-        expire = datetime.utcnow() + timedelta(hours=config.app.jwt_expiration_hours)
+        expire = datetime.now(UTC) + timedelta(hours=config.app.jwt_expiration_hours)
     # Add a unique JWT ID so individual session tokens can be
     # revoked (blacklisted) without rotating the signing key.
     to_encode.update({"exp": expire, "jti": secrets.token_hex(16)})
@@ -178,11 +179,11 @@ async def revoke_jwt(payload: dict, db: AsyncSession) -> None:
     if not jti:
         raise HTTPException(status_code=401, detail="Invalid session")
     exp_ts = payload.get("exp", 0)
-    exp = datetime.utcfromtimestamp(exp_ts)
+    exp = datetime.fromtimestamp(exp_ts, UTC).replace(tzinfo=None)
     try:
         existing = await db.execute(select(RevokedJWT).where(RevokedJWT.jti == jti))
         if existing.scalar_one_or_none() is None:
-            await db.execute(delete(RevokedJWT).where(RevokedJWT.expires_at < datetime.utcnow()))
+            await db.execute(delete(RevokedJWT).where(RevokedJWT.expires_at < utcnow()))
             db.add(RevokedJWT(
                 jti=jti,
                 user_id=payload.get("sub", ""),

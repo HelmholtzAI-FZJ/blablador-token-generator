@@ -4,6 +4,7 @@ from starlette.requests import Request
 from app.api.validate import validate_token
 from app.models import Token
 from app.auth import hash_token, generate_token
+from app.timeutil import utcnow
 
 
 def make_request() -> Request:
@@ -46,7 +47,7 @@ class TestValidateEndpoint:
     async def test_validate_revoked_token(self, test_db, test_token):
         token = test_token["token"]
         from datetime import datetime
-        token.revoked_at = datetime.utcnow()
+        token.revoked_at = utcnow()
         await test_db.commit()
 
         with pytest.raises(HTTPException) as exc_info:
