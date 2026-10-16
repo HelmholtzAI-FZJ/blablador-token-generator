@@ -24,3 +24,5 @@ values-secrets*.yaml
 *.orig
 .tls/
 .secrets/
+# Built documentation
+site/

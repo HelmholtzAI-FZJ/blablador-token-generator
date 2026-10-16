@@ -11,8 +11,8 @@ Token authentication service built with FastAPI and SQLAlchemy. Users authentica
 ### Setup
 
 ```bash
-# Install dependencies (use uv - already configured in project)
-cd /Users/surak/Devel/blablador/token_generator
+# Install the locked dependencies (uv)
+uv sync --frozen --all-extras
 source .venv/bin/activate
 ```
 
@@ -45,14 +45,22 @@ pytest -v
 pytest --cov=app --cov-report=html
 ```
 
-### Linting/Type Checking
+Run the suite against PostgreSQL too when touching queries, locking or
+migrations (tests create and drop tables, so use a disposable database):
 
 ```bash
-# If ruff is available
-ruff check app/
+TEST_DATABASE_URL=postgresql+asyncpg://postgres:postgres@127.0.0.1:55432/tokens pytest
+```
 
-# If mypy is available
-mypy app/
+HTTP tests must use `with TestClient(app) as client:` (asyncpg connections are
+bound to one event loop).
+
+### Linting and other checks
+
+```bash
+uvx ruff@0.17.1 check .
+python helm/blablador-token-generator/tests/security_render.py
+uv run --only-group docs mkdocs build --strict
 ```
 
 ## Code Style Guidelines
@@ -146,6 +154,12 @@ async def get_db():
     async with async_session_maker() as session:
         yield session
 ```
+
+Schema changes need an Alembic migration (`app/migrations/versions/`); the
+service applies them at startup. Generate one with
+`APP_ENVIRONMENT=development alembic revision --autogenerate --rev-id 000N -m "..."`,
+keep it compatible with the previous release during a rolling upgrade, and let
+`tests/test_migrations.py` confirm that migrations and models agree.
 
 Query with async/await:
 
@@ -243,33 +257,44 @@ docker push registry.jsc.fz-juelich.de/kaas/rke2-clusters/blablador/blablador-to
 ```
 token_generator/
 ├── app/
-│   ├── main.py          # FastAPI app, routes, templates
-│   ├── auth.py          # OAuth2, JWT, authentication
-│   ├── config.py        # Configuration loader
-│   ├── database.py      # SQLAlchemy setup
-│   ├── models.py        # User, Token models
+│   ├── main.py          # FastAPI app, pages, OAuth flow, middleware setup
+│   ├── auth.py          # OAuth, sessions (JWT), passwords, token hashing
+│   ├── config.py        # Configuration model and production checks
+│   ├── database.py      # Engine, locking helpers, startup
+│   ├── migrate.py       # Migration runner: python -m app.migrate
+│   ├── migrations/      # Alembic environment and revisions
+│   ├── manage.py        # Operator commands: python -m app.manage
+│   ├── models.py        # User, Token, RevokedJWT, DeletedUser
+│   ├── tombstones.py    # Deletion records (keyed hashes)
+│   ├── admission.py, body_limit.py, error_safety.py,
+│   │   security_headers.py, access_log.py   # ASGI middleware
 │   ├── api/
-│   │   ├── tokens.py    # POST/GET/DELETE /tokens
+│   │   ├── tokens.py    # /tokens: create, list, renew, rotate, revoke
 │   │   ├── validate.py  # POST /api/v1/auth/validate
-│   │   └── admin.py     # Admin endpoints
-│   └── templates/       # Jinja2 HTML templates
-├── tests/               # pytest test suite
-├── config.yaml          # Configuration (NOT in git)
+│   │   └── admin.py     # /api/admin: tokens and users
+│   ├── templates/       # Jinja2 HTML templates
+│   └── static/          # Page scripts (no inline JavaScript: CSP)
+├── tests/               # pytest suite
+├── docs/, mkdocs.yml    # Documentation website (GitHub Pages)
+├── helm/                # Helm chart, hardened datastore images, chart tests
+├── security_audit/      # October 2026 audit record
+├── config.yaml          # Local configuration (NOT in git)
 ├── config.yaml.example  # Configuration template
+├── CHANGELOG.md
 ├── Dockerfile
-├── docker-compose.yaml
-└── helm/                # Helm chart
+└── docker-compose.yaml
 ```
 
 ## Key Files to Know
 
-- `app/main.py`: Main application, routes, OAuth flow
-- `app/auth.py`: Authentication, JWT, token hashing
-- `app/models.py`: SQLAlchemy models (User, Token)
-- `app/api/tokens.py`: User token CRUD endpoints
-- `app/api/validate.py`: Token validation API
-- `app/templates/dashboard.html`: User dashboard UI
-- `app/templates/admin.html`: Admin panel UI
+- `app/main.py`: Main application, pages, OAuth flow, middleware order
+- `app/auth.py`: Authentication, JWT sessions, token hashing
+- `app/models.py`: SQLAlchemy models; change only together with a migration
+- `app/api/tokens.py`: User token endpoints
+- `app/api/validate.py`: Token validation API used by the Blablador gateway
+- `app/templates/dashboard.html`, `app/static/dashboard.js`: User dashboard
+- `app/templates/admin.html`, `app/static/admin.js`: Admin panel
+- `docs/`: User, deployment and operations documentation
 
 ## Testing Patterns
 
@@ -304,6 +329,18 @@ See `tests/conftest.py` for available fixtures.
 
 ### Modifying configuration
 
-1. Edit `config.yaml.example` with new values
-2. Add to `app/config.py` as Pydantic model
-3. Document in README if user-facing
+1. Add the field to the Pydantic model in `app/config.py`
+2. Add it to `config.yaml.example`, the Helm `values.yaml` and `values.schema.json`
+3. Document it in `docs/configuration.md` (a test checks every field is listed)
+
+### Changing the database schema
+
+1. Change `app/models.py`
+2. Generate and review a migration (see Database above)
+3. Run the tests on SQLite and PostgreSQL
+
+### Releasing
+
+Update `CHANGELOG.md` and the version (`pyproject.toml`, `app/__init__.py`,
+chart `appVersion`), merge, then push a `vX.Y.Z` tag; the release workflow
+builds, scans and publishes the images and the chart.

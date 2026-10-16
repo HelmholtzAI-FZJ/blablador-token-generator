@@ -1,5 +1,7 @@
 # Security operations and production release
 
+> Audit-time record. Day-to-day procedures, updated for the 1.0.0 release (automatic schema migrations instead of `app.migrate_token_owner_index`, backups, operator commands), are in the [operations documentation](https://helmholtzai-fzj.github.io/blablador-token-generator/operations/administration/).
+
 Reviewed 2026-10-12. These procedures accompany [REPORT.md](REPORT.md). The audit executed only isolated verification; real deployment and migration require the authorized release process.
 
 ## Configuration and release

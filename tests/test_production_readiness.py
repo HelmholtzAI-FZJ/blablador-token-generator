@@ -334,3 +334,18 @@ def test_versions_agree():
     project = tomllib.loads((root / "pyproject.toml").read_text())["project"]["version"]
     chart = yaml.safe_load((root / "helm/blablador-token-generator/Chart.yaml").read_text())
     assert __version__ == project == chart["appVersion"]
+
+
+def test_configuration_reference_documents_every_setting():
+    from pathlib import Path
+
+    from app.config import Config
+
+    text = (Path(__file__).resolve().parents[1] / "docs/configuration.md").read_text()
+    missing = []
+    for section, field in Config.model_fields.items():
+        heading = f"## `{section}`"
+        assert heading in text, f"docs/configuration.md lacks a {heading} section"
+        body = text.split(heading, 1)[1].split("\n## ", 1)[0]
+        missing += [f"{section}.{name}" for name in field.annotation.model_fields if f"`{name}`" not in body]
+    assert missing == [], f"undocumented settings: {missing}"
