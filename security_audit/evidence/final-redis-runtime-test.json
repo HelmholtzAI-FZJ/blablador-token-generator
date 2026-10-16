@@ -1,0 +1,21 @@
+{
+  "container": "token-generator-redis-tls-5b49f3c0c2c2",
+  "synthetic_only": true,
+  "image_id": "sha256:927b39b64c915e704a063362aea83c73e9c0a55725988926d3af05b20e98ad80",
+  "tls_verified_authenticated": true,
+  "shared_rate_limit": [
+    true,
+    true,
+    false
+  ],
+  "dangerous_commands_denied": {
+    "CONFIG GET maxmemory-policy": true,
+    "FLUSHALL": true,
+    "ACL LIST": true
+  },
+  "plaintext_rejected": true,
+  "incorrect_password_rejected": true,
+  "untrusted_ca_rejected": true,
+  "passed": true,
+  "cleanup_exit": 0
+}

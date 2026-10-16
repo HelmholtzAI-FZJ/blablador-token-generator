@@ -1,0 +1,10 @@
+{
+  "Id": "sha256:ca97c3fa04ba3cac011459ff24102034f63832caced0c0216c5985e00a6457af",
+  "RepoDigests": [],
+  "RepoTags": [
+    "token-generator-postgresql:security-fixed"
+  ],
+  "Created": "2026-10-12T09:51:19.175014671Z",
+  "Architecture": "arm64",
+  "Os": "linux"
+}

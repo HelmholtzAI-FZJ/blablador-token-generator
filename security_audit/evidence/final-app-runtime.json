@@ -1,0 +1,210 @@
+{
+  "python": "3.12.15 (main, Oct  6 2026, 02:08:11) [GCC 14.2.0]",
+  "uid": 10001,
+  "runtime_pip_module": false,
+  "base_pip_directory": false,
+  "ensurepip_directory": false,
+  "sources": {
+    "app/__init__.py": "cabad6c54d054434f9da143ee48380152ff62f20613f6f39738f9a594f5fcd95",
+    "app/admission.py": "868a40d5e27c52e83f572fc6339aee255fe59db6f11adbac24fab8454a3ea2ac",
+    "app/api/__init__.py": "9e83695da76c3c43ada6740f661e0ba0045c85ed5b143bf2dea09867d718ed23",
+    "app/api/admin.py": "749ea9393c40962f9e3fd4df793f69d18f296eedd85d6eab6f491390b2ec8f84",
+    "app/api/tokens.py": "94cb8374ac0c61196ac96e666cbad25110addfe64e9880d800807d5ae36bb0d5",
+    "app/api/validate.py": "4d14197f5bbd00be2b863fb5726312b14fb783b8acd06ccd3ad4f1b10c2fc2a8",
+    "app/auth.py": "6fbd03322ae1e00c83862690d8e9694d1a71f665482349642aea91256605afb6",
+    "app/body_limit.py": "9fad5389ea248402aa5e4e819e98355f3a5352dc3439a535a26c1890b2878f51",
+    "app/config.py": "7d6a5eda16f770ad13c5e3e53a31a197726335f13aeb58e7198a6e2fd21e80d3",
+    "app/cookies.py": "a0cb1b60e0eebbb0a5fa8f8ee2d8e90d66a939e32b71af7f0cf65ea643a29dce",
+    "app/database.py": "2c26011aa63a03506c49c3155ae5dc533c7975f460eba6685b978cc4a4dbad65",
+    "app/entrypoint.sh": "26693551bb661b985759485e698dbbb039acd671f9ad482ee5766ede8ca743e2",
+    "app/error_safety.py": "fabe29e4d4441b879561bb6ae0f07a9d8c105a50580d1bca15c35b19750b8b1f",
+    "app/logging_config.py": "ebe716a1e2a7558c7f95da974e95ed0c9ede00c51441959aa0c23250dd9460af",
+    "app/main.py": "b8898e0b479c04fdc2a319893e942e131277ef3c1690ad09e8c843d61336b050",
+    "app/migrate_token_owner_index.py": "5da2f564cebcd4bb226cb79c66fc593663c5967f3e289be47e48e2dd1d450dc1",
+    "app/models.py": "dfb662efd12abb6e4fb24e54145d7589c2cf6fd93e242b927da911d301e22495",
+    "app/rate_limit.py": "33befef19116c79e332bfc37d8d56c8f2523f7c754c104d3695e1988939974bc",
+    "app/security_headers.py": "91ef4de94249adf7b2c214186e84a5839d1be9ab74dedc4dde5e83a3f187876f",
+    "app/static/admin.js": "b555106d48b4184303f20ef9988996f7595e450fb3103f9ccb9a1d9a53c1461b",
+    "app/static/common.js": "b037c40fd51ed59be68596d965076ad0eb7913b6441aad93b3e1c43803f83a60",
+    "app/static/dashboard.js": "bee9a5ea2c7664a9fee53f1f2ec50f8320bd2a53a8011b680bc72847ac1c2caa",
+    "app/templates/admin.html": "6f76c70820c5c731419447e12b8122ec6c7f0285d8719f1a94cdd7fff3af6bf4",
+    "app/templates/dashboard.html": "7e6899324bbd400d778b856996b2f8e1852ac6c438072813505ec2fc5f926f91",
+    "app/templates/index.html": "449aeaf326bd84fcfe465b137642083df9e77713f805d821924ceee00cae826c",
+    "app/templates/login_local.html": "e7247eacc5421b128ee52ed35fdc37be5edb6f339adcae6b8d054ab719a1b915",
+    "app/tombstones.py": "d610c0703ac719c49801adbccdcda21c78edb7ed51d93cba2f0b314fe053d0b2"
+  },
+  "packages": [
+    [
+      "Deprecated",
+      "3.0.0"
+    ],
+    [
+      "Jinja2",
+      "3.1.6"
+    ],
+    [
+      "MarkupSafe",
+      "3.0.3"
+    ],
+    [
+      "PyJWT",
+      "2.15.1"
+    ],
+    [
+      "PyYAML",
+      "6.0.3"
+    ],
+    [
+      "SQLAlchemy",
+      "2.0.52"
+    ],
+    [
+      "aiosqlite",
+      "0.22.1"
+    ],
+    [
+      "annotated-doc",
+      "0.0.5"
+    ],
+    [
+      "annotated-types",
+      "0.8.0"
+    ],
+    [
+      "anyio",
+      "4.14.2"
+    ],
+    [
+      "asyncpg",
+      "0.32.0"
+    ],
+    [
+      "bcrypt",
+      "5.0.0"
+    ],
+    [
+      "certifi",
+      "2026.7.22"
+    ],
+    [
+      "click",
+      "8.4.2"
+    ],
+    [
+      "fastapi",
+      "0.141.1"
+    ],
+    [
+      "greenlet",
+      "3.5.5"
+    ],
+    [
+      "h11",
+      "0.16.0"
+    ],
+    [
+      "httpcore",
+      "1.0.9"
+    ],
+    [
+      "httptools",
+      "0.8.0"
+    ],
+    [
+      "httpx",
+      "0.28.1"
+    ],
+    [
+      "idna",
+      "3.19"
+    ],
+    [
+      "limits",
+      "5.8.0"
+    ],
+    [
+      "packaging",
+      "26.3"
+    ],
+    [
+      "pydantic",
+      "2.13.4"
+    ],
+    [
+      "pydantic-settings",
+      "2.15.0"
+    ],
+    [
+      "pydantic_core",
+      "2.46.4"
+    ],
+    [
+      "python-dotenv",
+      "1.2.3"
+    ],
+    [
+      "python-multipart",
+      "0.0.32"
+    ],
+    [
+      "redis",
+      "8.1.0"
+    ],
+    [
+      "slowapi",
+      "0.1.10"
+    ],
+    [
+      "starlette",
+      "1.6.0"
+    ],
+    [
+      "typing-inspection",
+      "0.4.4"
+    ],
+    [
+      "typing_extensions",
+      "4.16.0"
+    ],
+    [
+      "uvicorn",
+      "0.52.4"
+    ],
+    [
+      "uvloop",
+      "0.22.1"
+    ],
+    [
+      "watchfiles",
+      "1.2.0"
+    ],
+    [
+      "websockets",
+      "17.0.1"
+    ],
+    [
+      "wrapt",
+      "2.5.0"
+    ]
+  ],
+  "systemd_homed_present": false,
+  "perl_archive_tar_present": false,
+  "image_id": "sha256:ebbbdac9dc17f6b2eec57214dc05e4d93477b247a4479b6ffb9adc7624ea35aa",
+  "all_source_hashes_match": true,
+  "runtime_restrictions": [
+    "--rm",
+    "--network",
+    "none",
+    "--read-only",
+    "--cap-drop",
+    "ALL",
+    "--security-opt",
+    "no-new-privileges",
+    "--pids-limit",
+    "128",
+    "--memory",
+    "512m",
+    "--cpus",
+    "1"
+  ]
+}

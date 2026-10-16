@@ -1,0 +1,11 @@
+{
+  "container": "token-generator-security-final-pg-37fb2978cf4f",
+  "image": "postgres:16-alpine",
+  "port_binding": "127.0.0.1 ephemeral",
+  "persistent_volumes": false,
+  "test_exit": 0,
+  "port": 57904,
+  "image_id": "sha256:ef738a34a8651d11b2bace81c55c7e2187f786b484add6c83070884340074368",
+  "application_role_superuser": "tokens:true",
+  "container_cleanup_exit": 0
+}

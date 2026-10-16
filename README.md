@@ -1,217 +1,81 @@
 # Token Generator Service
 
-A token-based authentication infrastructure that works on top of Unity-IDM. Users authenticate via Unity-IDM OAuth2, then create and manage API tokens for their applications.
+FastAPI/SQLAlchemy authentication infrastructure for Unity-IDM/JSC Login. Users create, list, renew, rotate and revoke opaque API tokens. Administrators provision local accounts, manage roles, restore disabled OAuth subjects and revoke all credentials during incidents.
 
-## Features
+Tokens appear once at creation/rotation and persist only as HMAC-SHA256 digests. Sessions use HttpOnly host cookies, CSRF, durable revocation and account epochs. OAuth identity binds to a fixed provider subject, never email. Configured admins bootstrap new accounts; existing roles change through explicit administrative operations.
 
-- **Unity-IDM OAuth2 Authentication** - Users log in through your institution's Unity-IDM
-- **Token Management** - Create, list, and revoke API tokens
-- **Token Display Once** - Tokens are shown only once at creation time for security
-- **Secure Storage** - Tokens are stored as SHA-256 hashes, never in plain text
-- **Token Validation API** - Validate tokens from client applications
-- **Admin Panel** - Administrators can view all tokens with user information
+Release documentation includes the [security audit](security_audit/REPORT.md), [complete control inventory](security_audit/CONTROLS.md) and [operations guide](security_audit/OPERATIONS.md).
 
-## Requirements
+## Setup and configuration
 
-- Python 3.11+
-- Unity-IDM OAuth2 endpoint (e.g., `https://unity-jsc.fz-juelich.de`)
-
-## Installation
+Use a current security patch release of Python 3.11+ and the frozen lockfile. The production container uses Python 3.12.15:
 
 ```bash
-# Create virtual environment
-uv venv
-
-# Install dependencies
-uv pip install -e .
+uv sync --frozen --all-extras
 ```
 
-## Configuration
+Copy `config.yaml.example` to protected `config.yaml` and supply required values; its secrets are deliberately empty. `CONFIG_PATH` selects a different file. Overrides: `JWT_SECRET_KEY`, `TOKEN_HASH_KEY`, `OAUTH_CLIENT_SECRET`, `DATABASE_URL`, `DATABASE_SSL_CA_FILE`, `RATE_LIMIT_STORAGE_URI`.
 
-Edit `config.yaml` with your Unity-IDM OAuth2 settings:
+Production is default and requires distinct random signing/HMAC keys, secure cookies, HTTPS public/provider/redirect URLs, complete confidential OAuth or configured local authentication, verified PostgreSQL TLS and shared verified Redis TLS. Register the exact `/oauth/openid/callback` URI. Never replace the HMAC key without the documented token/tombstone migration plan.
 
-```yaml
-app:
-  host: "0.0.0.0"
-  port: 8080
-  secret_key: "your-secure-secret-key"
-  token_hash_key: "a-different-secure-key"  # hashes stored API tokens
-
-database:
-  url: "sqlite+aiosqlite:///./tokens.db"
-
-oauth:
-  client_id: "your-client-id"
-  client_secret: "your-client-secret"
-  authorize_url: "https://unity-jsc.fz-juelich.de/oauth/authorize"
-  token_url: "https://unity-jsc.fz-juelich.de/oauth/token"
-  userinfo_url: "https://unity-jsc.fz-juelich.de/oauth/userinfo"
-  redirect_uri: "http://localhost:8080/callback"
-  scopes:
-    - "openid"
-    - "profile"
-    - "email"
-
-tokens:
-  default_expiration_days: 365
-  token_length_bytes: 32
-
-admin:
-  admin_emails:
-    - "admin@example.com"
-```
-
-## Usage
-
-### Development
-```bash
-# Start the server (single worker)
-uvicorn app.main:app --host 0.0.0.0 --port 8080 --reload
-```
-
-### Production
-```bash
-# Start with multiple workers (recommended for high traffic)
-uvicorn app.main:app --host 0.0.0.0 --port 8080 --workers 4
-
-# Or use all available CPU cores
-uvicorn app.main:app --host 0.0.0.0 --port 8080 --workers $(nproc)
-
-# With systemd (see start.sh for more options)
-./start.sh production
-```
-
-Then open http://localhost:8080 in your browser.
-
-## Configuration
-
-Edit `config.yaml`:
-
-```yaml
-app:
-  name: "Token Generator"          # App display name
-  api_url: "http://your-domain.com"  # Public URL for API examples
-  host: "0.0.0.0"
-  port: 8080
-  secret_key: "your-secure-secret-key"
-  token_hash_key: "a-different-secure-key"  # hashes stored API tokens
-
-login:
-  name: "JSC Login"                          # Login button text
-  description: "Authenticate to create..."   # Home page description
-
-oauth:
-  client_id: "your-client-id"
-  client_secret: "your-client-secret"
-  authorize_url: "https://login.example.com/oauth2-as/oauth2-authz"
-  token_url: "https://login.example.com/oauth2/token"
-  userinfo_url: "https://login.example.com/oauth2/userinfo"
-  redirect_uri: "http://your-domain.com/oauth/openid/callback"
-  scopes:
-    - "openid"
-    - "profile"
-    - "email"
-
-admin:
-  admin_emails:
-    - "admin@example.com"
-```
-
-## API Endpoints
-
-### Validate Token (Bearer token)
+Intentional development permits SQLite/memory storage and plain HTTP with secure cookies explicitly disabled. The launcher selects environment mode. Local authentication is optional and only for admin-provisioned accounts; there is no public registration. Newly set passwords need 15 characters, a common-password check and at most 72 UTF-8 bytes. Legacy hashes remain compatible.
 
 ```bash
-curl -X POST https://your-domain.com/api/v1/auth/validate \
-  -H "Authorization: Bearer YOUR_TOKEN_HERE"
+./start.sh development
+HOST=127.0.0.1 PORT=8080 WORKERS=2 ./start.sh production
 ```
 
-Response (valid):
+The launcher defaults to loopback, preserves overrides and validates worker/port counts. A configured HTTPS proxy supplies public transport. Trust only its actual source addresses through `FORWARDED_ALLOW_IPS`; wildcard production trust is rejected. Supported launchers disable Uvicorn callback-query access logging; configure safe edge logging separately.
+
+## API
+
+```bash
+curl -X POST https://tokens.example.com/api/v1/auth/validate \
+  -H 'Authorization: Bearer YOUR_API_TOKEN'
+```
+
+Successful response:
+
 ```json
-{
-  "valid": true,
-  "user_id": "user-123",
-  "username": "jdoe",
-  "email": "jdoe@example.com",
-  "name": "John Doe",
-  "expires_at": "2026-03-05T00:00:00+00:00"
-}
+{"valid":true,"user_id":"internal-user-id","expires_at":"2026-12-01T00:00:00+00:00","error":null}
 ```
 
-Response (invalid):
-```json
-{
-  "valid": false,
-  "error": "Token not found or revoked"
-}
-```
+Invalid/revoked/expired credentials return 401. Management requires session+CSRF, not an API bearer token. Unauthenticated API/unsafe requests return 401; browser navigation can redirect to login.
 
-## Deployment
+| Operation | Endpoint |
+| --- | --- |
+| Create/list tokens | `POST /tokens`, `GET /tokens` |
+| Revoke/delete | `DELETE /tokens/{id}`, `DELETE /tokens/{id}/permanent` |
+| Extend lifetime with same secret | `POST /tokens/{id}/renew` |
+| Replace secret; display once | `POST /tokens/{id}/rotate` |
+| Revoke own tokens and sessions | `POST /tokens/revoke-all` |
+| Contain another account | Admin `POST /api/admin/users/{id}/revoke-credentials` |
+| Restore disabled OAuth subject | Admin `POST /api/admin/users/restore-oauth`, JSON `{"subject":"exact-subject"}` |
+| Liveness/readiness | `GET /healthz`, `GET /readyz` |
 
-### Docker
+The UI exposes rotation, containment and restoration. Use rotation/revocation for exposure response; renewal retains the secret. Password/role changes invalidate sessions; incident containment also revokes API tokens. IdP disable/logout does not automatically revoke independently issued tokens: connect organizational offboarding to containment/deletion.
+
+## Production deployment
+
+Follow [the chart guide](helm/blablador-token-generator/README.md) and [security operations](security_audit/OPERATIONS.md). Build app plus hardened PostgreSQL/Redis images, publish through the authorized workflow and deploy reviewed registry manifest digests. Project registry: `registry.jsc.fz-juelich.de/kaas/rke2-clusters/blablador/blablador-token-generator`.
+
+Helm requires explicit images, TLS/credential Secrets, trusted forwarding and ingress/egress peers. Defaults enforce hardened runtime and reject production transport/storage/network downgrades. Compose binds to loopback, uses constrained-role/ACL initialization and requires reviewed datastore images and certificates; it supplies neither a public HTTPS proxy nor Kubernetes isolation.
+
+Existing PostgreSQL volumes need explicit role/password migration. For existing token tables review/apply the owner-index migration:
 
 ```bash
-# Build the image
-docker build -t blablador-token-generator:latest .
-
-# Run with config mount
-docker run -v /path/to/config.yaml:/app/config/config.yaml -p 8080:8080 blablador-token-generator:latest
+uv run --no-sync python -m app.migrate_token_owner_index
+uv run --no-sync python -m app.migrate_token_owner_index --apply
 ```
 
-Or using docker-compose:
+Review target/backup first. `create_all` is not general schema migration. Runtime is a constrained schema owner; bundled stores are single replicas. Select external HA where required.
+
+## Verification
 
 ```bash
-# Edit config.yaml first, then
-docker-compose up -d
+env -u TEST_DATABASE_URL uv run --no-sync pytest -q
+uv run --no-sync python helm/blablador-token-generator/tests/security_render.py
+uv run --no-sync python helm/blablador-token-generator/tests/container_risk_gate.py --self-test
 ```
 
-docker-compose runs the app with PostgreSQL (volume `postgres-data`) and Redis; secrets come from a `.env` file next to `docker-compose.yaml`.
-
-### Kubernetes (Helm Chart)
-
-Deploy to Kubernetes with the Helm chart; there are no separate raw manifests.
-
-```bash
-# Install with custom values
-cd helm/blablador-token-generator
-
-# Option 1: Set values via command line
-helm install token-generator . \
-  --set config.app.secret_key=$(openssl rand -hex 32) \
-  --set config.app.token_hash_key=$(openssl rand -hex 32) \
-  --set postgresql.password=$(openssl rand -hex 32) \
-  --set redis.password=$(openssl rand -hex 32) \
-  --set forwardedAllowIps=<ingress-controller-pod-cidr> \
-  --set config.oauth.client_id=your-client-id \
-  --set config.oauth.client_secret=your-secret \
-  --set config.oauth.redirect_uri=https://your-domain/oauth/openid/callback \
-  --set config.admin.admin_emails[0]=admin@example.com \
-  --set config.admin.admin_emails[1]=another-admin@example.com
-
-# Option 2: Create values file
-cp values.yaml values-production.yaml
-# Edit values-production.yaml with your config
-helm install token-generator -f values-production.yaml .
-```
-
-The Helm chart generates a Kubernetes Secret from the `config.*` values in `values.yaml`.
-
-By default the chart deploys PostgreSQL (StatefulSet with its own volume) and Redis for shared rate-limit counters, with NetworkPolicies that only let the app reach them. Setting `postgresql.enabled: false` falls back to SQLite on a PersistentVolumeClaim, which only supports `replicaCount: 1`.
-
-## Development
-
-```bash
-# Install dev dependencies
-uv pip install -e ".[dev]"
-
-# Run tests (they use tests/config.test.yaml, not your config.yaml)
-pytest tests/ -v
-```
-
-When running locally over plain `http://`, set `app.secure_cookies: false` in
-your `config.yaml`; browsers drop the Secure, `__Host-` prefixed cookies used
-in production otherwise.
-
-## License
-
-MIT
+Tests force synthetic keys/config and use disposable SQLite. Set `TEST_DATABASE_URL` only to a disposable PostgreSQL database: tests create/drop tables. CI tests both engines, audits frozen production dependencies, builds/scans all three images, preserves all-severity scans/SBOMs and gates unreviewed HIGH/CRITICAL findings. Exact expiring workload assessments do not hide the full inventory.

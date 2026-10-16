@@ -1,0 +1,10 @@
+{
+  "Id": "sha256:927b39b64c915e704a063362aea83c73e9c0a55725988926d3af05b20e98ad80",
+  "RepoDigests": [],
+  "RepoTags": [
+    "token-generator-redis:security-fixed"
+  ],
+  "Created": "2026-10-12T09:51:18.441406879Z",
+  "Architecture": "arm64",
+  "Os": "linux"
+}

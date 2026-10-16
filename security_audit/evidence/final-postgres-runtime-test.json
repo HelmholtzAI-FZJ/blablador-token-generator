@@ -1,0 +1,14 @@
+{
+  "container": "token-generator-role-tls-2b1202da9349",
+  "synthetic_only": true,
+  "init_script_sha256": "c59c1d2872d9173c732409cc8a78a766e2b784586cd9beebcb68cadf4a8fb09e",
+  "image_id": "sha256:ca97c3fa04ba3cac011459ff24102034f63832caced0c0216c5985e00a6457af",
+  "privileges": "false:false:false",
+  "schema_owned": "tokens",
+  "ddl_dml": "CREATE TABLE\nINSERT 0 1\n1\nDROP TABLE",
+  "plaintext_rejected": true,
+  "plaintext_error": "psql: error: connection to server at \"127.0.0.1\", port 5432 failed: FATAL:  pg_hba.conf rejects connection for host \"127.0.0.1\", user \"tokens\", database \"tokens\", no encryption",
+  "privilege_escalation_rejected": true,
+  "passed": true,
+  "cleanup_exit": 0
+}

@@ -1,0 +1,47 @@
+{
+  "passed": true,
+  "synthetic_only": true,
+  "services": {
+    "app": {
+      "image": null,
+      "read_only": true,
+      "cap_drop": [
+        "ALL"
+      ],
+      "pids_limit": 128,
+      "mem_limit": "536870912",
+      "ports": [
+        {
+          "mode": "ingress",
+          "host_ip": "127.0.0.1",
+          "target": 8080,
+          "published": "8080",
+          "protocol": "tcp"
+        }
+      ],
+      "healthcheck": true
+    },
+    "postgres": {
+      "image": "registry.jsc.fz-juelich.de/kaas/rke2-clusters/blablador/blablador-token-generator-postgresql@sha256:0000000000000000000000000000000000000000000000000000000000000000",
+      "read_only": true,
+      "cap_drop": [
+        "ALL"
+      ],
+      "pids_limit": 128,
+      "mem_limit": "805306368",
+      "ports": null,
+      "healthcheck": true
+    },
+    "redis": {
+      "image": "registry.jsc.fz-juelich.de/kaas/rke2-clusters/blablador/blablador-token-generator-redis@sha256:1111111111111111111111111111111111111111111111111111111111111111",
+      "read_only": true,
+      "cap_drop": [
+        "ALL"
+      ],
+      "pids_limit": 64,
+      "mem_limit": "134217728",
+      "ports": null,
+      "healthcheck": true
+    }
+  }
+}

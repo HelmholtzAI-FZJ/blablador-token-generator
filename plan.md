@@ -1,5 +1,7 @@
 # Token Generator Service - Plan
 
+> Historical initial implementation plan; its old test count and COMPLETED status do not establish production security acceptance. See [the current security audit](security_audit/REPORT.md) for remediation and evidence.
+
 ## Status: COMPLETED
 
 ### Completed Steps

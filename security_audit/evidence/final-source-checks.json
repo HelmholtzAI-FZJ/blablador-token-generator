@@ -1,0 +1,76 @@
+{
+  "recorded_utc": "2026-10-12T11:02:50.947172+00:00",
+  "versions": {
+    "python": "3.12.3 (main, Apr 15 2024, 17:43:11) [Clang 17.0.6 ]",
+    "pytest": "9.1.1",
+    "pytest-cov": "7.1.0",
+    "SQLAlchemy": "2.0.52",
+    "helm": "v4.2.1+gd591a19",
+    "node": "v22.22.3",
+    "trivy": "0.75.0",
+    "bandit": "1.9.4",
+    "pip-audit": "2.10.1"
+  },
+  "checks": {
+    "bash -n start.sh": {
+      "exit": 0,
+      "stdout": "",
+      "stderr": ""
+    },
+    "sh -n app/entrypoint.sh": {
+      "exit": 0,
+      "stdout": "",
+      "stderr": ""
+    },
+    "sh -n helm/blablador-token-generator/files/init-runtime-role.sh": {
+      "exit": 0,
+      "stdout": "",
+      "stderr": ""
+    },
+    "sh -n helm/blablador-token-generator/files/redis-entrypoint.sh": {
+      "exit": 0,
+      "stdout": "",
+      "stderr": ""
+    },
+    "node --check /Users/surak/Devel/blablador/token_generator/app/static/admin.js": {
+      "exit": 0,
+      "stdout": "",
+      "stderr": ""
+    },
+    "node --check /Users/surak/Devel/blablador/token_generator/app/static/common.js": {
+      "exit": 0,
+      "stdout": "",
+      "stderr": ""
+    },
+    "node --check /Users/surak/Devel/blablador/token_generator/app/static/dashboard.js": {
+      "exit": 0,
+      "stdout": "",
+      "stderr": ""
+    },
+    "git diff --check": {
+      "exit": 0,
+      "stdout": "",
+      "stderr": ""
+    },
+    "/Users/surak/Devel/blablador/token_generator/.venv/bin/python helm/blablador-token-generator/tests/container_risk_gate.py --self-test": {
+      "exit": 0,
+      "stdout": "Container risk gate regression checks passed\n",
+      "stderr": ""
+    },
+    "/Users/surak/Devel/blablador/token_generator/.venv/bin/python helm/blablador-token-generator/tests/container_risk_gate.py security_audit/evidence/final-app-trivy.json security_audit/container-risk-exceptions.json": {
+      "exit": 0,
+      "stdout": "No unreviewed HIGH or CRITICAL container vulnerabilities\n",
+      "stderr": ""
+    },
+    "/Users/surak/Devel/blablador/token_generator/.venv/bin/python helm/blablador-token-generator/tests/container_risk_gate.py security_audit/evidence/final-postgres-trivy.json security_audit/container-risk-exceptions.json": {
+      "exit": 0,
+      "stdout": "No unreviewed HIGH or CRITICAL container vulnerabilities\n",
+      "stderr": ""
+    },
+    "/Users/surak/Devel/blablador/token_generator/.venv/bin/python helm/blablador-token-generator/tests/container_risk_gate.py security_audit/evidence/final-redis-trivy.json security_audit/container-risk-exceptions.json": {
+      "exit": 0,
+      "stdout": "No unreviewed HIGH or CRITICAL container vulnerabilities\n",
+      "stderr": ""
+    }
+  }
+}
