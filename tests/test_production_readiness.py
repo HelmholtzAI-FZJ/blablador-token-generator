@@ -17,6 +17,14 @@ def setup_db():
     yield
 
 
+@pytest.fixture
+def client():
+    # One event loop for the whole test: asyncpg connections are bound to
+    # the loop that opened them, and the lifespan gives a fresh engine.
+    with TestClient(app, follow_redirects=False) as test_client:
+        yield test_client
+
+
 def login(client: TestClient, monkeypatch, subject: str) -> str:
     """Sign in through the OAuth callback; returns the CSRF token."""
     async def fake_userinfo(code, code_verifier):
@@ -44,20 +52,19 @@ class TestUtcTimestamps:
         aware = datetime(2026, 1, 2, 5, 4, 5, tzinfo=UTC) + timedelta(hours=0)
         assert isoformat_utc(aware.astimezone()) == "2026-01-02T05:04:05+00:00"
 
-    def test_api_and_dashboard_timestamps_carry_offsets(self, monkeypatch):
-        with TestClient(app, follow_redirects=False) as client:
-            csrf = login(client, monkeypatch, "tz-user")
-            created = client.post("/tokens", json={"name": "tz", "expires_in_days": 5},
-                                  headers={"X-CSRF-Token": csrf})
-            assert created.status_code == 200, created.text
-            body = created.json()
-            assert body["created_at"].endswith("+00:00")
-            assert body["expires_at"].endswith("+00:00")
-            listed = client.get("/tokens").json()
-            assert all(t["created_at"].endswith("+00:00") for t in listed)
-            page = client.get("/dashboard").text
-            assert 'data-utc="' in page
-            assert f'data-expires="{body["expires_at"]}"' in page
+    def test_api_and_dashboard_timestamps_carry_offsets(self, client, monkeypatch):
+        csrf = login(client, monkeypatch, "tz-user")
+        created = client.post("/tokens", json={"name": "tz", "expires_in_days": 5},
+                              headers={"X-CSRF-Token": csrf})
+        assert created.status_code == 200, created.text
+        body = created.json()
+        assert body["created_at"].endswith("+00:00")
+        assert body["expires_at"].endswith("+00:00")
+        listed = client.get("/tokens").json()
+        assert all(t["created_at"].endswith("+00:00") for t in listed)
+        page = client.get("/dashboard").text
+        assert 'data-utc="' in page
+        assert f'data-expires="{body["expires_at"]}"' in page
 
 
 class captured_logs:
@@ -87,17 +94,15 @@ def cleared(response, name: str) -> bool:
 
 
 class TestBrowserErrors:
-    def test_login_is_404_without_oauth(self, monkeypatch):
+    def test_login_is_404_without_oauth(self, client, monkeypatch):
         monkeypatch.setattr(main.config.oauth, "client_id", "")
-        client = TestClient(app, follow_redirects=False)
         response = client.get("/login", headers=HTML)
         assert response.status_code == 404
         assert response.headers["content-type"].startswith("text/html")
         assert "oauth_state" not in response.cookies
         assert client.get("/oauth/openid/callback", params={"code": "c"}).status_code == 404
 
-    def test_provider_error_renders_page_and_clears_flow_cookies(self):
-        client = TestClient(app, follow_redirects=False)
+    def test_provider_error_renders_page_and_clears_flow_cookies(self, client):
         client.cookies.set("oauth_state", "state")
         client.cookies.set("oauth_verifier", "v" * 43)
         with captured_logs() as records:
@@ -113,8 +118,7 @@ class TestBrowserErrors:
         assert "action=oauth_authorization_failed error=access_denied" in messages
         assert "action=oauth_authorization_failed error=unrecognized" in messages
 
-    def test_expired_state_and_missing_code(self):
-        client = TestClient(app, follow_redirects=False)
+    def test_expired_state_and_missing_code(self, client):
         assert client.get("/oauth/openid/callback", params={"state": "s", "code": "c"}).status_code == 400
         client.cookies.set("oauth_state", "s")
         client.cookies.set("oauth_verifier", "v" * 43)
@@ -122,7 +126,7 @@ class TestBrowserErrors:
         assert response.status_code == 400
         assert "authorization code" in response.text
 
-    def test_disabled_account_gets_403_page(self, monkeypatch):
+    def test_disabled_account_gets_403_page(self, client, monkeypatch):
         from fastapi import HTTPException
 
         async def fake_userinfo(code, code_verifier):
@@ -133,7 +137,6 @@ class TestBrowserErrors:
 
         monkeypatch.setattr(main, "get_unity_userinfo", fake_userinfo)
         monkeypatch.setattr(main, "get_or_create_user", disabled)
-        client = TestClient(app, follow_redirects=False)
         client.cookies.set("oauth_state", "s")
         client.cookies.set("oauth_verifier", "v" * 43)
         response = client.get("/oauth/openid/callback", params={"state": "s", "code": "c"}, headers=HTML)
@@ -141,22 +144,20 @@ class TestBrowserErrors:
         assert "Contact an administrator" in response.text
         assert "__Host-access_token" not in response.text and "access_token" not in response.cookies
 
-    def test_provider_outage_is_503_page(self, monkeypatch):
+    def test_provider_outage_is_503_page(self, client, monkeypatch):
         from fastapi import HTTPException
 
         async def outage(code, code_verifier):
             raise HTTPException(status_code=503, detail="Authentication provider temporarily unavailable")
 
         monkeypatch.setattr(main, "get_unity_userinfo", outage)
-        client = TestClient(app, follow_redirects=False)
         client.cookies.set("oauth_state", "s")
         client.cookies.set("oauth_verifier", "v" * 43)
         response = client.get("/oauth/openid/callback", params={"state": "s", "code": "c"})
         assert response.status_code == 503
         assert "temporarily unavailable" in response.text
 
-    def test_unknown_page_is_html_for_browsers_json_for_apis(self):
-        client = TestClient(app)
+    def test_unknown_page_is_html_for_browsers_json_for_apis(self, client):
         page = client.get("/no-such-page", headers=HTML)
         assert page.status_code == 404
         assert page.headers["content-type"].startswith("text/html")
@@ -165,62 +166,60 @@ class TestBrowserErrors:
         assert api.status_code == 404 and api.json() == {"detail": "Not Found"}
         assert client.get("/no-such-page").json() == {"detail": "Not Found"}
 
-    def test_error_pages_keep_security_headers(self):
-        response = TestClient(app).get("/no-such-page", headers=HTML)
+    def test_error_pages_keep_security_headers(self, client):
+        response = client.get("/no-such-page", headers=HTML)
         assert "frame-ancestors 'none'" in response.headers["content-security-policy"]
         assert response.headers["cache-control"] == "no-store"
 
 
 class TestReadiness:
-    def test_ready_with_database_and_storage(self):
-        response = TestClient(app).get("/readyz")
+    def test_ready_with_database_and_storage(self, client):
+        response = client.get("/readyz")
         assert response.status_code == 200
         assert response.json() == {"status": "ready", "rate_limit_storage": "ok"}
 
-    def test_rate_limit_storage_outage_degrades_but_stays_ready(self, monkeypatch):
+    def test_rate_limit_storage_outage_degrades_but_stays_ready(self, client, monkeypatch):
         monkeypatch.setattr(main.limiter._storage, "check", lambda: False)
         with captured_logs() as records:
-            response = TestClient(app).get("/readyz")
+            response = client.get("/readyz")
         assert response.status_code == 200
         assert response.json()["rate_limit_storage"] == "degraded"
         assert any("readiness_degraded dependency=rate_limit_storage" in r.getMessage() for r in records)
 
-    def test_database_outage_fails_readiness(self, monkeypatch):
+    def test_database_outage_fails_readiness(self, client, monkeypatch):
         def broken_session():
             raise RuntimeError("synthetic database outage")
 
         monkeypatch.setattr(main.database_module, "async_session_maker", broken_session)
-        response = TestClient(app).get("/readyz")
+        response = client.get("/readyz")
         assert response.status_code == 503
         assert response.json() == {"status": "unavailable"}
 
 
 class TestValidationApiContract:
-    def test_missing_token_is_401_not_csrf_403(self):
-        response = TestClient(app).post("/api/v1/auth/validate")
+    def test_missing_token_is_401_not_csrf_403(self, client):
+        response = client.post("/api/v1/auth/validate")
         assert response.status_code == 401
         assert response.headers["www-authenticate"] == "Bearer"
 
-    def test_scheme_is_case_insensitive(self, monkeypatch):
-        with TestClient(app, follow_redirects=False) as client:
-            csrf = login(client, monkeypatch, "scheme-user")
-            token = client.post("/tokens", json={"name": "scheme"},
-                                headers={"X-CSRF-Token": csrf}).json()["token"]
-        api = TestClient(app)
+    def test_scheme_is_case_insensitive(self, client, monkeypatch):
+        csrf = login(client, monkeypatch, "scheme-user")
+        token = client.post("/tokens", json={"name": "scheme"},
+                            headers={"X-CSRF-Token": csrf}).json()["token"]
+        client.cookies.clear()
         for scheme in ("Bearer", "bearer", "BEARER"):
-            response = api.post("/api/v1/auth/validate", headers={"Authorization": f"{scheme} {token}"})
+            response = client.post("/api/v1/auth/validate", headers={"Authorization": f"{scheme} {token}"})
             assert response.status_code == 200, scheme
             assert response.json()["valid"] is True
-        assert api.post("/api/v1/auth/validate", headers={"Authorization": f"Basic {token}"}).status_code == 401
+        assert client.post("/api/v1/auth/validate", headers={"Authorization": f"Basic {token}"}).status_code == 401
 
-    def test_unknown_token_401_has_challenge(self):
-        response = TestClient(app).post("/api/v1/auth/validate",
+    def test_unknown_token_401_has_challenge(self, client):
+        response = client.post("/api/v1/auth/validate",
                                         headers={"Authorization": "Bearer blablador-" + "0" * 64})
         assert response.status_code == 401
         assert response.headers["www-authenticate"] == "Bearer"
 
-    def test_cookie_endpoints_still_require_csrf(self):
-        client = TestClient(app)
+    def test_cookie_endpoints_still_require_csrf(self, client):
         client.cookies.set("csrf_token", "abc")
         assert client.post("/tokens", json={"name": "x"},
                            headers={"Authorization": "Bearer x"}).status_code == 403

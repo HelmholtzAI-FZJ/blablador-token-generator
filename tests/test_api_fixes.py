@@ -28,12 +28,13 @@ from app.auth import (
 from app.config import get_config
 from app.cookies import SESSION_COOKIE
 from app.database import (
-    build_engine, get_db, lock_user_for_update, migrate_token_owner_index, postgres_connect_args,
+    build_engine, get_db, lock_user_for_update, postgres_connect_args,
     verify_production_database_role,
 )
 from app.models import Base, Token, User
 from app.tombstones import is_subject_deleted, record_deletion
 from app.timeutil import utcnow
+from tests.conftest import drop_schema
 
 
 def request(path: str = "/", method: str = "POST", session: str | None = None) -> Request:
@@ -50,7 +51,7 @@ async def mutation_sessions(tmp_path):
         await conn.run_sync(Base.metadata.create_all)
     yield async_sessionmaker(engine, expire_on_commit=False)
     async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.drop_all)
+        await drop_schema(conn)
     await engine.dispose()
 
 
@@ -414,34 +415,6 @@ async def test_bulk_purge_keeps_active_tokens(test_db, test_admin):
 
 def test_owner_index_defined():
     assert any(index.name == "ix_tokens_user_id" for index in Token.__table__.indexes)
-
-
-@pytest.mark.asyncio
-async def test_existing_owner_index_migration_is_idempotent(mutation_sessions):
-    engine = mutation_sessions.kw["bind"]
-    (user_id,) = await seed_users(mutation_sessions)
-    async with mutation_sessions() as db:
-        db.add(Token(user_id=user_id, name="Preserved", token_hash=hash_token(generate_token())))
-        await db.commit()
-    async with engine.begin() as conn:
-        await conn.execute(text("DROP INDEX ix_tokens_user_id"))
-    await migrate_token_owner_index(engine)
-    await migrate_token_owner_index(engine)
-    async with engine.connect() as conn:
-        indexes = await conn.run_sync(lambda sync: inspect(sync).get_indexes("tokens"))
-        assert [index["column_names"] for index in indexes if index["name"] == "ix_tokens_user_id"] == [["user_id"]]
-    async with mutation_sessions() as db:
-        assert (await db.execute(select(Token.name))).scalar_one() == "Preserved"
-
-
-@pytest.mark.asyncio
-async def test_owner_index_migration_rejects_wrong_existing_definition(mutation_sessions):
-    engine = mutation_sessions.kw["bind"]
-    async with engine.begin() as conn:
-        await conn.execute(text("DROP INDEX ix_tokens_user_id"))
-        await conn.execute(text("CREATE INDEX ix_tokens_user_id ON tokens (name)"))
-    with pytest.raises(RuntimeError, match="unexpected definition"):
-        await migrate_token_owner_index(engine)
 
 
 def test_postgres_timeout_settings_preserve_explicit_connection_arguments():

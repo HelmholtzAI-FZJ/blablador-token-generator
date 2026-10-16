@@ -2,11 +2,11 @@ import os
 import ssl
 from math import ceil
 from pathlib import Path
-from sqlalchemy import event, inspect, select, text
+from sqlalchemy import event, select, text
 from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine, create_async_engine, AsyncSession, async_sessionmaker
 from sqlalchemy.engine import URL, make_url
 from app.config import get_config
-from app.models import Base, User
+from app.models import User
 
 SCHEMA_LOCK_KEY = 7_316_201
 ADMIN_MEMBERSHIP_LOCK_KEY = 7_316_202
@@ -77,42 +77,6 @@ async def lock_user_for_update(
     return result.scalar_one_or_none()
 
 
-async def migrate_token_owner_index(migration_engine: AsyncEngine) -> None:
-    """Explicit, idempotent migration; PostgreSQL builds without blocking writes."""
-    dialect = migration_engine.dialect.name
-    if dialect not in {"sqlite", "postgresql"}:
-        raise RuntimeError("Index migration requires PostgreSQL or SQLite")
-    async with migration_engine.connect() as conn:
-        if dialect == "postgresql":
-            conn = await conn.execution_options(isolation_level="AUTOCOMMIT")
-
-        def inspect_index(sync_conn, require_present: bool = False) -> None:
-            inspector = inspect(sync_conn)
-            if not inspector.has_table("tokens"):
-                raise RuntimeError("The tokens table must exist before this migration")
-            matches = [index for index in inspector.get_indexes("tokens")
-                       if index["name"] == "ix_tokens_user_id"]
-            if require_present and not matches:
-                raise RuntimeError("Token owner index was not created")
-            if matches and (matches[0]["column_names"] != ["user_id"] or matches[0]["unique"]):
-                raise RuntimeError("Existing ix_tokens_user_id has an unexpected definition")
-
-        await conn.run_sync(inspect_index)
-        concurrently = " CONCURRENTLY" if dialect == "postgresql" else ""
-        await conn.execute(text(
-            f"CREATE INDEX{concurrently} IF NOT EXISTS ix_tokens_user_id ON tokens (user_id)"
-        ))
-        if dialect == "sqlite":
-            await conn.commit()
-        else:
-            valid = await conn.scalar(text(
-                "SELECT indisvalid FROM pg_index WHERE indexrelid = to_regclass('ix_tokens_user_id')"
-            ))
-            if valid is not True:
-                raise RuntimeError("Existing owner index is invalid; review and rebuild it")
-        await conn.run_sync(lambda sync_conn: inspect_index(sync_conn, require_present=True))
-
-
 async def verify_production_database_role(conn: AsyncConnection) -> None:
     unsafe = await conn.scalar(text(
         "SELECT EXISTS (SELECT 1 FROM pg_catalog.pg_roles AS role WHERE "
@@ -144,13 +108,11 @@ async def init_db():
     )
     async_session_maker = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
-    async with engine.begin() as conn:
-        if config.app.environment == "production":
+    if config.app.environment == "production":
+        async with engine.begin() as conn:
             await verify_production_database_role(conn)
-        # Several workers/pods start at once; serialize schema creation.
-        if engine.dialect.name == "postgresql":
-            await conn.execute(text("SELECT pg_advisory_xact_lock(:key)"), {"key": SCHEMA_LOCK_KEY})
-        await conn.run_sync(Base.metadata.create_all)
+    from app.migrate import prepare_schema
+    await prepare_schema(engine)
 
     # Restrict SQLite database file permissions to owner-only (600)
     # This prevents other users on the system from reading token hashes

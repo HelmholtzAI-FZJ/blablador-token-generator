@@ -19,6 +19,7 @@ dependencies = [
     "asyncpg>=0.29.0",
     "slowapi>=0.1.9",
     "redis>=5.0.0",
+    "alembic>=1.16",
 ]
 
 [project.optional-dependencies]
@@ -36,3 +37,7 @@ build-backend = "setuptools.build_meta"
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+[tool.uv]
+# An application run from the source tree (and copied into the image), not
+# a distributable package: uv installs its dependencies only.
+package = false
