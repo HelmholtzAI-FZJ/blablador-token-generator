@@ -169,3 +169,28 @@ class TestBrowserErrors:
         response = TestClient(app).get("/no-such-page", headers=HTML)
         assert "frame-ancestors 'none'" in response.headers["content-security-policy"]
         assert response.headers["cache-control"] == "no-store"
+
+
+class TestReadiness:
+    def test_ready_with_database_and_storage(self):
+        response = TestClient(app).get("/readyz")
+        assert response.status_code == 200
+        assert response.json() == {"status": "ready", "rate_limit_storage": "ok"}
+
+    def test_rate_limit_storage_outage_degrades_but_stays_ready(self, monkeypatch):
+        monkeypatch.setattr(main.limiter._storage, "check", lambda: False)
+        with captured_logs() as records:
+            response = TestClient(app).get("/readyz")
+        assert response.status_code == 200
+        assert response.json()["rate_limit_storage"] == "degraded"
+        assert any("readiness_degraded dependency=rate_limit_storage" in r.getMessage() for r in records)
+
+    def test_database_outage_fails_readiness(self, monkeypatch):
+        def broken_session():
+            raise RuntimeError("synthetic database outage")
+
+        monkeypatch.setattr(main.database_module, "async_session_maker", broken_session)
+        response = TestClient(app).get("/readyz")
+        assert response.status_code == 503
+        assert response.json() == {"status": "unavailable"}
+
