@@ -1,4 +1,3 @@
-import pytest
 from app.auth import hash_token, generate_token
 
 

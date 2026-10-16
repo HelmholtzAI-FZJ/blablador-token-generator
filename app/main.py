@@ -1,4 +1,5 @@
 import asyncio
+from collections.abc import Mapping
 from contextlib import asynccontextmanager
 from http import HTTPStatus
 import logging as _logging
@@ -84,7 +85,7 @@ def wants_html(request: Request) -> bool:
 
 
 def error_page(request: Request, status_code: int, message: str,
-               headers: dict[str, str] | None = None) -> HTMLResponse:
+               headers: Mapping[str, str] | None = None) -> HTMLResponse:
     try:
         title = HTTPStatus(status_code).phrase
     except ValueError:

@@ -8,7 +8,7 @@ import pytest
 import httpx
 from fastapi import FastAPI, HTTPException
 from pydantic import ValidationError
-from sqlalchemy import func, inspect, select, text, update
+from sqlalchemy import func, select, text, update
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from starlette.requests import Request

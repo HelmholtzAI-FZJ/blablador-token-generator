@@ -1,5 +1,5 @@
 from datetime import datetime, timezone, timedelta
-from fastapi import APIRouter, Depends, HTTPException, status, Header, Request
+from fastapi import APIRouter, Depends, HTTPException, Header, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import or_, select, update
 from sqlalchemy.orm import joinedload
@@ -7,7 +7,7 @@ from pydantic import BaseModel, Field
 import logging as _logging
 from app.database import get_db
 from app.config import get_config
-from app.models import Token, User
+from app.models import Token
 from app.tombstones import is_user_deleted
 from app.auth import hash_token
 from app.rate_limit import limiter, RATE_LIMITS, is_token_validation_exempt

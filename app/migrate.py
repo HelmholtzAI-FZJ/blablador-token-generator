@@ -55,7 +55,7 @@ def alembic_config(connection: Connection | None = None) -> AlembicConfig:
     return config
 
 
-def head_revision() -> str:
+def head_revision() -> str | None:
     return ScriptDirectory.from_config(alembic_config()).get_current_head()
 
 
@@ -88,7 +88,7 @@ def unversioned_schema_problems(connection: Connection) -> list[str] | None:
     return problems
 
 
-def _upgrade(connection: Connection) -> tuple[str | None, str]:
+def _upgrade(connection: Connection) -> tuple[str | None, str | None]:
     before = current_revision(connection)
     problems = unversioned_schema_problems(connection) if before is None else None
     # Alembic only manages (and commits) transactions it begins itself.
@@ -121,7 +121,7 @@ async def _acquire_schema_lock(connection: AsyncConnection) -> None:
         await asyncio.sleep(LOCK_POLL_SECONDS)
 
 
-async def upgrade_database(engine: AsyncEngine) -> str:
+async def upgrade_database(engine: AsyncEngine) -> str | None:
     """Apply pending migrations; returns the resulting revision."""
     async with engine.connect() as connection:
         postgres = connection.dialect.name == "postgresql"
@@ -143,7 +143,7 @@ async def database_revision(engine: AsyncEngine) -> str | None:
         return await connection.run_sync(current_revision)
 
 
-async def require_current_schema(engine: AsyncEngine) -> str:
+async def require_current_schema(engine: AsyncEngine) -> str | None:
     revision = await database_revision(engine)
     if revision != head_revision():
         raise SchemaError(

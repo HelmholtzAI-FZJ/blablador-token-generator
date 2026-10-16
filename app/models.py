@@ -2,7 +2,6 @@ import uuid
 from datetime import datetime
 from sqlalchemy import String, DateTime, Boolean, ForeignKey, Index, Integer, text
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
-from sqlalchemy.dialects.sqlite import JSON
 from typing import Optional
 
 from app.timeutil import utcnow
