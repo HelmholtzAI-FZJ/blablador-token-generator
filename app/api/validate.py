@@ -32,12 +32,16 @@ class ValidateResponse(BaseModel):
 MAX_TOKEN_LENGTH = 256
 
 async def extract_bearer_token(authorization: str | None = Header(None)) -> str | None:
-    if authorization and authorization.startswith("Bearer "):
-        token = authorization[7:]
-        if len(token) > MAX_TOKEN_LENGTH:
-            return None
-        return token
-    return None
+    # The authentication scheme is case-insensitive (RFC 7235).
+    scheme, _, token = (authorization or "").partition(" ")
+    token = token.strip()
+    if scheme.lower() != "bearer" or not token or len(token) > MAX_TOKEN_LENGTH:
+        return None
+    return token
+
+
+def invalid_token(detail: str) -> HTTPException:
+    return HTTPException(status_code=401, detail=detail, headers={"WWW-Authenticate": "Bearer"})
 
 
 @router.post("/validate", response_model=ValidateResponse)
@@ -48,7 +52,7 @@ async def validate_token(
     db: AsyncSession = Depends(get_db)
 ):
     if not bearer_token:
-        raise HTTPException(status_code=401, detail="No token provided. Use Bearer token.")
+        raise invalid_token("No token provided. Use Bearer token.")
     
     token_hash = hash_token(bearer_token)
     
@@ -63,7 +67,7 @@ async def validate_token(
     token = result.scalar_one_or_none()
     
     if token is None or token.user is None:
-        raise HTTPException(status_code=401, detail="Token not found or revoked")
+        raise invalid_token("Token not found or revoked")
     
     # Check if the account was deleted after this token was created
     if await is_user_deleted(db, token.user):
@@ -74,10 +78,7 @@ async def validate_token(
             token.id,
             token.user.email,
         )
-        raise HTTPException(
-            status_code=401,
-            detail="Token invalid: account has been deleted"
-        )
+        raise invalid_token("Token invalid: account has been deleted")
     
     now = datetime.now(timezone.utc)
     if token.expires_at:
@@ -85,7 +86,7 @@ async def validate_token(
         if expires.tzinfo is None:
             expires = expires.replace(tzinfo=timezone.utc)
         if expires <= now:
-            raise HTTPException(status_code=401, detail="Token has expired")
+            raise invalid_token("Token has expired")
 
     response = ValidateResponse(
         valid=True,

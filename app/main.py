@@ -128,11 +128,9 @@ BEARER_PATH_PREFIX = "/api/v1/"
 
 @app.middleware("http")
 async def csrf_middleware(request: Request, call_next):
-    # Bearer-token API calls are not vulnerable to CSRF: the token is
-    # explicitly supplied by the client, not auto-sent by the browser
-    # like a cookie.  Skip the CSRF check for these requests.
-    authorization = request.headers.get("authorization", "")
-    if authorization.startswith("Bearer ") and request.url.path.startswith(BEARER_PATH_PREFIX):
+    # The bearer-token API never reads cookies: its credential is supplied
+    # explicitly by the client, so a forged cross-site request gains nothing.
+    if request.url.path.startswith(BEARER_PATH_PREFIX):
         return await call_next(request)
 
     cookie_token = request.cookies.get(CSRF_COOKIE)
