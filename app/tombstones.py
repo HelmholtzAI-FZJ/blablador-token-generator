@@ -4,9 +4,9 @@ OAuth accounts are identified by their subject only: the email an identity
 provider asserts may be unverified, so it must never block another person.
 Local accounts are identified by their (admin-provided) email.
 
-Only keyed hashes of the subject and email are stored, never the identifiers
-themselves, so a deleted user's personal data does not linger in the
-database. The key is app.token_hash_key, which must never change.
+Only keyed hashes of the subject and email are stored, never the plaintext
+identifiers. These retained records are pseudonymous and linkable. The key
+is app.token_hash_key and must be preserved until an explicit migration.
 """
 import hashlib
 import hmac
@@ -58,5 +58,17 @@ async def is_user_deleted(db: AsyncSession, user: User) -> bool:
 
 
 async def lift_deletions_for_email(db: AsyncSession, email: str) -> None:
-    """An admin explicitly re-creating an account lifts deletions for that email."""
-    await db.execute(delete(DeletedUser).where(DeletedUser.email_hash == _email_hash(email)))
+    """Creating a local account restores only local identities with that email."""
+    await db.execute(
+        delete(DeletedUser).where(
+            DeletedUser.unity_id_hash.is_(None),
+            DeletedUser.email_hash == _email_hash(email),
+        )
+    )
+
+
+async def lift_deletions_for_subject(db: AsyncSession, subject: str) -> int:
+    result = await db.execute(
+        delete(DeletedUser).where(DeletedUser.unity_id_hash == _subject_hash(subject))
+    )
+    return result.rowcount

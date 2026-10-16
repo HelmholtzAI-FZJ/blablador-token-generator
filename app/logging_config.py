@@ -19,4 +19,6 @@ def configure_logging(level: str = "INFO") -> None:
         )
         logger.addHandler(handler)
     logger.setLevel(level.upper())
+    for name in ("token_generator.audit", "token_generator.account"):
+        logging.getLogger(name).setLevel(min(logging.INFO, logger.level))
     logger.propagate = False

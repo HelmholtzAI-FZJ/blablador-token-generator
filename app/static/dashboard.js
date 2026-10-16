@@ -1,4 +1,9 @@
 
+const tokenPolicy = {
+    defaultExpirationDays: Number(document.querySelector('meta[name="token-default-expiration-days"]').content),
+    maxExpirationDays: Number(document.querySelector('meta[name="token-max-expiration-days"]').content),
+};
+
 function toLocalDateTime(utcStr) {
     if (!utcStr) return '';
     const date = new Date(utcStr);
@@ -11,15 +16,15 @@ function toLocalDate(utcStr) {
     return date.toLocaleDateString();
 }
 
-// Set default expiration to 90 days from today - display in locale format
+// Display the configured expiration in locale format.
 (function() {
     const displayInput = document.getElementById('expiresIn');
     const hiddenInput = document.getElementById('expiresAtRaw');
     
-    // Initialize with 90 days ahead - use local date components
+    // Use local date components for the calendar.
     if (!hiddenInput.value) {
         const now = new Date();
-        const next = new Date(now.getTime() + 90 * 24 * 60 * 60 * 1000);
+        const next = new Date(now.getTime() + tokenPolicy.defaultExpirationDays * 24 * 60 * 60 * 1000);
         const y = next.getFullYear();
         const m = String(next.getMonth() + 1).padStart(2, '0');
         const d = String(next.getDate()).padStart(2, '0');
@@ -42,8 +47,8 @@ function toLocalDate(utcStr) {
         const todayY = today.getFullYear();
         const todayM = today.getMonth();
         const todayD = today.getDate();
-        const minDate = new Date(todayY, todayM, todayD);
-        const maxDate = new Date(todayY + 1, todayM, todayD);
+        const minDate = new Date(todayY, todayM, todayD + 1);
+        const maxDate = new Date(todayY, todayM, todayD + tokenPolicy.maxExpirationDays);
         
         const monthNames = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
         const firstDay = new Date(year, month, 1).getDay();
@@ -83,7 +88,7 @@ function toLocalDate(utcStr) {
         
         // Check if can go next (first day of next month <= 1 year from today)
         const nextDate = new Date(year, month + 1, 1);
-        const canGoNext = nextDate <= new Date(todayY + 1, todayM, todayD);
+        const canGoNext = nextDate <= maxDate;
         nextBtn.style.visibility = canGoNext ? 'visible' : 'hidden';
         nextBtn.style.cursor = canGoNext ? 'pointer' : 'default';
         
@@ -258,6 +263,9 @@ document.getElementById('createTokenForm').addEventListener('submit', async (e) 
     if (response.ok) {
         const result = await response.json();
         document.getElementById('newTokenValue').textContent = result.token;
+        document.getElementById('newTokenValue').style.display = 'none';
+        document.getElementById('tokenHidden').style.display = 'inline-block';
+        document.getElementById('viewBtn').textContent = 'View';
         document.getElementById('newTokenDisplay').style.display = 'block';
         e.target.reset();
         
@@ -294,6 +302,9 @@ document.getElementById('createTokenForm').addEventListener('submit', async (e) 
         const expiresDisplay = expires ? new Date(expires).toLocaleDateString() : 'Never';
         
         const newRow = document.createElement('tr');
+        newRow.dataset.tokenId = result.id;
+        newRow.dataset.created = result.created_at;
+        newRow.dataset.expires = result.expires_at;
         newRow.innerHTML = `
             <td>${escapeHtml(result.name)}</td>
             <td class="datetime" data-utc="${now}"></td>
@@ -301,6 +312,7 @@ document.getElementById('createTokenForm').addEventListener('submit', async (e) 
             <td class="datetime-date" data-utc="${expires}">${expiresDisplay}</td>
             <td class="token-status" data-revoked="false" data-expires="${expires}">Active</td>
             <td>
+                <button class="btn" data-action="rotate-token" data-id="${escapeHtml(result.id)}">Rotate</button>
                 <button class="btn btn-danger" data-action="revoke-token" data-id="${escapeHtml(result.id)}">Revoke</button>
                 <button class="btn" style="background: #e74c3c;" data-action="delete-token" data-id="${escapeHtml(result.id)}">Delete</button>
             </td>
@@ -435,8 +447,8 @@ document.addEventListener('DOMContentLoaded', () => {
         const todayY = today.getFullYear();
         const todayM = today.getMonth();
         const todayD = today.getDate();
-        const minDate = new Date(todayY, todayM, todayD);
-        const maxDate = new Date(todayY + 1, todayM, todayD);
+        const minDate = new Date(todayY, todayM, todayD + 1);
+        const maxDate = new Date(todayY, todayM, todayD + tokenPolicy.maxExpirationDays);
 
         const monthNames = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
         const firstDay = new Date(year, month, 1).getDay();
@@ -473,7 +485,7 @@ document.addEventListener('DOMContentLoaded', () => {
         prevBtn.style.cursor = canGoPrev ? 'pointer' : 'default';
 
         const nextDate = new Date(year, month + 1, 1);
-        const canGoNext = nextDate <= new Date(todayY + 1, todayM, todayD);
+        const canGoNext = nextDate <= maxDate;
         nextBtn.style.visibility = canGoNext ? 'visible' : 'hidden';
         nextBtn.style.cursor = canGoNext ? 'pointer' : 'default';
 
@@ -540,10 +552,45 @@ document.addEventListener('DOMContentLoaded', () => {
     };
 });
 
+async function rotateToken(tokenId) {
+    if (!confirm('Replace this token? Its current value will stop working immediately.')) return;
+    try {
+        const response = await fetch(`/tokens/${encodeURIComponent(tokenId)}/rotate`, {
+            method: 'POST', headers: csrfHeaders(),
+        });
+        if (!response.ok) {
+            const error = await response.json();
+            throw new Error(typeof error.detail === 'string' ? error.detail : 'Rotation failed');
+        }
+        const result = await response.json();
+        document.getElementById('newTokenValue').textContent = result.token;
+        document.getElementById('newTokenValue').style.display = 'none';
+        document.getElementById('tokenHidden').style.display = 'inline-block';
+        document.getElementById('viewBtn').textContent = 'View';
+        document.getElementById('newTokenDisplay').style.display = 'block';
+        document.getElementById('newTokenDisplay').scrollIntoView({block: 'center'});
+    } catch (error) {
+        alert('Failed to rotate token: ' + error.message);
+    }
+}
+
+async function revokeAllCredentials() {
+    if (!confirm('Revoke every API token and sign out all of your browser sessions?')) return;
+    try {
+        const response = await fetch('/tokens/revoke-all', {method: 'POST', headers: csrfHeaders()});
+        if (!response.ok) throw new Error('Revocation failed');
+        window.location.href = '/';
+    } catch {
+        alert('Credential revocation could not be completed. Please retry.');
+    }
+}
+
 registerActions({
     'toggle-token-view': () => toggleTokenView(),
     'copy-token': () => copyToken(),
     'revoke-token': (el) => revokeToken(el.dataset.id),
     'delete-token': (el) => deleteToken(el.dataset.id),
     'renew-token': (el) => window.openRenewModal(el.dataset.id),
+    'rotate-token': (el) => rotateToken(el.dataset.id),
+    'revoke-all': () => revokeAllCredentials(),
 });

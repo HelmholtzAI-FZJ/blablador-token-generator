@@ -1,3 +1,5 @@
+import asyncio
+from functools import wraps
 from ipaddress import ip_address, ip_network
 
 from fastapi import HTTPException
@@ -15,6 +17,27 @@ _TOKEN_VALIDATION_EXEMPT = [
 ]
 
 
+class AsyncLimiter(Limiter):
+    def limit(self, *args, **kwargs):
+        decorate = super().limit(*args, **kwargs)
+
+        def async_decorate(func):
+            wrapped = decorate(func)
+
+            @wraps(wrapped)
+            async def check_then_call(*args, **kwargs):
+                request = kwargs.get("request") or (args[0] if args else None)
+                if self.enabled and not getattr(request.state, "_rate_limiting_complete", False):
+                    await asyncio.to_thread(self._check_request_limit, request, func, False)
+                    request.state._rate_limiting_complete = True
+                return await wrapped(*args, **kwargs)
+
+            check_then_call.__wrapped__ = func
+            return check_then_call
+
+        return async_decorate
+
+
 def build_limiter(storage_uri: str) -> Limiter:
     """Rate limiter keyed by client IP unless a route says otherwise.
 
@@ -23,9 +46,14 @@ def build_limiter(storage_uri: str) -> Limiter:
     process keeps enforcing the same limits in memory until it recovers,
     instead of failing every request (token validation included).
     """
-    return Limiter(
+    options = {}
+    if storage_uri.startswith(("redis://", "rediss://")):
+        timeout = RATE_LIMITS.storage_timeout_seconds
+        options = {"socket_timeout": timeout, "socket_connect_timeout": timeout}
+    return AsyncLimiter(
         key_func=get_remote_address,
         storage_uri=storage_uri,
+        storage_options=options,
         in_memory_fallback_enabled=True,
         swallow_errors=True,
     )

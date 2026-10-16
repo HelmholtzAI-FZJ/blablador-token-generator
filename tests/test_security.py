@@ -2,6 +2,7 @@
 security headers, rate limiting, and OAuth state verification.
 """
 import asyncio
+from urllib.parse import urlsplit
 import pytest
 from fastapi import HTTPException
 from starlette.requests import Request
@@ -54,7 +55,7 @@ class TestJwtSecretValidation:
 
     def test_strong_secret_accepted(self):
         """A 64-character random secret should be accepted."""
-        c = Config(app=AppConfig(secret_key="a" * 64, token_hash_key="b" * 64))
+        c = Config(app=AppConfig(environment="development", secret_key="a" * 64, token_hash_key="b" * 64))
         c.validate_security()  # Should not raise
 
 
@@ -506,7 +507,11 @@ class TestOAuthAccountLinking:
         user = await get_or_create_user(
             {"sub": "s1", "email": "boss@example.com", "email_verified": True}, test_db
         )
-        assert user.is_admin
+        assert not user.is_admin
+        new_user = await get_or_create_user(
+            {"sub": "s2", "email": "boss@example.com", "email_verified": True}, test_db
+        )
+        assert new_user.is_admin
 
     @pytest.mark.asyncio
     async def test_admin_subject_promotes(self, test_db, monkeypatch):
@@ -582,7 +587,7 @@ class TestSessionInvalidation:
         from app.auth import create_session_token, get_current_user, invalidate_sessions
         session = create_session_token(test_user)
         assert (await get_current_user(self.cookie_request(session), test_db)).id == test_user.id
-        invalidate_sessions(test_user)
+        await invalidate_sessions(test_user, test_db)
         await test_db.commit()
         with pytest.raises(HTTPException) as exc:
             await get_current_user(self.cookie_request(session), test_db)
@@ -608,7 +613,7 @@ class TestSessionInvalidation:
         req = Request({"type": "http", "method": "PATCH", "path": "/", "query_string": b"",
                        "headers": [], "client": ("127.0.0.2", 0)})
         before = local.session_epoch
-        await update_user.__wrapped__(req, local.id, UpdateUserRequest(password="NewPassw0rd"), test_admin, test_db)
+        await update_user.__wrapped__(req, local.id, UpdateUserRequest(password="NewLongPassw0rdForTests"), test_admin, test_db)
         assert local.session_epoch == before + 1
         await update_user.__wrapped__(req, local.id, UpdateUserRequest(is_admin=True), test_admin, test_db)
         assert local.session_epoch == before + 2
@@ -682,8 +687,9 @@ class TestAdminTokenRoutes:
         calls = _ui_fetch_calls()
         assert len(calls) >= 10, "fetch() extraction found too few calls"
         for method, path, source in calls:
-            scope = {"type": "http", "method": method, "path": path, "root_path": "",
-                     "query_string": b"", "headers": []}
+            url = urlsplit(path)
+            scope = {"type": "http", "method": method, "path": url.path, "root_path": "",
+                     "query_string": url.query.encode(), "headers": []}
             assert any(route.matches(scope)[0] == Match.FULL for route in app.routes), \
                 f"{source}: {method} {path} matches no route"
 
@@ -865,7 +871,7 @@ class TestAuditLogging:
         try:
             req = Request({"type": "http", "method": "PATCH", "path": "/", "query_string": b"",
                            "headers": [], "client": ("127.0.0.4", 0)})
-            await update_user.__wrapped__(req, local.id, UpdateUserRequest(password="NewPassw0rd"),
+            await update_user.__wrapped__(req, local.id, UpdateUserRequest(password="NewLongPassw0rdForTests"),
                                           test_admin, test_db)
         finally:
             audit.removeHandler(handler)
@@ -1000,7 +1006,7 @@ class TestTombstonePrivacy:
         req = Request({"type": "http", "method": "POST", "path": "/", "query_string": b"",
                        "headers": [], "client": ("127.0.0.5", 0)})
         await create_user.__wrapped__(req, CreateUserRequest(
-            email="Former-Local@example.com", name="F", password="Passw0rdOK"), test_admin, test_db)
+            email="Former-Local@example.com", name="F", password="LongPassw0rdOKForTests"), test_admin, test_db)
         assert not await is_user_deleted(test_db, local)
         assert (await test_db.execute(select(func.count()).select_from(DeletedUser))).scalar_one() == 1
 
@@ -1080,7 +1086,7 @@ class TestNoPasswordsOnOAuthAccounts:
         req = Request({"type": "http", "method": "PATCH", "path": "/", "query_string": b"",
                        "headers": [], "client": ("127.0.0.7", 0)})
         with pytest.raises(HTTPException) as exc:
-            await update_user.__wrapped__(req, test_user.id, UpdateUserRequest(password="Passw0rdOK"),
+            await update_user.__wrapped__(req, test_user.id, UpdateUserRequest(password="LongPassw0rdOKForTests"),
                                           test_admin, test_db)
         assert exc.value.status_code == 400
         await test_db.refresh(test_user)

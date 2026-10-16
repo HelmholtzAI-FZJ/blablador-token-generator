@@ -1,11 +1,12 @@
 from datetime import datetime, timezone, timedelta
 from fastapi import APIRouter, Depends, HTTPException, status, Header, Request
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import or_, select, update
 from sqlalchemy.orm import joinedload
 from pydantic import BaseModel, Field
 import logging as _logging
 from app.database import get_db
+from app.config import get_config
 from app.models import Token, User
 from app.tombstones import is_user_deleted
 from app.auth import hash_token
@@ -60,11 +61,11 @@ async def validate_token(
     )
     token = result.scalar_one_or_none()
     
-    if token is None:
+    if token is None or token.user is None:
         raise HTTPException(status_code=401, detail="Token not found or revoked")
     
     # Check if the account was deleted after this token was created
-    if token.user and await is_user_deleted(db, token.user):
+    if await is_user_deleted(db, token.user):
         _audit.warning(
             "user=%s action=revoked_token_used_by_deleted_account "
             "token_id=%s user_email=%s",
@@ -82,14 +83,8 @@ async def validate_token(
         expires = token.expires_at
         if expires.tzinfo is None:
             expires = expires.replace(tzinfo=timezone.utc)
-        if expires < now:
+        if expires <= now:
             raise HTTPException(status_code=401, detail="Token has expired")
-
-    token.last_used_at = now.replace(tzinfo=None)
-    try:
-        await db.commit()
-    except Exception:
-        await db.rollback()
 
     def format_datetime(dt):
         if dt is None:
@@ -98,8 +93,35 @@ async def validate_token(
             dt = dt.replace(tzinfo=timezone.utc)
         return dt.isoformat()
 
-    return ValidateResponse(
+    response = ValidateResponse(
         valid=True,
         user_id=token.user_id,
         expires_at=format_datetime(token.expires_at)
     )
+    token_id = token.id
+    now_naive = now.replace(tzinfo=None)
+    cutoff = now_naive - timedelta(seconds=get_config().tokens.last_used_update_seconds)
+    last_used_at = token.last_used_at
+    if last_used_at is not None and last_used_at.tzinfo is not None:
+        last_used_at = last_used_at.astimezone(timezone.utc).replace(tzinfo=None)
+    if last_used_at is None or last_used_at <= cutoff:
+        try:
+            await db.execute(
+                update(Token)
+                .where(
+                    Token.id == token_id,
+                    Token.token_hash == token_hash,
+                    Token.revoked_at.is_(None),
+                    or_(Token.last_used_at.is_(None), Token.last_used_at <= cutoff),
+                )
+                .values(last_used_at=now_naive)
+                .execution_options(synchronize_session=False)
+            )
+            await db.commit()
+        except Exception as exc:
+            await db.rollback()
+            _audit.warning(
+                "action=token_usage_update_failed token_id=%s error_type=%s",
+                token_id, type(exc).__name__,
+            )
+    return response

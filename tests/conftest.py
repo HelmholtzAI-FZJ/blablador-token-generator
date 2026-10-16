@@ -5,14 +5,16 @@ from pathlib import Path
 # Never pick up the developer's config.yaml, secrets or database: tests run
 # against tests/config.test.yaml and a throwaway SQLite file unless
 # TEST_DATABASE_URL points them at another database.
+os.environ["APP_ENVIRONMENT"] = "development"
 os.environ["CONFIG_PATH"] = str(Path(__file__).parent / "config.test.yaml")
 os.environ["DATABASE_URL"] = os.environ.get(
     "TEST_DATABASE_URL",
     f"sqlite+aiosqlite:///{tempfile.mkdtemp(prefix='token_generator_tests_')}/app.db",
 )
 os.environ["RATE_LIMIT_STORAGE_URI"] = "memory://"
-os.environ.setdefault("JWT_SECRET_KEY", "test-jwt-secret-key-" + "0" * 32)
-os.environ.setdefault("TOKEN_HASH_KEY", "test-token-hash-key-" + "0" * 32)
+os.environ["JWT_SECRET_KEY"] = "test-jwt-secret-key-" + "0" * 32
+os.environ["TOKEN_HASH_KEY"] = "test-token-hash-key-" + "0" * 32
+os.environ["OAUTH_CLIENT_SECRET"] = "test-oauth-synthetic-secret"
 
 import pytest
 import asyncio

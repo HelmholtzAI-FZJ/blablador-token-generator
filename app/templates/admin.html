@@ -166,6 +166,7 @@
         <div id="users-tab" class="tab-content">
             <div class="card">
                 <h2>Manage Users</h2>
+                <button class="btn" data-action="restore-oauth">Restore Disabled OAuth Account</button>
                 <div style="margin-bottom: 1.5rem;">
                     <h3>Create Local User</h3>
                     <form id="createUserForm">
@@ -179,7 +180,8 @@
                         </div>
                         <div class="form-group">
                             <label for="userPassword">Password</label>
-                            <input type="password" id="userPassword" required>
+                            <input type="password" id="userPassword" minlength="15" maxlength="72" autocomplete="new-password" required>
+                            <small>At least 15 characters; at most 72 UTF-8 bytes.</small>
                         </div>
                         <div class="form-group">
                             <label>
@@ -191,6 +193,11 @@
                 </div>
 
                 <h3>Existing Users</h3>
+                <div>
+                    <button class="btn btn-small" id="usersPrevious" data-action="users-previous" disabled>Previous</button>
+                    <span id="usersPage">Page 1</span>
+                    <button class="btn btn-small" id="usersNext" data-action="users-next" disabled>Next</button>
+                </div>
                 <table id="usersTable">
                     <thead>
                         <tr>
@@ -218,7 +225,7 @@
             <div class="form-group">
                 <label for="newPasswordInput">New Password</label>
                 <div style="display:flex; align-items:center; gap:0.5rem;">
-                    <input type="password" id="newPasswordInput" style="flex:1; padding:0.5rem; border:1px solid #ddd; border-radius:4px;">
+                    <input type="password" id="newPasswordInput" minlength="15" maxlength="72" autocomplete="new-password" style="flex:1; padding:0.5rem; border:1px solid #ddd; border-radius:4px;">
                     <span id="passwordEye" data-action="toggle-password" style="cursor:pointer; font-size:1.5rem;">👁</span>
                 </div>
             </div>
