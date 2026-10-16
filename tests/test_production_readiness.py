@@ -194,3 +194,33 @@ class TestReadiness:
         assert response.status_code == 503
         assert response.json() == {"status": "unavailable"}
 
+
+class TestValidationApiContract:
+    def test_missing_token_is_401_not_csrf_403(self):
+        response = TestClient(app).post("/api/v1/auth/validate")
+        assert response.status_code == 401
+        assert response.headers["www-authenticate"] == "Bearer"
+
+    def test_scheme_is_case_insensitive(self, monkeypatch):
+        with TestClient(app, follow_redirects=False) as client:
+            csrf = login(client, monkeypatch, "scheme-user")
+            token = client.post("/tokens", json={"name": "scheme"},
+                                headers={"X-CSRF-Token": csrf}).json()["token"]
+        api = TestClient(app)
+        for scheme in ("Bearer", "bearer", "BEARER"):
+            response = api.post("/api/v1/auth/validate", headers={"Authorization": f"{scheme} {token}"})
+            assert response.status_code == 200, scheme
+            assert response.json()["valid"] is True
+        assert api.post("/api/v1/auth/validate", headers={"Authorization": f"Basic {token}"}).status_code == 401
+
+    def test_unknown_token_401_has_challenge(self):
+        response = TestClient(app).post("/api/v1/auth/validate",
+                                        headers={"Authorization": "Bearer blablador-" + "0" * 64})
+        assert response.status_code == 401
+        assert response.headers["www-authenticate"] == "Bearer"
+
+    def test_cookie_endpoints_still_require_csrf(self):
+        client = TestClient(app)
+        client.cookies.set("csrf_token", "abc")
+        assert client.post("/tokens", json={"name": "x"},
+                           headers={"Authorization": "Bearer x"}).status_code == 403
