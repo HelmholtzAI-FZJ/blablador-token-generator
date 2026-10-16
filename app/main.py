@@ -211,17 +211,24 @@ async def healthz():
 
 @app.get("/readyz")
 async def readyz():
+    # Only the database is required. Without the shared rate-limit storage,
+    # limits are enforced per process; failing readiness for a dependency
+    # every replica shares would take the whole service out of rotation.
     try:
         async with asyncio.timeout(config.app.readiness_timeout_seconds):
             async with database_module.async_session_maker() as db:
                 await db.execute(text("SELECT 1"))
-            healthy = await asyncio.to_thread(limiter._storage.check)
-            if not healthy:
-                raise RuntimeError("rate-limit backend unavailable")
     except Exception as exc:
-        _audit.error("action=readiness_failed error_type=%s", type(exc).__name__)
+        _audit.error("action=readiness_failed dependency=database error_type=%s", type(exc).__name__)
         return JSONResponse(status_code=503, content={"status": "unavailable"})
-    return {"status": "ready"}
+    try:
+        async with asyncio.timeout(config.app.readiness_timeout_seconds):
+            storage_ok = await asyncio.to_thread(limiter._storage.check)
+    except Exception:
+        storage_ok = False
+    if not storage_ok:
+        _audit.warning("action=readiness_degraded dependency=rate_limit_storage")
+    return {"status": "ready", "rate_limit_storage": "ok" if storage_ok else "degraded"}
 
 
 @app.get("/", response_class=HTMLResponse)

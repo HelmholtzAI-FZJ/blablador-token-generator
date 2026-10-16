@@ -111,19 +111,57 @@ async def test_admission_limits_before_body_or_authentication():
 
 
 @pytest.mark.asyncio
-async def test_admission_storage_failure_fails_closed():
-    async def forbidden_app(*args):
-        raise AssertionError("Authentication ran without working admission storage")
+async def test_admission_storage_failure_degrades_to_local_limits():
+    import logging
 
-    middleware = AdmissionMiddleware(forbidden_app)
+    async def ok_app(request_scope, receive, send):
+        await send({"type": "http.response.start", "status": 200, "headers": []})
+        await send({"type": "http.response.body", "body": b"ok"})
+
+    middleware = AdmissionMiddleware(ok_app)
+    middleware.budget = parse("2/minute")
+    attempts = 0
 
     def unavailable(*args):
+        nonlocal attempts
+        attempts += 1
         raise RuntimeError("synthetic-secret-must-not-leak")
 
     middleware.counter.hit = unavailable
-    messages = await capture(middleware)
-    assert messages[0]["status"] == 503
-    assert b"synthetic-secret" not in messages[1]["body"]
+    records = []
+    handler = logging.Handler()
+    handler.emit = records.append
+    audit = logging.getLogger("token_generator.audit")
+    audit.addHandler(handler)
+    try:
+        statuses = [(await capture(middleware))[0]["status"] for _ in range(3)]
+    finally:
+        audit.removeHandler(handler)
+    assert statuses == [200, 200, 429], "local counters must keep enforcing the budget"
+    assert attempts == 1, "the shared storage is not retried on every request during an outage"
+    messages = [record.getMessage() for record in records]
+    assert messages == ["action=admission_storage_failed fallback=local error_type=RuntimeError"]
+    assert not any("synthetic-secret" in message for message in messages)
+
+
+@pytest.mark.asyncio
+async def test_admission_returns_to_shared_storage_after_retry_interval():
+    async def ok_app(request_scope, receive, send):
+        await send({"type": "http.response.start", "status": 200, "headers": []})
+        await send({"type": "http.response.body", "body": b"ok"})
+
+    middleware = AdmissionMiddleware(ok_app)
+    shared_hits = 0
+
+    def recovered(*args):
+        nonlocal shared_hits
+        shared_hits += 1
+        return True
+
+    middleware.storage_retry_at = time.monotonic() - 1
+    middleware.counter.hit = recovered
+    assert (await capture(middleware))[0]["status"] == 200
+    assert shared_hits == 1 and middleware.storage_retry_at == 0.0
 
 
 @pytest.mark.asyncio
