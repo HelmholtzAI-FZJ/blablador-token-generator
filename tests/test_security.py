@@ -13,6 +13,7 @@ from app.models import Token
 from app.auth import hash_token, generate_token
 from app.database import init_db
 from app.main import app
+from app.timeutil import utcnow
 from starlette.testclient import TestClient
 
 
@@ -323,8 +324,8 @@ class TestAccountDeletion:
                 user_id=test_user.id,
                 token_hash=hash_token(generate_token()),
                 name=f"Token {i}",
-                created_at=datetime.utcnow(),
-                expires_at=datetime.utcnow() + timedelta(days=30),
+                created_at=utcnow(),
+                expires_at=utcnow() + timedelta(days=30),
             ))
         await test_db.commit()
 
@@ -337,7 +338,7 @@ class TestAccountDeletion:
 
         # Simulate the self-delete: revoke tokens + write tombstone + delete user
         from app.tombstones import record_deletion
-        now = datetime.utcnow()
+        now = utcnow()
         result = await test_db.execute(
             select(Token).where(Token.user_id == test_user.id)
         )
@@ -377,8 +378,8 @@ class TestValidateDeletedAccount:
             user_id=test_user.id,
             token_hash=token_hash,
             name="my token",
-            created_at=datetime.utcnow(),
-            expires_at=datetime.utcnow() + timedelta(days=30),
+            created_at=utcnow(),
+            expires_at=utcnow() + timedelta(days=30),
         ))
         await test_db.commit()
 
@@ -1020,7 +1021,7 @@ class TestRevokedSessionPurge:
         from app.auth import create_session_token, decode_access_token, revoke_jwt
         from app.models import RevokedJWT
         test_db.add(RevokedJWT(jti="old", user_id=test_user.id,
-                               expires_at=datetime.utcnow() - timedelta(hours=1)))
+                               expires_at=utcnow() - timedelta(hours=1)))
         await test_db.commit()
         payload = decode_access_token(create_session_token(test_user))
         await revoke_jwt(payload, test_db)

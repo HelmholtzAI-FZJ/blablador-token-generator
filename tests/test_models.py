@@ -1,6 +1,7 @@
 import pytest
 from app.models import User, Token
 from app.auth import hash_token, generate_token
+from app.timeutil import utcnow
 from datetime import datetime
 
 
@@ -44,7 +45,7 @@ class TestTokenModel:
         token = test_token["token"]
         assert token.revoked_at is None
         
-        token.revoked_at = datetime.utcnow()
+        token.revoked_at = utcnow()
         await test_db.commit()
         
         assert token.revoked_at is not None

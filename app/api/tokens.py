@@ -10,6 +10,7 @@ from app.auth import get_current_user, generate_token, hash_token, invalidate_se
 from app.config import get_config
 from app.cookies import SESSION_COOKIE
 from app.rate_limit import limiter, RATE_LIMITS, user_or_ip
+from app.timeutil import isoformat_utc, utcnow
 
 router = APIRouter(prefix="/tokens", tags=["tokens"])
 logger = logging.getLogger("token_generator.audit")
@@ -54,7 +55,7 @@ class CreateTokenRequest(TokenExpirationRequest):
 
 
 def check_expiration(expires_at: datetime) -> None:
-    now = datetime.utcnow()
+    now = utcnow()
     max_days = get_config().tokens.max_expiration_days
     if expires_at <= now:
         raise HTTPException(status_code=400, detail="Token expiration must be in the future")
@@ -109,9 +110,9 @@ async def create_token(
     if body.expires_at is not None:
         expires_at = body.expires_at
     elif body.expires_in_days:
-        expires_at = datetime.utcnow() + timedelta(days=body.expires_in_days)
+        expires_at = utcnow() + timedelta(days=body.expires_in_days)
     else:
-        expires_at = datetime.utcnow() + timedelta(days=config.tokens.default_expiration_days)
+        expires_at = utcnow() + timedelta(days=config.tokens.default_expiration_days)
 
     check_expiration(expires_at)
 
@@ -130,14 +131,14 @@ async def create_token(
         await db.rollback()
         raise HTTPException(status_code=500, detail="Failed to create token")
     logger.info("user=%s action=create_token token_id=%s expires_at=%s",
-                user.id, token.id, token.expires_at.isoformat())
+                user.id, token.id, isoformat_utc(token.expires_at))
 
     return TokenWithValueResponse(
         id=token.id,
         name=token.name,
         token=plain_token,
-        created_at=token.created_at.isoformat(),
-        expires_at=token.expires_at.isoformat() if token.expires_at else None,
+        created_at=isoformat_utc(token.created_at),
+        expires_at=isoformat_utc(token.expires_at),
     )
 
 
@@ -154,7 +155,7 @@ async def revoke_all_tokens(
         result = await db.execute(
             update(Token)
             .where(Token.user_id == user_id, Token.revoked_at.is_(None))
-            .values(revoked_at=datetime.utcnow())
+            .values(revoked_at=utcnow())
         )
         await invalidate_sessions(user, db)
         await db.commit()
@@ -183,9 +184,9 @@ async def list_tokens(
         TokenResponse(
             id=t.id,
             name=t.name,
-            created_at=t.created_at.isoformat(),
-            expires_at=t.expires_at.isoformat() if t.expires_at else None,
-            last_used_at=t.last_used_at.isoformat() if t.last_used_at else None,
+            created_at=isoformat_utc(t.created_at),
+            expires_at=isoformat_utc(t.expires_at),
+            last_used_at=isoformat_utc(t.last_used_at),
             revoked=t.revoked_at is not None,
         )
         for t in tokens
@@ -209,7 +210,7 @@ async def revoke_token(
     if not token:
         raise HTTPException(status_code=404, detail="Token not found")
 
-    token.revoked_at = datetime.utcnow()
+    token.revoked_at = utcnow()
     try:
         await db.commit()
     except Exception:
@@ -279,9 +280,9 @@ async def renew_token(
     if body and body.expires_at is not None:
         new_expires_at = body.expires_at
     elif body and body.expires_in_days:
-        new_expires_at = datetime.utcnow() + timedelta(days=body.expires_in_days)
+        new_expires_at = utcnow() + timedelta(days=body.expires_in_days)
     else:
-        new_expires_at = datetime.utcnow() + original_duration
+        new_expires_at = utcnow() + original_duration
 
     check_expiration(new_expires_at)
 
@@ -293,14 +294,14 @@ async def renew_token(
         await db.rollback()
         raise HTTPException(status_code=500, detail="Failed to renew token")
     logger.info("user=%s action=renew_token token_id=%s expires_at=%s",
-                user.id, token.id, token.expires_at.isoformat())
+                user.id, token.id, isoformat_utc(token.expires_at))
 
     return TokenResponse(
         id=token.id,
         name=token.name,
-        created_at=token.created_at.isoformat(),
-        expires_at=token.expires_at.isoformat() if token.expires_at else None,
-        last_used_at=token.last_used_at.isoformat() if token.last_used_at else None,
+        created_at=isoformat_utc(token.created_at),
+        expires_at=isoformat_utc(token.expires_at),
+        last_used_at=isoformat_utc(token.last_used_at),
         revoked=token.revoked_at is not None,
     )
 
@@ -327,9 +328,9 @@ async def rotate_token(
     if body and body.expires_at is not None:
         expires_at = body.expires_at
     elif body and body.expires_in_days is not None:
-        expires_at = datetime.utcnow() + timedelta(days=body.expires_in_days)
+        expires_at = utcnow() + timedelta(days=body.expires_in_days)
     if expires_at is None:
-        expires_at = datetime.utcnow() + timedelta(days=get_config().tokens.default_expiration_days)
+        expires_at = utcnow() + timedelta(days=get_config().tokens.default_expiration_days)
     check_expiration(expires_at)
     plain_token = generate_token()
     token.token_hash = hash_token(plain_token)
@@ -346,6 +347,6 @@ async def rotate_token(
         id=token.id,
         name=token.name,
         token=plain_token,
-        created_at=token.created_at.isoformat(),
-        expires_at=token.expires_at.isoformat(),
+        created_at=isoformat_utc(token.created_at),
+        expires_at=isoformat_utc(token.expires_at),
     )

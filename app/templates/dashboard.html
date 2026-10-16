@@ -150,14 +150,14 @@
                 </thead>
                 <tbody>
                     {% for token in tokens %}
-                    <tr data-token-id="{{ token.id }}" data-created="{{ token.created_at.isoformat() if token.created_at else '' }}" data-expires="{{ token.expires_at.isoformat() if token.expires_at else '' }}">
+                    <tr data-token-id="{{ token.id }}" data-created="{{ token.created_at|utc_iso }}" data-expires="{{ token.expires_at|utc_iso }}">
                         <td>{{ token.name }}</td>
-                        <td class="datetime" data-utc="{{ token.created_at.isoformat() if token.created_at else '' }}"></td>
-                        <td class="datetime" data-utc="{{ token.last_used_at.isoformat() if token.last_used_at else '' }}">{{ token.last_used_at.strftime('%Y-%m-%d %H:%M') if token.last_used_at else 'Never' }}</td>
-                        <td class="datetime-date" data-utc="{{ token.expires_at.isoformat() if token.expires_at else '' }}">{{ token.expires_at.strftime('%Y-%m-%d') if token.expires_at else 'Never' }}</td>
+                        <td class="datetime" data-utc="{{ token.created_at|utc_iso }}"></td>
+                        <td class="datetime" data-utc="{{ token.last_used_at|utc_iso }}">{{ token.last_used_at.strftime('%Y-%m-%d %H:%M') if token.last_used_at else 'Never' }}</td>
+                        <td class="datetime-date" data-utc="{{ token.expires_at|utc_iso }}">{{ token.expires_at.strftime('%Y-%m-%d') if token.expires_at else 'Never' }}</td>
                         <td class="token-status" 
                             data-revoked="{{ 'true' if token.revoked_at else 'false' }}" 
-                            data-expires="{{ token.expires_at.isoformat() if token.expires_at else '' }}">
+                            data-expires="{{ token.expires_at|utc_iso }}">
                         </td>
                         <td>
                             {% if not token.revoked_at %}

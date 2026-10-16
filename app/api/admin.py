@@ -18,6 +18,7 @@ from app.auth import (
 )
 from app.rate_limit import limiter, RATE_LIMITS, user_or_ip
 from app.cookies import SESSION_COOKIE
+from app.timeutil import isoformat_utc, utcnow
 
 logger = logging.getLogger("token_generator.audit")
 router = APIRouter(prefix="/api/admin", tags=["admin"])
@@ -136,9 +137,9 @@ async def list_all_tokens(
             user_id=t.user_id,
             user_email=t.user.email,
             user_name=t.user.name,
-            created_at=t.created_at.isoformat(),
-            expires_at=t.expires_at.isoformat() if t.expires_at else None,
-            last_used_at=t.last_used_at.isoformat() if t.last_used_at else None,
+            created_at=isoformat_utc(t.created_at),
+            expires_at=isoformat_utc(t.expires_at),
+            last_used_at=isoformat_utc(t.last_used_at),
             revoked=t.revoked_at is not None,
         )
         for t in tokens
@@ -183,7 +184,7 @@ async def revoke_token_admin(
     if not token:
         raise HTTPException(status_code=404, detail="Token not found")
 
-    token.revoked_at = datetime.utcnow()
+    token.revoked_at = utcnow()
     try:
         await db.commit()
     except Exception:
@@ -252,7 +253,7 @@ async def list_users(
             email=u.email,
             name=u.name,
             is_admin=u.is_admin,
-            created_at=u.created_at.isoformat(),
+            created_at=isoformat_utc(u.created_at),
             unity_id=u.unity_id,
             has_password=u.password_hash is not None,
         )
@@ -309,7 +310,7 @@ async def create_user(
         email=user.email,
         name=user.name,
         is_admin=user.is_admin,
-        created_at=user.created_at.isoformat(),
+        created_at=isoformat_utc(user.created_at),
         unity_id=user.unity_id,
         has_password=user.password_hash is not None,
     )
@@ -377,7 +378,7 @@ async def update_user(
         email=user.email,
         name=user.name,
         is_admin=user.is_admin,
-        created_at=user.created_at.isoformat(),
+        created_at=isoformat_utc(user.created_at),
         unity_id=user.unity_id,
         has_password=user.password_hash is not None,
     )
@@ -441,7 +442,7 @@ async def revoke_user_credentials(
         result = await db.execute(
             update(Token)
             .where(Token.user_id == user_id, Token.revoked_at.is_(None))
-            .values(revoked_at=datetime.utcnow())
+            .values(revoked_at=utcnow())
         )
         await invalidate_sessions(user, db)
         await db.commit()

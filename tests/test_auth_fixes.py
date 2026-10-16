@@ -14,6 +14,7 @@ import app.auth as auth
 from app.database import build_engine
 from app.models import Base, RevokedJWT, User
 from app.tombstones import record_deletion
+from app.timeutil import utcnow
 
 
 def cookie_request(token: str) -> Request:
@@ -130,7 +131,7 @@ async def test_stale_security_updates_increment_epoch_and_reject_intermediate_se
 
 @pytest.mark.parametrize("claim", ["jti", "sep", "sub", "exp"])
 def test_session_requires_security_claims(claim):
-    payload = {"sub": "user", "jti": "test-session", "sep": 0, "exp": datetime.utcnow() + timedelta(hours=1)}
+    payload = {"sub": "user", "jti": "test-session", "sep": 0, "exp": utcnow() + timedelta(hours=1)}
     payload.pop(claim)
     token = jwt.encode(payload, auth.config.app.secret_key, algorithm="HS256")
     with pytest.raises(HTTPException) as failure:

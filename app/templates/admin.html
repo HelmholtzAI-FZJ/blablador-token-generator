@@ -136,9 +136,9 @@
                             <td>{{ item.token.name }}</td>
                             <td>{{ item.user.name if item.user else 'Unknown' }}</td>
                             <td>{{ item.user.email if item.user else 'Unknown' }}</td>
-                            <td class="datetime" data-utc="{{ item.token.created_at.isoformat() if item.token.created_at else '' }}">{{ item.token.created_at.strftime('%Y-%m-%d %H:%M') if item.token.created_at else '' }}</td>
-                            <td class="datetime" data-utc="{{ item.token.last_used_at.isoformat() if item.token.last_used_at else '' }}">{{ item.token.last_used_at.strftime('%Y-%m-%d %H:%M') if item.token.last_used_at else 'Never' }}</td>
-                            <td class="datetime-date" data-utc="{{ item.token.expires_at.isoformat() if item.token.expires_at else '' }}">{{ item.token.expires_at.strftime('%Y-%m-%d') if item.token.expires_at else 'Never' }}</td>
+                            <td class="datetime" data-utc="{{ item.token.created_at|utc_iso }}">{{ item.token.created_at.strftime('%Y-%m-%d %H:%M') if item.token.created_at else '' }}</td>
+                            <td class="datetime" data-utc="{{ item.token.last_used_at|utc_iso }}">{{ item.token.last_used_at.strftime('%Y-%m-%d %H:%M') if item.token.last_used_at else 'Never' }}</td>
+                            <td class="datetime-date" data-utc="{{ item.token.expires_at|utc_iso }}">{{ item.token.expires_at.strftime('%Y-%m-%d') if item.token.expires_at else 'Never' }}</td>
                             <td>
                                 {% if item.token.revoked_at %}
                                 <span class="status-revoked">Revoked</span>

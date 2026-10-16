@@ -11,6 +11,7 @@ from app.models import Token, User
 from app.tombstones import is_user_deleted
 from app.auth import hash_token
 from app.rate_limit import limiter, RATE_LIMITS, is_token_validation_exempt
+from app.timeutil import isoformat_utc
 
 router = APIRouter(prefix="/api/v1/auth", tags=["auth"])
 
@@ -86,17 +87,10 @@ async def validate_token(
         if expires <= now:
             raise HTTPException(status_code=401, detail="Token has expired")
 
-    def format_datetime(dt):
-        if dt is None:
-            return None
-        if dt.tzinfo is None:
-            dt = dt.replace(tzinfo=timezone.utc)
-        return dt.isoformat()
-
     response = ValidateResponse(
         valid=True,
         user_id=token.user_id,
-        expires_at=format_datetime(token.expires_at)
+        expires_at=isoformat_utc(token.expires_at)
     )
     token_id = token.id
     now_naive = now.replace(tzinfo=None)
