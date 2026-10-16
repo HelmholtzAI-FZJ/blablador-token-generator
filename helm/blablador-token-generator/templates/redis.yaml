@@ -1,5 +1,8 @@
 {{- if .Values.redis.enabled }}
 {{- $name := printf "%s-redis" (include "blablador-token-generator.fullname" .) }}
+{{- $redis := .Values.redis }}
+{{- if and (eq .Values.config.app.environment "production") (not $redis.tls.enabled) }}{{- fail "Production Redis requires verified TLS" }}{{- end }}
+{{- if not $redis.existingSecret }}
 apiVersion: v1
 kind: Secret
 metadata:
@@ -8,8 +11,19 @@ metadata:
     {{- include "blablador-token-generator.labels" . | nindent 4 }}
 type: Opaque
 stringData:
-  password: {{ required "redis.password is required when redis.enabled" .Values.redis.password | quote }}
-  storage-uri: {{ printf "redis://:%s@%s:6379/0" .Values.redis.password $name | quote }}
+  password: {{ required "redis.password or existingSecret is required" $redis.password | quote }}
+  storage-uri: {{ include "blablador-token-generator.redisUrl" . | quote }}
+---
+{{- end }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ $name }}-startup
+  labels:
+    {{- include "blablador-token-generator.labels" . | nindent 4 }}
+data:
+  redis-entrypoint.sh: |
+    {{- .Files.Get "files/redis-entrypoint.sh" | nindent 4 }}
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -25,6 +39,10 @@ spec:
       app.kubernetes.io/instance: {{ .Release.Name }}
   template:
     metadata:
+      annotations:
+        checksum/credentials: {{ $redis | toJson | sha256sum }}
+        checksum/startup: {{ .Files.Get "files/redis-entrypoint.sh" | sha256sum }}
+        secrets/revision: {{ .Values.secretRevision | quote }}
       labels:
         app.kubernetes.io/name: {{ $name }}
         app.kubernetes.io/instance: {{ .Release.Name }}
@@ -34,33 +52,56 @@ spec:
         runAsNonRoot: true
         runAsUser: 999
         fsGroup: 999
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: redis
-          image: "{{ .Values.redis.image.repository }}:{{ .Values.redis.image.tag }}"
-          # Counters are ephemeral: no persistence, bounded memory.
+          image: {{ include "blablador-token-generator.image" $redis.image | quote }}
+          command: ["/startup/redis-entrypoint.sh"]
           args:
-            - --requirepass
-            - $(REDIS_PASSWORD)
             - --save
             - ""
             - --appendonly
             - "no"
             - --maxmemory
-            - 64mb
+            - {{ $redis.maxmemory | quote }}
             - --maxmemory-policy
-            - volatile-ttl
+            - noeviction
+            {{- if $redis.tls.enabled }}
+            - --port
+            - "0"
+            - --tls-port
+            - "6379"
+            - --tls-cert-file
+            - /tls/tls.crt
+            - --tls-key-file
+            - /tls/tls.key
+            - --tls-ca-cert-file
+            - /tls/ca.crt
+            - --tls-auth-clients
+            - "no"
+            - --tls-protocols
+            - "TLSv1.2 TLSv1.3"
+            {{- end }}
           env:
             - name: REDIS_PASSWORD
               valueFrom:
                 secretKeyRef:
-                  name: {{ $name }}
+                  name: {{ include "blablador-token-generator.redisSecret" . }}
                   key: password
           ports:
             - name: redis
               containerPort: 6379
           readinessProbe:
-            tcpSocket:
-              port: redis
+            exec:
+              command:
+                - /bin/sh
+                - -ec
+                {{- if $redis.tls.enabled }}
+                - {{ printf "test \"$(REDISCLI_AUTH=\"$REDIS_PASSWORD\" redis-cli --tls --cacert /tls/ca.crt --sni %s --raw ping)\" = PONG" $name | quote }}
+                {{- else }}
+                - 'test "$(REDISCLI_AUTH="$REDIS_PASSWORD" redis-cli --raw ping)" = PONG'
+                {{- end }}
             periodSeconds: 10
           securityContext:
             allowPrivilegeEscalation: false
@@ -68,13 +109,32 @@ spec:
             capabilities:
               drop: ["ALL"]
           resources:
-            {{- toYaml .Values.redis.resources | nindent 12 }}
+            {{- toYaml $redis.resources | nindent 12 }}
           volumeMounts:
+            - name: startup
+              mountPath: /startup
+              readOnly: true
             - name: data
               mountPath: /data
+            {{- if $redis.tls.enabled }}
+            - name: tls
+              mountPath: /tls
+              readOnly: true
+            {{- end }}
       volumes:
+        - name: startup
+          configMap:
+            name: {{ $name }}-startup
+            defaultMode: 0555
         - name: data
-          emptyDir: {}
+          emptyDir:
+            sizeLimit: 16Mi
+        {{- if $redis.tls.enabled }}
+        - name: tls
+          secret:
+            secretName: {{ required "redis.tls.existingSecret is required" $redis.tls.existingSecret }}
+            defaultMode: 0440
+        {{- end }}
 ---
 apiVersion: v1
 kind: Service

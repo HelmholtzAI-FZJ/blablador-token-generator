@@ -1,0 +1,515 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "properties": {
+    "replicaCount": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "workers": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 32
+    },
+    "databaseBackend": {
+      "enum": [
+        "postgresql",
+        "sqlite"
+      ]
+    },
+    "image": {
+      "type": "object",
+      "properties": {
+        "repository": {
+          "type": "string",
+          "minLength": 1
+        },
+        "tag": {
+          "type": "string"
+        },
+        "digest": {
+          "type": "string",
+          "pattern": "^$|^sha256:[0-9a-f]{64}$"
+        }
+      }
+    },
+    "forwardedAllowIps": {
+      "type": "string"
+    },
+    "allowForwardedCidrs": {
+      "type": "boolean"
+    },
+    "configExistingSecret": {
+      "type": "string"
+    },
+    "secretRevision": {
+      "type": "string"
+    },
+    "config": {
+      "additionalProperties": false,
+      "properties": {
+        "app": {
+          "additionalProperties": false,
+          "properties": {
+            "environment": {
+              "enum": [
+                "production",
+                "development"
+              ],
+              "type": "string"
+            },
+            "name": {
+              "type": "string"
+            },
+            "host": {
+              "type": "string"
+            },
+            "port": {
+              "maximum": 65535,
+              "minimum": 1,
+              "type": "integer"
+            },
+            "secret_key": {
+              "type": "string"
+            },
+            "token_hash_key": {
+              "type": "string"
+            },
+            "debug": {
+              "type": "boolean"
+            },
+            "api_url": {
+              "type": "string"
+            },
+            "secure_cookies": {
+              "type": "boolean"
+            },
+            "jwt_expiration_hours": {
+              "maximum": 24,
+              "minimum": 1,
+              "type": "integer"
+            },
+            "admin_jwt_expiration_hours": {
+              "maximum": 24,
+              "minimum": 1,
+              "type": "integer"
+            },
+            "log_level": {
+              "type": "string"
+            },
+            "max_body_bytes": {
+              "maximum": 1048576,
+              "minimum": 1024,
+              "type": "integer"
+            },
+            "body_timeout_seconds": {
+              "exclusiveMinimum": 0,
+              "maximum": 60,
+              "type": "number"
+            },
+            "max_concurrent_requests": {
+              "maximum": 4096,
+              "minimum": 1,
+              "type": "integer"
+            },
+            "readiness_timeout_seconds": {
+              "exclusiveMinimum": 0,
+              "maximum": 10,
+              "type": "number"
+            }
+          },
+          "type": "object"
+        },
+        "database": {
+          "additionalProperties": false,
+          "properties": {
+            "url": {
+              "type": "string"
+            },
+            "echo": {
+              "type": "boolean"
+            },
+            "ssl_ca_file": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "connect_timeout_seconds": {
+              "exclusiveMinimum": 0,
+              "maximum": 30,
+              "type": "number"
+            },
+            "statement_timeout_seconds": {
+              "exclusiveMinimum": 0,
+              "maximum": 60,
+              "type": "number"
+            },
+            "lock_timeout_seconds": {
+              "exclusiveMinimum": 0,
+              "maximum": 30,
+              "type": "number"
+            },
+            "idle_transaction_timeout_seconds": {
+              "exclusiveMinimum": 0,
+              "maximum": 120,
+              "type": "number"
+            }
+          },
+          "type": "object"
+        },
+        "oauth": {
+          "additionalProperties": false,
+          "properties": {
+            "client_id": {
+              "type": "string"
+            },
+            "client_secret": {
+              "type": "string"
+            },
+            "authorize_url": {
+              "type": "string"
+            },
+            "token_url": {
+              "type": "string"
+            },
+            "userinfo_url": {
+              "type": "string"
+            },
+            "redirect_uri": {
+              "type": "string"
+            },
+            "scopes": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "trust_provider_emails": {
+              "type": "boolean"
+            },
+            "request_timeout_seconds": {
+              "exclusiveMinimum": 0,
+              "maximum": 60,
+              "type": "number"
+            },
+            "max_response_bytes": {
+              "maximum": 1048576,
+              "minimum": 1024,
+              "type": "integer"
+            }
+          },
+          "type": "object"
+        },
+        "login": {
+          "additionalProperties": false,
+          "properties": {
+            "name": {
+              "type": "string"
+            },
+            "description": {
+              "type": "string"
+            }
+          },
+          "type": "object"
+        },
+        "local": {
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "type": "boolean"
+            },
+            "allow_registration": {
+              "type": "boolean"
+            },
+            "max_concurrent_password_operations": {
+              "maximum": 64,
+              "minimum": 1,
+              "type": "integer"
+            },
+            "blocked_passwords": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            }
+          },
+          "type": "object"
+        },
+        "tokens": {
+          "additionalProperties": false,
+          "properties": {
+            "default_expiration_days": {
+              "maximum": 365,
+              "minimum": 1,
+              "type": "integer"
+            },
+            "max_expiration_days": {
+              "maximum": 365,
+              "minimum": 1,
+              "type": "integer"
+            },
+            "token_length_bytes": {
+              "maximum": 127,
+              "minimum": 16,
+              "type": "integer"
+            },
+            "token_prefix": {
+              "maxLength": 64,
+              "minLength": 1,
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]*$",
+              "type": "string"
+            },
+            "max_tokens_per_user": {
+              "maximum": 10000,
+              "minimum": 1,
+              "type": "integer"
+            },
+            "last_used_update_seconds": {
+              "maximum": 3600,
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
+          "type": "object"
+        },
+        "rate_limits": {
+          "additionalProperties": false,
+          "properties": {
+            "storage_uri": {
+              "type": "string"
+            },
+            "pages": {
+              "type": "string"
+            },
+            "oauth_callback": {
+              "type": "string"
+            },
+            "local_login": {
+              "type": "string"
+            },
+            "local_login_account": {
+              "type": "string"
+            },
+            "preauth": {
+              "type": "string"
+            },
+            "storage_timeout_seconds": {
+              "exclusiveMinimum": 0,
+              "maximum": 5,
+              "type": "number"
+            },
+            "tokens_read": {
+              "type": "string"
+            },
+            "tokens_write": {
+              "type": "string"
+            },
+            "session": {
+              "type": "string"
+            },
+            "account_delete": {
+              "type": "string"
+            },
+            "admin": {
+              "type": "string"
+            },
+            "token_validation": {
+              "type": "string"
+            },
+            "token_validation_exempt": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            }
+          },
+          "type": "object"
+        },
+        "admin": {
+          "additionalProperties": false,
+          "properties": {
+            "admin_emails": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "admin_subjects": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            }
+          },
+          "type": "object"
+        },
+        "blablador": {
+          "additionalProperties": false,
+          "properties": {
+            "api_url": {
+              "type": "string"
+            },
+            "models": {
+              "items": {
+                "additionalProperties": false,
+                "properties": {
+                  "id": {
+                    "type": "string"
+                  },
+                  "object": {
+                    "type": "string"
+                  },
+                  "created": {
+                    "type": "integer"
+                  },
+                  "owned_by": {
+                    "type": "string"
+                  },
+                  "max_model_len": {
+                    "anyOf": [
+                      {
+                        "type": "integer"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  }
+                },
+                "required": [
+                  "id",
+                  "created",
+                  "owned_by"
+                ],
+                "type": "object"
+              },
+              "type": "array"
+            }
+          },
+          "type": "object"
+        }
+      },
+      "type": "object"
+    },
+    "postgresql": {
+      "type": "object",
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "password": {
+          "type": "string",
+          "anyOf": [
+            {
+              "const": ""
+            },
+            {
+              "minLength": 32
+            }
+          ]
+        },
+        "adminPassword": {
+          "type": "string",
+          "anyOf": [
+            {
+              "const": ""
+            },
+            {
+              "minLength": 32
+            }
+          ]
+        },
+        "image": {
+          "type": "object",
+          "properties": {
+            "repository": {
+              "type": "string",
+              "minLength": 1
+            },
+            "tag": {
+              "type": "string"
+            },
+            "digest": {
+              "type": "string",
+              "pattern": "^$|^sha256:[0-9a-f]{64}$"
+            }
+          }
+        },
+        "username": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_]{0,62}$"
+        },
+        "adminUsername": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_]{0,62}$"
+        },
+        "database": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_]{0,62}$"
+        },
+        "tls": {
+          "type": "object",
+          "properties": {
+            "enabled": {
+              "type": "boolean"
+            },
+            "existingSecret": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    "redis": {
+      "type": "object",
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "password": {
+          "type": "string",
+          "anyOf": [
+            {
+              "const": ""
+            },
+            {
+              "minLength": 32
+            }
+          ]
+        },
+        "image": {
+          "type": "object",
+          "properties": {
+            "repository": {
+              "type": "string",
+              "minLength": 1
+            },
+            "tag": {
+              "type": "string"
+            },
+            "digest": {
+              "type": "string",
+              "pattern": "^$|^sha256:[0-9a-f]{64}$"
+            }
+          }
+        },
+        "tls": {
+          "type": "object",
+          "properties": {
+            "enabled": {
+              "type": "boolean"
+            },
+            "existingSecret": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    }
+  }
+}

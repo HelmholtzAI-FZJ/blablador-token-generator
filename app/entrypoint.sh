@@ -1,0 +1,16 @@
+#!/bin/sh
+set -eu
+
+WORKERS="${WORKERS:-2}"
+FORWARDED_ALLOW_IPS="${FORWARDED_ALLOW_IPS:-127.0.0.1}"
+case "$WORKERS" in
+    ''|*[!0-9]*) echo "WORKERS must be between 1 and 32." >&2; exit 1 ;;
+esac
+if [ "${#WORKERS}" -gt 2 ] || [ "$WORKERS" -lt 1 ] || [ "$WORKERS" -gt 32 ]; then
+    echo "WORKERS must be between 1 and 32." >&2
+    exit 1
+fi
+case "$FORWARDED_ALLOW_IPS" in
+    *'*'*) echo "Proxy trust must name specific addresses or networks." >&2; exit 1 ;;
+esac
+exec uvicorn app.main:app --host 0.0.0.0 --port 8080 --workers "$WORKERS" --proxy-headers --forwarded-allow-ips "$FORWARDED_ALLOW_IPS" --no-access-log
