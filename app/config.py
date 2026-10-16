@@ -29,8 +29,11 @@ class AppConfig(SecurityConfigModel):
     secure_cookies: bool = True
     jwt_expiration_hours: int = Field(24, ge=1, le=24)
     admin_jwt_expiration_hours: int = Field(1, ge=1, le=24)
-    # Level for the token_generator.* audit/account loggers.
+    # Level for the token_generator.* loggers; audit/account events are
+    # always kept at INFO.
     log_level: str = "INFO"
+    # One line per request (route template, status, duration, client).
+    access_log: bool = True
     # Largest accepted request body; every endpoint needs only a few KB.
     max_body_bytes: int = Field(65536, ge=1024, le=1048576)
     body_timeout_seconds: float = Field(10.0, gt=0, le=60)

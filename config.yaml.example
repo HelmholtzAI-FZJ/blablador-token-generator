@@ -20,6 +20,9 @@ app:
   secure_cookies: true
   # Level of the audit log (admin actions, logins, token changes) on stderr.
   log_level: "INFO"
+  # One line per request: route template, status, duration and client
+  # address. Query strings (which carry OAuth codes) are never logged.
+  access_log: true
   # Largest accepted request body in bytes (the ingress should match).
   max_body_bytes: 65536
   body_timeout_seconds: 10.0
@@ -32,6 +35,10 @@ database:
   url: "postgresql+asyncpg://tokens:REPLACE_WITH_PERCENT_ENCODED_RUNTIME_PASSWORD@postgres.example.com:5432/tokens"
   # Log SQL statements (parameters are never logged).
   echo: false
+  # Apply pending schema migrations at startup (under a lock, so replicas
+  # starting together migrate once). If false, startup refuses an outdated
+  # schema and "python -m app.migrate" must be run separately.
+  auto_migrate: true
   # CA trust for verified PostgreSQL TLS; mounted by the production chart.
   ssl_ca_file: "/app/tls/postgresql/ca.crt"
   connect_timeout_seconds: 5.0

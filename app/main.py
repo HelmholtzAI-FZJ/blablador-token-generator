@@ -24,6 +24,7 @@ from app import database as database_module
 from app.admission import AdmissionMiddleware, enforce_account_login_limit
 from app.security_headers import SecurityHeadersMiddleware, headers_for_path
 from app.error_safety import ErrorSafetyMiddleware
+from app.access_log import AccessLogMiddleware
 from app.models import User, Token
 from app.tombstones import record_deletion
 from app.auth import (
@@ -187,6 +188,8 @@ app.add_middleware(BodySizeLimitMiddleware, max_bytes=config.app.max_body_bytes,
 app.add_middleware(AdmissionMiddleware)
 app.add_middleware(ErrorSafetyMiddleware)
 app.add_middleware(SecurityHeadersMiddleware)
+if config.app.access_log:
+    app.add_middleware(AccessLogMiddleware)
 
 
 def get_oauth_login_url(state: str, code_challenge: str) -> str:
