@@ -11,3 +11,9 @@ Redis credential Secret: {{ include "blablador-token-generator.redisSecret" . }}
 External Secret updates require changing secretRevision and a coordinated rollout.
 A rollout never changes an initialized PostgreSQL role's stored password.
 Follow the chart README for role migration, credential rotation and TLS verification.
+{{- if and .Values.postgresql.enabled (not .Values.postgresql.backup.enabled) }}
+
+WARNING: the bundled PostgreSQL is a single replica without scheduled backups.
+Enable postgresql.backup (and copy the backup volume off the cluster) or use a
+managed PostgreSQL with backups. See the operations guide for restores.
+{{- end }}
