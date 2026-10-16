@@ -1,11 +1,13 @@
-Get the application URL by running these commands:
-{{- if .Values.ingress.enabled }}
-{{- range $host := .Values.ingress.hosts }}
-  http{{ if $.Values.ingress.tls }}s{{ end }}://{{ $host.host }}
+Production requires reviewed image identifiers, valid TLS identities and enforced network isolation.
+
+Config Secret: {{ include "blablador-token-generator.configSecret" . }}
+{{- if .Values.postgresql.enabled }}
+PostgreSQL credential Secret: {{ include "blablador-token-generator.postgresSecret" . }}
 {{- end }}
+{{- if .Values.redis.enabled }}
+Redis credential Secret: {{ include "blablador-token-generator.redisSecret" . }}
 {{- end }}
 
-The configuration is rendered from the chart values into the Secret
-{{ include "blablador-token-generator.fullname" . }}-config. Change it with
-"helm upgrade" (the pods restart automatically); edits made directly to the
-Secret are overwritten on the next upgrade.
+External Secret updates require changing secretRevision and a coordinated rollout.
+A rollout never changes an initialized PostgreSQL role's stored password.
+Follow the chart README for role migration, credential rotation and TLS verification.

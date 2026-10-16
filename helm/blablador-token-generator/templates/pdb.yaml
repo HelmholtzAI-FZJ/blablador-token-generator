@@ -1,0 +1,13 @@
+{{- if gt (int .Values.replicaCount) 1 }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "blablador-token-generator.fullname" . }}
+  labels:
+    {{- include "blablador-token-generator.labels" . | nindent 4 }}
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      {{- include "blablador-token-generator.selectorLabels" . | nindent 6 }}
+{{- end }}

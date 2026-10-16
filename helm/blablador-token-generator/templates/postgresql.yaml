@@ -1,6 +1,12 @@
 {{- if .Values.postgresql.enabled }}
 {{- $name := printf "%s-postgresql" (include "blablador-token-generator.fullname" .) }}
 {{- $pg := .Values.postgresql }}
+{{- if eq $pg.username $pg.adminUsername }}{{- fail "PostgreSQL runtime and administrator usernames must differ" }}{{- end }}
+{{- if and (eq .Values.config.app.environment "production") (not $pg.tls.enabled) }}{{- fail "Production PostgreSQL requires verified TLS" }}{{- end }}
+{{- if not $pg.existingSecret }}
+{{- $adminPassword := required "postgresql.adminPassword or existingSecret is required" $pg.adminPassword }}
+{{- $runtimePassword := required "postgresql.password or existingSecret is required" $pg.password }}
+{{- if eq $adminPassword $runtimePassword }}{{- fail "PostgreSQL runtime and administrator passwords must differ" }}{{- end }}
 apiVersion: v1
 kind: Secret
 metadata:
@@ -9,8 +15,20 @@ metadata:
     {{- include "blablador-token-generator.labels" . | nindent 4 }}
 type: Opaque
 stringData:
-  password: {{ required "postgresql.password is required when postgresql.enabled" $pg.password | quote }}
-  database-url: {{ printf "postgresql+asyncpg://%s:%s@%s:5432/%s" $pg.username $pg.password $name $pg.database | quote }}
+  admin-password: {{ required "postgresql.adminPassword or existingSecret is required" $pg.adminPassword | quote }}
+  password: {{ required "postgresql.password or existingSecret is required" $pg.password | quote }}
+  database-url: {{ include "blablador-token-generator.postgresUrl" . | quote }}
+---
+{{- end }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ $name }}-init
+  labels:
+    {{- include "blablador-token-generator.labels" . | nindent 4 }}
+data:
+  10-runtime-role.sh: |
+    {{- .Files.Get "files/init-runtime-role.sh" | nindent 4 }}
 ---
 apiVersion: apps/v1
 kind: StatefulSet
@@ -27,6 +45,10 @@ spec:
       app.kubernetes.io/instance: {{ .Release.Name }}
   template:
     metadata:
+      annotations:
+        checksum/credentials: {{ $pg | toJson | sha256sum }}
+        checksum/init: {{ .Files.Get "files/init-runtime-role.sh" | sha256sum }}
+        secrets/revision: {{ .Values.secretRevision | quote }}
       labels:
         app.kubernetes.io/name: {{ $name }}
         app.kubernetes.io/instance: {{ .Release.Name }}
@@ -36,19 +58,44 @@ spec:
         runAsNonRoot: true
         runAsUser: 70
         fsGroup: 70
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: postgresql
-          image: "{{ $pg.image.repository }}:{{ $pg.image.tag }}"
+          image: {{ include "blablador-token-generator.image" $pg.image | quote }}
+          {{- if $pg.tls.enabled }}
+          args:
+            - postgres
+            - -c
+            - ssl=on
+            - -c
+            - ssl_cert_file=/tls/tls.crt
+            - -c
+            - ssl_key_file=/tls/tls.key
+            - -c
+            - ssl_ca_file=/tls/ca.crt
+            - -c
+            - ssl_min_protocol_version=TLSv1.2
+          {{- end }}
           env:
             - name: POSTGRES_USER
-              value: {{ $pg.username | quote }}
+              value: {{ $pg.adminUsername | quote }}
             - name: POSTGRES_DB
               value: {{ $pg.database | quote }}
             - name: POSTGRES_PASSWORD
               valueFrom:
                 secretKeyRef:
-                  name: {{ $name }}
+                  name: {{ include "blablador-token-generator.postgresSecret" . }}
+                  key: admin-password
+            - name: TOKEN_DB_USER
+              value: {{ $pg.username | quote }}
+            - name: TOKEN_DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "blablador-token-generator.postgresSecret" . }}
                   key: password
+            - name: TOKEN_DB_REQUIRE_TLS
+              value: {{ $pg.tls.enabled | quote }}
             - name: PGDATA
               value: /var/lib/postgresql/data/pgdata
           ports:
@@ -72,11 +119,31 @@ spec:
               mountPath: /var/run/postgresql
             - name: tmp
               mountPath: /tmp
+            - name: init
+              mountPath: /docker-entrypoint-initdb.d
+              readOnly: true
+            {{- if $pg.tls.enabled }}
+            - name: tls
+              mountPath: /tls
+              readOnly: true
+            {{- end }}
       volumes:
         - name: run
-          emptyDir: {}
+          emptyDir:
+            sizeLimit: 16Mi
         - name: tmp
-          emptyDir: {}
+          emptyDir:
+            sizeLimit: 64Mi
+        - name: init
+          configMap:
+            name: {{ $name }}-init
+            defaultMode: 0555
+        {{- if $pg.tls.enabled }}
+        - name: tls
+          secret:
+            secretName: {{ required "postgresql.tls.existingSecret is required" $pg.tls.existingSecret }}
+            defaultMode: 0440
+        {{- end }}
   volumeClaimTemplates:
     - metadata:
         name: data

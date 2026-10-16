@@ -1,44 +1,178 @@
-# Required environment (e.g. in a .env file next to this file):
-#   JWT_SECRET_KEY, TOKEN_HASH_KEY, POSTGRES_PASSWORD, REDIS_PASSWORD
-# Generate each with: openssl rand -hex 32
+# Production only: reviewed image digests, separate database roles, provided TLS files and verified TLS DSNs.
+# Private-key files must have the server UID ownership and mode0600; see the chart production guide.
 services:
   app:
     build: .
     ports:
-      - "8080:8080"
+    - 127.0.0.1:8080:8080
+    read_only: true
+    cap_drop:
+    - ALL
+    security_opt:
+    - no-new-privileges:true
+    pids_limit: 128
+    mem_limit: 512m
+    cpus: 1
+    tmpfs:
+    - /tmp:rw,nosuid,noexec,size=64m,uid=10001,gid=10001
     volumes:
-      - ./config.yaml:/app/config/config.yaml:ro
+    - ./config.yaml:/app/config/config.yaml:ro
+    secrets:
+    - source: postgres_ca
+      target: /app/tls/postgresql/ca.crt
+    - source: redis_ca
+      target: /app/tls/redis/ca.crt
     environment:
-      - CONFIG_PATH=/app/config/config.yaml
-      - JWT_SECRET_KEY=${JWT_SECRET_KEY:?set JWT_SECRET_KEY}
-      - TOKEN_HASH_KEY=${TOKEN_HASH_KEY:?set TOKEN_HASH_KEY}
-      - DATABASE_URL=postgresql+asyncpg://tokens:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}@postgres:5432/tokens
-      - RATE_LIMIT_STORAGE_URI=redis://:${REDIS_PASSWORD:?set REDIS_PASSWORD}@redis:6379/0
+      APP_ENVIRONMENT: production
+      CONFIG_PATH: /app/config/config.yaml
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY:?set JWT_SECRET_KEY}
+      TOKEN_HASH_KEY: ${TOKEN_HASH_KEY:?set TOKEN_HASH_KEY}
+      DATABASE_URL: ${DATABASE_URL:?set the verified PostgreSQL runtime-role URL}
+      DATABASE_SSL_CA_FILE: /app/tls/postgresql/ca.crt
+      RATE_LIMIT_STORAGE_URI: ${RATE_LIMIT_STORAGE_URI:?set the verified rediss runtime
+        URL}
+      FORWARDED_ALLOW_IPS: ${FORWARDED_ALLOW_IPS:-127.0.0.1}
+      WORKERS: ${WORKERS:-2}
     depends_on:
       postgres:
         condition: service_healthy
       redis:
-        condition: service_started
-    restart: unless-stopped
-
-  postgres:
-    image: postgres:16-alpine
-    environment:
-      POSTGRES_USER: tokens
-      POSTGRES_DB: tokens
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
-    volumes:
-      - postgres-data:/var/lib/postgresql/data
+        condition: service_healthy
     healthcheck:
-      test: ["CMD", "pg_isready", "-U", "tokens", "-d", "tokens"]
+      test:
+      - CMD
+      - python
+      - -c
+      - import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/readyz',
+        timeout=3)
+      interval: 10s
+      timeout: 4s
+      retries: 3
+      start_period: 20s
+    restart: unless-stopped
+  postgres:
+    image: ${POSTGRES_IMAGE:?set postgres image by reviewed sha256 digest}
+    user: 70:70
+    read_only: true
+    cap_drop:
+    - ALL
+    security_opt:
+    - no-new-privileges:true
+    pids_limit: 128
+    mem_limit: 768m
+    cpus: 1
+    tmpfs:
+    - /var/run/postgresql:rw,nosuid,size=16m,uid=70,gid=70
+    - /tmp:rw,nosuid,noexec,size=64m,uid=70,gid=70
+    command:
+    - postgres
+    - -c
+    - ssl=on
+    - -c
+    - ssl_cert_file=/run/secrets/postgres_cert
+    - -c
+    - ssl_key_file=/run/secrets/postgres_key
+    - -c
+    - ssl_ca_file=/run/secrets/postgres_ca
+    - -c
+    - ssl_min_protocol_version=TLSv1.2
+    environment:
+      POSTGRES_USER: token_admin
+      POSTGRES_DB: tokens
+      POSTGRES_PASSWORD: ${POSTGRES_ADMIN_PASSWORD:?set a separate PostgreSQL administrator
+        password}
+      TOKEN_DB_USER: tokens
+      TOKEN_DB_PASSWORD: ${POSTGRES_PASSWORD:?set the PostgreSQL runtime-role password}
+      TOKEN_DB_REQUIRE_TLS: 'true'
+      PGDATA: /var/lib/postgresql/data/pgdata
+    volumes:
+    - postgres-data:/var/lib/postgresql/data
+    - ./helm/blablador-token-generator/files/init-runtime-role.sh:/docker-entrypoint-initdb.d/10-runtime-role.sh:ro
+    secrets:
+    - postgres_cert
+    - postgres_key
+    - postgres_ca
+    healthcheck:
+      test:
+      - CMD
+      - pg_isready
+      - -U
+      - tokens
+      - -d
+      - tokens
       interval: 5s
+      timeout: 3s
       retries: 10
     restart: unless-stopped
-
   redis:
-    image: redis:7.4-alpine
-    command: ["redis-server", "--requirepass", "${REDIS_PASSWORD:?set REDIS_PASSWORD}", "--save", "", "--appendonly", "no"]
+    image: ${REDIS_IMAGE:?set Redis image by reviewed sha256 digest}
+    user: 999:999
+    read_only: true
+    cap_drop:
+    - ALL
+    security_opt:
+    - no-new-privileges:true
+    pids_limit: 64
+    mem_limit: 128m
+    cpus: 0.5
+    tmpfs:
+    - /data:rw,nosuid,noexec,size=16m,uid=999,gid=999
+    command:
+    - --save
+    - ''
+    - --appendonly
+    - 'no'
+    - --maxmemory
+    - 64mb
+    - --maxmemory-policy
+    - noeviction
+    - --port
+    - '0'
+    - --tls-port
+    - '6379'
+    - --tls-cert-file
+    - /run/secrets/redis_cert
+    - --tls-key-file
+    - /run/secrets/redis_key
+    - --tls-ca-cert-file
+    - /run/secrets/redis_ca
+    - --tls-auth-clients
+    - 'no'
+    - --tls-protocols
+    - TLSv1.2 TLSv1.3
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?set REDIS_PASSWORD}
+    secrets:
+    - redis_cert
+    - redis_key
+    - redis_ca
+    healthcheck:
+      test:
+      - CMD-SHELL
+      - test "$$(REDISCLI_AUTH="$$REDIS_PASSWORD" redis-cli --tls --cacert /run/secrets/redis_ca
+        --sni redis --raw ping)" = PONG
+      interval: 5s
+      timeout: 3s
+      retries: 10
     restart: unless-stopped
-
+    entrypoint:
+    - /startup/redis-entrypoint.sh
+    volumes:
+    - ./helm/blablador-token-generator/files/redis-entrypoint.sh:/startup/redis-entrypoint.sh:ro
+secrets:
+  postgres_cert:
+    file: ${POSTGRES_TLS_CERT_FILE:?set the PostgreSQL server certificate path}
+  postgres_key:
+    file: ${POSTGRES_TLS_KEY_FILE:?set the PostgreSQL private key path readable by
+      UID 70 only}
+  postgres_ca:
+    file: ${POSTGRES_TLS_CA_FILE:?set the PostgreSQL CA certificate path}
+  redis_cert:
+    file: ${REDIS_TLS_CERT_FILE:?set the Redis server certificate path}
+  redis_key:
+    file: ${REDIS_TLS_KEY_FILE:?set the Redis private key path readable by UID 999
+      only}
+  redis_ca:
+    file: ${REDIS_TLS_CA_FILE:?set the Redis CA certificate path}
 volumes:
-  postgres-data:
+  postgres-data: null

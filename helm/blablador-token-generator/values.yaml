@@ -1,35 +1,31 @@
 replicaCount: 2
-
 image:
-  repository: ghcr.io/helmholtzai-fzj/blablador-token-generator
+  repository: registry.jsc.fz-juelich.de/kaas/rke2-clusters/blablador/blablador-token-generator
   pullPolicy: IfNotPresent
-  tag: "latest"
-
+  tag: ''
+  digest: ''
 imagePullSecrets: []
-nameOverride: ""
-fullnameOverride: ""
-
+nameOverride: ''
+fullnameOverride: ''
 service:
   type: ClusterIP
   port: 80
   targetPort: 8080
-
 ingress:
   enabled: true
-  className: "nginx"
+  className: nginx
   annotations:
-    # Every endpoint needs only a few KB; matches app.max_body_bytes.
-    nginx.ingress.kubernetes.io/proxy-body-size: "64k"
+    nginx.ingress.kubernetes.io/proxy-body-size: 64k
+    nginx.ingress.kubernetes.io/force-ssl-redirect: 'true'
   hosts:
-    - host: tokens.example.com
-      paths:
-        - path: /
-          pathType: Prefix
+  - host: tokens.example.com
+    paths:
+    - path: /
+      pathType: Prefix
   tls:
-    - secretName: token-generator-tls
-      hosts:
-        - tokens.example.com
-
+  - secretName: token-generator-tls
+    hosts:
+    - tokens.example.com
 resources:
   limits:
     cpu: 500m
@@ -37,49 +33,34 @@ resources:
   requests:
     cpu: 100m
     memory: 128Mi
-
 livenessProbe:
   httpGet:
     path: /healthz
     port: 8080
   initialDelaySeconds: 10
   periodSeconds: 30
-
 readinessProbe:
   httpGet:
-    path: /healthz
+    path: /readyz
     port: 8080
   initialDelaySeconds: 5
   periodSeconds: 10
-
-# Required. Source IPs/CIDRs allowed to set X-Forwarded-For: the ingress
-# controller's pod CIDR (or "127.0.0.1" if nothing proxies the pods).
-# Without it every client appears as the ingress pod and all users share
-# one rate-limit budget.
-forwardedAllowIps: ""
-
+forwardedAllowIps: ''
 networkPolicy:
-  # Only the app pods may reach the bundled PostgreSQL and Redis.
   enabled: true
   app:
-    # Optionally restrict who may reach the app pods. Enable only with a
-    # "from" list covering every client (ingress controller, API gateway):
-    # on RKE2 the ingress controller may run with hostNetwork, so its
-    # traffic comes from node addresses (use an ipBlock for those).
-    enabled: false
+    enabled: true
     from: []
-    # - namespaceSelector:
-    #     matchLabels:
-    #       kubernetes.io/metadata.name: ingress-nginx
-
-# Shared rate-limit counters for all workers and replicas.
+    egress:
+      enabled: true
+      extraRules: []
 redis:
   enabled: true
-  # Required; generate with: openssl rand -hex 32
-  password: ""
+  password: ''
   image:
-    repository: redis
-    tag: "7.4-alpine"
+    repository: registry.jsc.fz-juelich.de/kaas/rke2-clusters/blablador/blablador-token-generator-redis
+    tag: ''
+    digest: ''
   resources:
     limits:
       cpu: 200m
@@ -87,81 +68,116 @@ redis:
     requests:
       cpu: 50m
       memory: 64Mi
-
-# PostgreSQL is required for replicaCount > 1. When disabled, SQLite on the
-# "persistence" volume below is used (single replica only).
+  existingSecret: ''
+  tls:
+    enabled: true
+    existingSecret: ''
+  maxmemory: 64mb
 postgresql:
   enabled: true
   username: tokens
   database: tokens
-  # Required; generate with: openssl rand -hex 32
-  password: ""
+  password: ''
   image:
-    repository: postgres
-    tag: "16-alpine"
-  storageClass: ""
+    repository: registry.jsc.fz-juelich.de/kaas/rke2-clusters/blablador/blablador-token-generator-postgresql
+    tag: ''
+    digest: ''
+  storageClass: ''
   size: 5Gi
   resources:
     limits:
-      cpu: "1"
+      cpu: '1'
       memory: 512Mi
     requests:
       cpu: 100m
       memory: 256Mi
-
-# SQLite volume, used only when postgresql.enabled is false.
+  existingSecret: ''
+  adminUsername: token_admin
+  adminPassword: ''
+  tls:
+    enabled: true
+    existingSecret: ''
 persistence:
   enabled: true
-  storageClass: ""
+  storageClass: ''
   accessMode: ReadWriteOnce
   size: 1Gi
-
 config:
   app:
-    name: "Token Generator"
-    host: "0.0.0.0"
+    name: Token Generator
+    host: 0.0.0.0
     port: 8080
-    secret_key: "change-me-in-production"
-    # Must differ from secret_key; never change once tokens exist.
-    token_hash_key: ""
+    secret_key: ''
+    token_hash_key: ''
     debug: false
-    api_url: "https://tokens.example.com"
+    api_url: https://tokens.example.com
     secure_cookies: true
+    environment: production
+    jwt_expiration_hours: 24
+    admin_jwt_expiration_hours: 1
+    log_level: INFO
+    max_body_bytes: 65536
+    body_timeout_seconds: 10.0
+    max_concurrent_requests: 128
+    readiness_timeout_seconds: 2.0
   database:
-    url: "sqlite+aiosqlite:///./data/tokens.db"
+    url: sqlite+aiosqlite:///./data/tokens.db
+    echo: false
+    ssl_ca_file: ''
+    connect_timeout_seconds: 5.0
+    statement_timeout_seconds: 5.0
+    lock_timeout_seconds: 2.0
+    idle_transaction_timeout_seconds: 15.0
   oauth:
-    client_id: "your-client-id"
-    client_secret: "your-client-secret"
-    authorize_url: "https://login.jsc.fz-juelich.de/oauth2-as/oauth2-authz"
-    token_url: "https://login.jsc.fz-juelich.de/oauth2/token"
-    userinfo_url: "https://login.jsc.fz-juelich.de/oauth2/userinfo"
-    redirect_uri: "https://tokens.example.com/oauth/openid/callback"
+    client_id: your-client-id
+    client_secret: ''
+    authorize_url: https://login.jsc.fz-juelich.de/oauth2-as/oauth2-authz
+    token_url: https://login.jsc.fz-juelich.de/oauth2/token
+    userinfo_url: https://login.jsc.fz-juelich.de/oauth2/userinfo
+    redirect_uri: https://tokens.example.com/oauth/openid/callback
     scopes:
-      - openid
-      - profile
-      - email
+    - openid
+    - profile
+    - email
     trust_provider_emails: false
+    request_timeout_seconds: 10.0
+    max_response_bytes: 65536
   login:
-    name: "JSC Login"
-    description: "Authenticate with JSC Login"
+    name: JSC Login
+    description: Authenticate with JSC Login
   tokens:
     default_expiration_days: 365
     max_expiration_days: 365
     token_length_bytes: 32
     max_tokens_per_user: 100
-  # Counter storage comes from the bundled Redis (see "redis" above).
+    token_prefix: blablador
+    last_used_update_seconds: 60
   rate_limits:
-    pages: "120/minute"
-    oauth_callback: "60/minute"
-    local_login: "10/minute"
-    tokens_read: "60/minute"
-    tokens_write: "30/minute"
-    session: "30/minute"
-    account_delete: "5/minute"
-    admin: "120/minute"
-    token_validation: "600/minute"
-    # API gateway addresses/CIDRs that are never rate limited on validate.
+    pages: 120/minute
+    oauth_callback: 60/minute
+    local_login: 10/minute
+    tokens_read: 60/minute
+    tokens_write: 30/minute
+    session: 30/minute
+    account_delete: 5/minute
+    admin: 120/minute
+    token_validation: 600/minute
     token_validation_exempt: []
+    preauth: 240/minute
+    local_login_account: 5/minute
+    storage_timeout_seconds: 0.5
   admin:
     admin_subjects: []
     admin_emails: []
+  local:
+    enabled: false
+    allow_registration: false
+    max_concurrent_password_operations: 4
+  blablador:
+    api_url: https://ptj.blablador.fz-juelich.de
+    models: []
+workers: 2
+configExistingSecret: ''
+secretRevision: ''
+allowForwardedCidrs: false
+databaseBackend: postgresql

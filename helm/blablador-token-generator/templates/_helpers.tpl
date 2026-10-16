@@ -47,3 +47,39 @@ Selector labels
 app.kubernetes.io/name: {{ include "blablador-token-generator.name" . }}
 app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end }}
+{{- define "blablador-token-generator.image" -}}
+{{- if .digest -}}
+{{- printf "%s@%s" .repository .digest -}}
+{{- else -}}
+{{- $tag := required "Set an immutable release image.tag or image.digest" .tag -}}
+{{- if eq $tag "latest" -}}{{- fail "The latest image tag is forbidden; provide a release tag or digest" -}}{{- end -}}
+{{- printf "%s:%s" .repository $tag -}}
+{{- end -}}
+{{- end -}}
+
+{{- define "blablador-token-generator.configSecret" -}}
+{{- default (printf "%s-config" (include "blablador-token-generator.fullname" .)) .Values.configExistingSecret -}}
+{{- end -}}
+
+{{- define "blablador-token-generator.postgresSecret" -}}
+{{- default (printf "%s-postgresql" (include "blablador-token-generator.fullname" .)) .Values.postgresql.existingSecret -}}
+{{- end -}}
+
+{{- define "blablador-token-generator.redisSecret" -}}
+{{- default (printf "%s-redis" (include "blablador-token-generator.fullname" .)) .Values.redis.existingSecret -}}
+{{- end -}}
+
+{{- define "blablador-token-generator.postgresUrl" -}}
+{{- $pg := .Values.postgresql -}}
+{{- printf "postgresql+asyncpg://%s:%s@%s-postgresql:5432/%s" ($pg.username | urlquery | replace "+" "%20") ($pg.password | urlquery | replace "+" "%20") (include "blablador-token-generator.fullname" .) ($pg.database | urlquery | replace "+" "%20") -}}
+{{- end -}}
+
+{{- define "blablador-token-generator.redisUrl" -}}
+{{- $name := printf "%s-redis" (include "blablador-token-generator.fullname" .) -}}
+{{- $password := .Values.redis.password | urlquery | replace "+" "%20" -}}
+{{- if .Values.redis.tls.enabled -}}
+{{- printf "rediss://:%s@%s:6379/0?ssl_ca_certs=/app/tls/redis/ca.crt&ssl_cert_reqs=required&ssl_check_hostname=true" $password $name -}}
+{{- else -}}
+{{- printf "redis://:%s@%s:6379/0" $password $name -}}
+{{- end -}}
+{{- end -}}

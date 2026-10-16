@@ -12,3 +12,15 @@ htmlcov/
 .DS_Store
 config.yaml
 cookies.txt
+.env.*
+!.env.example
+values-production*.yaml
+values-secrets*.yaml
+*.key
+*.pem
+*.p12
+*.pfx
+*.bak
+*.orig
+.tls/
+.secrets/

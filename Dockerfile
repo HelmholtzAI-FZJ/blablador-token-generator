@@ -14,13 +14,20 @@ RUN uv export --frozen --no-dev --no-emit-project --project /build -o /build/req
 FROM python:3.12-slim@sha256:a6e34c598f2467ed0e9a8d349809fcd8b5c603269512df273a0bb1784edc11b1
 
 COPY --from=build /opt/venv /opt/venv
-ENV PATH="/opt/venv/bin:$PATH"
+ENV PATH="/opt/venv/bin:$PATH" \
+    APP_ENVIRONMENT=production \
+    CONFIG_PATH=/app/config/config.yaml \
+    WORKERS=2
 
 WORKDIR /app
 
 COPY app/ ./app/
 
-RUN useradd --system --uid 10001 --no-create-home app \
+RUN /usr/local/bin/python -c 'import pathlib, shutil, sysconfig; site = pathlib.Path(sysconfig.get_paths()["purelib"]); targets = list(site.glob("pip*")) + [pathlib.Path(sysconfig.get_paths()["stdlib"]) / "ensurepip"] + list(pathlib.Path("/usr/local/bin").glob("pip*")); [(shutil.rmtree(p) if p.is_dir() else p.unlink()) for p in targets if p.exists()]' \
+    && apt-get update \
+    && apt-get install --no-install-recommends -y liblzma5=5.8.1-1+deb13u2 \
+    && rm -rf /var/lib/apt/lists/* \
+    && useradd --system --uid 10001 --no-create-home app \
     && mkdir -p /app/data \
     && chown app /app/data
 
@@ -28,8 +35,7 @@ USER 10001
 
 EXPOSE 8080
 
-# Trust X-Forwarded-For only from the ingress so per-IP rate limits see
-# the real client. Set FORWARDED_ALLOW_IPS to the ingress pod CIDR.
+# Trust only the actual ingress source addresses, with network isolation.
 ENV FORWARDED_ALLOW_IPS=127.0.0.1
 
-CMD ["sh", "-c", "exec uvicorn app.main:app --host 0.0.0.0 --port 8080 --workers 2 --proxy-headers --forwarded-allow-ips \"$FORWARDED_ALLOW_IPS\""]
+CMD ["sh", "/app/app/entrypoint.sh"]
