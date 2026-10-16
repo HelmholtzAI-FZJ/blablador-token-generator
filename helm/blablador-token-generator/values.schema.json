@@ -116,6 +116,9 @@
               "exclusiveMinimum": 0,
               "maximum": 10,
               "type": "number"
+            },
+            "access_log": {
+              "type": "boolean"
             }
           },
           "type": "object"
@@ -158,6 +161,9 @@
               "exclusiveMinimum": 0,
               "maximum": 120,
               "type": "number"
+            },
+            "auto_migrate": {
+              "type": "boolean"
             }
           },
           "type": "object"

@@ -116,6 +116,7 @@ config:
     jwt_expiration_hours: 24
     admin_jwt_expiration_hours: 1
     log_level: INFO
+    access_log: true
     max_body_bytes: 65536
     body_timeout_seconds: 10.0
     max_concurrent_requests: 128
@@ -123,6 +124,7 @@ config:
   database:
     url: sqlite+aiosqlite:///./data/tokens.db
     echo: false
+    auto_migrate: true
     ssl_ca_file: ''
     connect_timeout_seconds: 5.0
     statement_timeout_seconds: 5.0

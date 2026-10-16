@@ -223,3 +223,42 @@ class TestValidationApiContract:
         client.cookies.set("csrf_token", "abc")
         assert client.post("/tokens", json={"name": "x"},
                            headers={"Authorization": "Bearer x"}).status_code == 403
+
+
+class TestAccessLog:
+    def test_logs_route_template_status_and_duration(self, client):
+        with captured_logs("token_generator.access") as records:
+            client.get("/tokens/abc/permanent")
+            client.get("/tokens")
+        messages = [record.getMessage() for record in records]
+        assert any(m.startswith("method=GET route=/tokens status=401 duration_ms=") for m in messages)
+        assert all("abc" not in m for m in messages)
+
+    def test_never_logs_query_strings_or_unmatched_paths(self, client):
+        secret_code = "synthetic-authorization-code"
+        with captured_logs("token_generator.access") as records:
+            client.get("/oauth/openid/callback", params={"code": secret_code, "state": "s"})
+            client.get("/probe-for-something-secret")
+        messages = [record.getMessage() for record in records]
+        assert any("route=/oauth/openid/callback status=400" in m for m in messages)
+        assert any("route=unmatched status=404" in m for m in messages)
+        assert not any(secret_code in m or "something-secret" in m for m in messages)
+
+    def test_probes_are_not_logged(self, client):
+        with captured_logs("token_generator.access") as records:
+            client.get("/healthz")
+            client.get("/readyz")
+        assert records == []
+
+    def test_admission_rejections_are_logged(self, client, monkeypatch):
+        from limits import parse
+        admission = client.app.middleware_stack
+        while not hasattr(admission, "budget"):
+            admission = admission.app
+        monkeypatch.setattr(admission, "budget", parse("1/minute"))
+        monkeypatch.setattr(admission, "storage_retry_at", float("inf"))
+        with captured_logs("token_generator.access") as records:
+            client.get("/")
+            client.get("/")
+        statuses = [record.getMessage().split("status=")[1].split()[0] for record in records]
+        assert statuses[-1] == "429"
