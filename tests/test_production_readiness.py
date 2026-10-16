@@ -320,3 +320,17 @@ class TestAdminPages:
         demoted = client.patch(f"/api/admin/users/{target['id']}", json={"is_admin": False},
                                headers={"X-CSRF-Token": csrf})
         assert demoted.status_code == 200 and demoted.json()["is_admin"] is False
+
+
+def test_versions_agree():
+    import tomllib
+    from pathlib import Path
+
+    import yaml
+
+    from app import __version__
+
+    root = Path(__file__).resolve().parents[1]
+    project = tomllib.loads((root / "pyproject.toml").read_text())["project"]["version"]
+    chart = yaml.safe_load((root / "helm/blablador-token-generator/Chart.yaml").read_text())
+    assert __version__ == project == chart["appVersion"]

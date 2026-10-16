@@ -19,6 +19,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, text
 from sqlalchemy.orm import joinedload
+from app import __version__
 from app.config import get_config
 from app.database import init_db, close_db, get_db, lock_user_for_update
 from app import database as database_module
@@ -52,6 +53,7 @@ _audit = _logging.getLogger("token_generator.audit")
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await init_db()
+    _audit.info("action=startup version=%s environment=%s", __version__, config.app.environment)
     yield
     await close_db()
 
@@ -59,6 +61,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title=config.app.name,
     description=f"Token authentication infrastructure on top of {config.login.name}",
+    version=__version__,
     lifespan=lifespan,
     docs_url=None if not config.app.debug else "/docs",
     redoc_url=None if not config.app.debug else "/redoc",

@@ -1,7 +1,7 @@
 [project]
 name = "token-generator"
-version = "0.1.0"
-description = "Token authentication infrastructure on top of Unity-IDM"
+version = "1.0.0"
+description = "API tokens for Blablador, issued after Helmholtz/JSC (Unity-IDM) OAuth sign-in"
 requires-python = ">=3.11"
 dependencies = [
     "fastapi>=0.109.0",
