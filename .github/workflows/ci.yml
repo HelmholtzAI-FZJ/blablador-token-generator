@@ -1,9 +1,34 @@
 name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
 permissions:
   contents: read
+
 jobs:
+  lint:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          version: "0.11.21"
+      - name: Lockfile matches pyproject.toml
+        run: uv lock --check
+      - name: Lint Python
+        run: uvx ruff@0.17.1 check .
+      - name: Check browser scripts parse
+        run: for script in app/static/*.js; do node --check "$script"; done
+
   test:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     services:
       postgres:
         image: postgres:16-alpine
@@ -11,118 +36,147 @@ jobs:
           POSTGRES_PASSWORD: postgres
           POSTGRES_DB: tokens
         ports:
-        - 5432:5432
-        options: --health-cmd "pg_isready -U postgres -d tokens" --health-interval 5s --health-retries 20
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d tokens"
+          --health-interval 5s
+          --health-retries 20
     steps:
-    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
-      with:
-        persist-credentials: false
-    - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7
-      with:
-        version: 0.11.21
-    - name: Install Helm
-      uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310
-      with:
-        version: v4.2.1
-    - name: Install locked dependencies
-      run: uv sync --frozen --all-extras --no-install-project
-    - name: Tests (SQLite)
-      run: uv run --no-sync pytest -q
-    - name: Tests (PostgreSQL)
-      run: uv run --no-sync pytest -q
-      env:
-        TEST_DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/tokens
-    - name: Audit dependencies for known vulnerabilities
-      run: |
-        uv export --frozen --no-dev --no-emit-project -o requirements.txt
-        uvx pip-audit==2.10.1 -r requirements.txt --require-hashes --disable-pip
-    - name: Deployment security regressions
-      run: |-
-        uv run --no-sync python helm/blablador-token-generator/tests/security_render.py
-        uv run --no-sync python helm/blablador-token-generator/tests/container_risk_gate.py --self-test
-    timeout-minutes: 15
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          version: "0.11.21"
+      - name: Install locked dependencies
+        run: uv sync --frozen --all-extras
+      - name: Tests (SQLite)
+        run: uv run --no-sync pytest -q
+      - name: Tests (PostgreSQL)
+        run: uv run --no-sync pytest -q
+        env:
+          TEST_DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/tokens
+      - name: Audit dependencies for known vulnerabilities
+        run: |
+          uv export --frozen --no-dev --no-emit-project -o requirements.txt
+          uvx pip-audit==2.10.1 -r requirements.txt --require-hashes --disable-pip
+
+  chart:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          version: "0.11.21"
+      - uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
+        with:
+          version: v4.2.1
+      - name: Install locked dependencies
+        run: uv sync --frozen --all-extras
+      - name: Deployment security regressions
+        run: |
+          uv run --no-sync python helm/blablador-token-generator/tests/security_render.py
+          uv run --no-sync python helm/blablador-token-generator/tests/container_risk_gate.py --self-test
+      - name: Lint chart
+        run: helm lint helm/blablador-token-generator --strict -f helm/blablador-token-generator/ci/test-values.yaml
+      - name: Validate rendered manifests against the Kubernetes API
+        run: |
+          helm template ci helm/blablador-token-generator -f helm/blablador-token-generator/ci/test-values.yaml > rendered.yaml
+          docker run --rm -v "$PWD/rendered.yaml:/rendered.yaml:ro" \
+            ghcr.io/yannh/kubeconform@sha256:faffaf43f95aa6425306e1ab8d6fcad72acb9049158f38e574c085ea1ec0f64e \
+            -strict -summary -kubernetes-version 1.31.0 /rendered.yaml
+
+  docs:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          version: "0.11.21"
+      - name: Build documentation
+        run: uv run --frozen --only-group docs mkdocs build --strict
+
   image:
     runs-on: ubuntu-latest
-    steps:
-    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
-      with:
-        persist-credentials: false
-    - name: Build image
-      run: docker build -t token-generator:ci .
-    - name: Record complete image vulnerability inventory
-      uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25
-      with:
-        image-ref: token-generator:ci
-        severity: UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL
-        ignore-unfixed: false
-        exit-code: '0'
-        format: json
-        output: trivy-results.json
-    - name: Produce image SBOM
-      uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25
-      with:
-        image-ref: token-generator:ci
-        format: cyclonedx
-        output: image-sbom.json
-        exit-code: '0'
-    - name: Gate unreviewed vulnerabilities
-      run: python helm/blablador-token-generator/tests/container_risk_gate.py trivy-results.json security_audit/container-risk-exceptions.json
-    - name: Preserve complete scan and SBOM
-      if: always()
-      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
-      with:
-        name: container-security-evidence
-        path: |-
-          trivy-results.json
-          image-sbom.json
-        if-no-files-found: error
-        retention-days: 30
     timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Build image
+        run: docker build --build-arg VERSION=ci --build-arg REVISION="$GITHUB_SHA" -t token-generator:ci .
+      - name: Record complete image vulnerability inventory
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: token-generator:ci
+          severity: UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL
+          ignore-unfixed: false
+          exit-code: "0"
+          format: json
+          output: trivy-results.json
+      - name: Produce image SBOM
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: token-generator:ci
+          format: cyclonedx
+          output: image-sbom.json
+          exit-code: "0"
+      - name: Gate unreviewed vulnerabilities
+        run: python helm/blablador-token-generator/tests/container_risk_gate.py trivy-results.json security_audit/container-risk-exceptions.json
+      - name: Preserve complete scan and SBOM
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: container-security-evidence
+          path: |
+            trivy-results.json
+            image-sbom.json
+          if-no-files-found: error
+          retention-days: 30
+
   datastore-images:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     strategy:
       matrix:
-        component:
-        - postgresql
-        - redis
+        component: [postgresql, redis]
     steps:
-    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
-      with:
-        persist-credentials: false
-    - name: Build hardened datastore
-      run: docker build -f helm/blablador-token-generator/files/Dockerfile.${{ matrix.component }} -t token-generator-${{
-        matrix.component }}:ci .
-    - name: Record full datastore scan
-      uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25
-      with:
-        image-ref: token-generator-${{ matrix.component }}:ci
-        format: json
-        output: datastore-trivy.json
-        severity: UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL
-        ignore-unfixed: false
-        exit-code: '0'
-    - name: Produce datastore SBOM
-      uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25
-      with:
-        image-ref: token-generator-${{ matrix.component }}:ci
-        format: cyclonedx
-        output: datastore-sbom.json
-        exit-code: '0'
-    - name: Gate unreviewed datastore vulnerabilities
-      run: python helm/blablador-token-generator/tests/container_risk_gate.py datastore-trivy.json security_audit/container-risk-exceptions.json
-    - name: Preserve datastore inventory
-      if: always()
-      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
-      with:
-        name: datastore-${{ strategy.job-index }}
-        path: |-
-          datastore-trivy.json
-          datastore-sbom.json
-        if-no-files-found: error
-        retention-days: 30
-'on':
-  push:
-    branches:
-    - main
-  pull_request: null
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Build hardened datastore
+        run: docker build -f helm/blablador-token-generator/files/Dockerfile.${{ matrix.component }} -t token-generator-${{ matrix.component }}:ci .
+      - name: Record full datastore scan
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: token-generator-${{ matrix.component }}:ci
+          format: json
+          output: datastore-trivy.json
+          severity: UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL
+          ignore-unfixed: false
+          exit-code: "0"
+      - name: Produce datastore SBOM
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: token-generator-${{ matrix.component }}:ci
+          format: cyclonedx
+          output: datastore-sbom.json
+          exit-code: "0"
+      - name: Gate unreviewed datastore vulnerabilities
+        run: python helm/blablador-token-generator/tests/container_risk_gate.py datastore-trivy.json security_audit/container-risk-exceptions.json
+      - name: Preserve datastore inventory
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: datastore-${{ matrix.component }}
+          path: |
+            datastore-trivy.json
+            datastore-sbom.json
+          if-no-files-found: error
+          retention-days: 30
