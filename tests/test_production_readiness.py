@@ -58,3 +58,114 @@ class TestUtcTimestamps:
             page = client.get("/dashboard").text
             assert 'data-utc="' in page
             assert f'data-expires="{body["expires_at"]}"' in page
+
+
+class captured_logs:
+    """Collect records of an app logger (they do not propagate to root)."""
+
+    def __init__(self, name: str = "token_generator.audit"):
+        import logging
+        self.logger = logging.getLogger(name)
+        self.records = []
+        self.handler = logging.Handler()
+        self.handler.emit = self.records.append
+
+    def __enter__(self):
+        self.logger.addHandler(self.handler)
+        return self.records
+
+    def __exit__(self, *exc):
+        self.logger.removeHandler(self.handler)
+
+
+HTML = {"Accept": "text/html,application/xhtml+xml"}
+
+
+def cleared(response, name: str) -> bool:
+    return any(header.startswith(f"{name}=") and "Max-Age=0" in header
+               for header in response.headers.get_list("set-cookie"))
+
+
+class TestBrowserErrors:
+    def test_login_is_404_without_oauth(self, monkeypatch):
+        monkeypatch.setattr(main.config.oauth, "client_id", "")
+        client = TestClient(app, follow_redirects=False)
+        response = client.get("/login", headers=HTML)
+        assert response.status_code == 404
+        assert response.headers["content-type"].startswith("text/html")
+        assert "oauth_state" not in response.cookies
+        assert client.get("/oauth/openid/callback", params={"code": "c"}).status_code == 404
+
+    def test_provider_error_renders_page_and_clears_flow_cookies(self):
+        client = TestClient(app, follow_redirects=False)
+        client.cookies.set("oauth_state", "state")
+        client.cookies.set("oauth_verifier", "v" * 43)
+        with captured_logs() as records:
+            response = client.get("/oauth/openid/callback",
+                                  params={"error": "access_denied"}, headers=HTML)
+            hostile = client.get("/oauth/openid/callback", params={"error": "x\nforged=1"})
+        assert response.status_code == 400
+        assert response.headers["content-type"].startswith("text/html")
+        assert "cancelled" in response.text
+        assert cleared(response, "oauth_state") and cleared(response, "oauth_verifier")
+        assert hostile.status_code == 400
+        messages = [record.getMessage() for record in records]
+        assert "action=oauth_authorization_failed error=access_denied" in messages
+        assert "action=oauth_authorization_failed error=unrecognized" in messages
+
+    def test_expired_state_and_missing_code(self):
+        client = TestClient(app, follow_redirects=False)
+        assert client.get("/oauth/openid/callback", params={"state": "s", "code": "c"}).status_code == 400
+        client.cookies.set("oauth_state", "s")
+        client.cookies.set("oauth_verifier", "v" * 43)
+        response = client.get("/oauth/openid/callback", params={"state": "s"})
+        assert response.status_code == 400
+        assert "authorization code" in response.text
+
+    def test_disabled_account_gets_403_page(self, monkeypatch):
+        from fastapi import HTTPException
+
+        async def fake_userinfo(code, code_verifier):
+            return {"sub": "disabled-sub", "email": "d@example.com"}
+
+        async def disabled(userinfo, db):
+            raise HTTPException(status_code=403, detail="Account has been disabled. Contact an administrator.")
+
+        monkeypatch.setattr(main, "get_unity_userinfo", fake_userinfo)
+        monkeypatch.setattr(main, "get_or_create_user", disabled)
+        client = TestClient(app, follow_redirects=False)
+        client.cookies.set("oauth_state", "s")
+        client.cookies.set("oauth_verifier", "v" * 43)
+        response = client.get("/oauth/openid/callback", params={"state": "s", "code": "c"}, headers=HTML)
+        assert response.status_code == 403
+        assert "Contact an administrator" in response.text
+        assert "__Host-access_token" not in response.text and "access_token" not in response.cookies
+
+    def test_provider_outage_is_503_page(self, monkeypatch):
+        from fastapi import HTTPException
+
+        async def outage(code, code_verifier):
+            raise HTTPException(status_code=503, detail="Authentication provider temporarily unavailable")
+
+        monkeypatch.setattr(main, "get_unity_userinfo", outage)
+        client = TestClient(app, follow_redirects=False)
+        client.cookies.set("oauth_state", "s")
+        client.cookies.set("oauth_verifier", "v" * 43)
+        response = client.get("/oauth/openid/callback", params={"state": "s", "code": "c"})
+        assert response.status_code == 503
+        assert "temporarily unavailable" in response.text
+
+    def test_unknown_page_is_html_for_browsers_json_for_apis(self):
+        client = TestClient(app)
+        page = client.get("/no-such-page", headers=HTML)
+        assert page.status_code == 404
+        assert page.headers["content-type"].startswith("text/html")
+        assert "Not Found" in page.text
+        api = client.get("/api/v1/no-such-endpoint", headers=HTML)
+        assert api.status_code == 404 and api.json() == {"detail": "Not Found"}
+        assert client.get("/no-such-page").json() == {"detail": "Not Found"}
+
+    def test_error_pages_keep_security_headers(self):
+        response = TestClient(app).get("/no-such-page", headers=HTML)
+        assert "frame-ancestors 'none'" in response.headers["content-security-policy"]
+        assert response.headers["cache-control"] == "no-store"

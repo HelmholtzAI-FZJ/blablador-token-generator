@@ -1,6 +1,9 @@
 import asyncio
 from contextlib import asynccontextmanager
+from http import HTTPStatus
 import logging as _logging
+from pathlib import Path
+import re
 from urllib.parse import urlencode
 import secrets as _secrets
 from secrets import compare_digest
@@ -11,6 +14,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
+from starlette.exceptions import HTTPException as StarletteHTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, text
 from sqlalchemy.orm import joinedload
@@ -64,25 +68,46 @@ app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 
-from fastapi import HTTPException
-from fastapi.responses import JSONResponse
+APP_DIR = Path(__file__).resolve().parent
+templates = Jinja2Templates(directory=APP_DIR / "templates")
+templates.env.filters["utc_iso"] = lambda value: isoformat_utc(value) or ""
 
 
-@app.exception_handler(HTTPException)
-async def http_exception_handler(request, exc):
+def wants_html(request: Request) -> bool:
+    """Page navigations get HTML errors; API and script calls keep JSON."""
+    return (
+        request.method == "GET"
+        and not request.url.path.startswith(("/api/", "/tokens", "/static/"))
+        and "text/html" in request.headers.get("accept", "")
+    )
+
+
+def error_page(request: Request, status_code: int, message: str,
+               headers: dict[str, str] | None = None) -> HTMLResponse:
+    try:
+        title = HTTPStatus(status_code).phrase
+    except ValueError:
+        title = "Error"
+    return templates.TemplateResponse(request, "error.html", {
+        "app_name": config.app.name,
+        "title": title,
+        "message": "" if message == title else message,
+    }, status_code=status_code, headers=headers)
+
+
+@app.exception_handler(StarletteHTTPException)
+async def http_exception_handler(request: Request, exc: StarletteHTTPException):
     if exc.status_code == 302:
         if request.url.path.startswith(("/api/", "/tokens")) or request.method != "GET":
             return JSONResponse(status_code=401, content={"detail": "Authentication required"}, headers=exc.headers)
         return RedirectResponse(url="/", status_code=303)
+    if wants_html(request) and isinstance(exc.detail, str):
+        return error_page(request, exc.status_code, exc.detail, exc.headers)
     return JSONResponse(
         status_code=exc.status_code,
         content={"detail": exc.detail},
         headers=exc.headers,
     )
-
-
-templates = Jinja2Templates(directory="app/templates")
-templates.env.filters["utc_iso"] = lambda value: isoformat_utc(value) or ""
 
 
 # CSRF protection: double-submit cookie pattern.
@@ -210,9 +235,27 @@ async def home(request: Request):
     })
 
 
+def oauth_enabled() -> bool:
+    return bool(config.oauth.client_id)
+
+
+# OAuth error codes are short lowercase identifiers (RFC 6749 4.1.2.1);
+# anything else is attacker-chosen text that must not reach the logs.
+OAUTH_ERROR_CODE = re.compile(r"[a-z_]{1,64}")
+
+
+def oauth_failure(request: Request, status_code: int, message: str) -> HTMLResponse:
+    response = error_page(request, status_code, message)
+    delete_cookie(response, OAUTH_STATE_COOKIE)
+    delete_cookie(response, OAUTH_VERIFIER_COOKIE)
+    return response
+
+
 @app.get("/login")
 @limiter.limit(RATE_LIMITS.pages)
 async def login(request: Request):
+    if not oauth_enabled():
+        raise HTTPException(status_code=404, detail="Sign-in through an identity provider is not configured")
     # Random state (login CSRF) and PKCE verifier (code interception), both
     # kept in short-lived cookies until the callback.
     state = _secrets.token_hex(16)
@@ -225,21 +268,29 @@ async def login(request: Request):
 
 @app.get("/oauth/openid/callback")
 @limiter.limit(RATE_LIMITS.oauth_callback)
-async def openid_callback(request: Request, code: str | None = None, state: str | None = None, error: str | None = None, error_description: str | None = None, db: AsyncSession = Depends(get_db)):
+async def openid_callback(request: Request, code: str | None = None, state: str | None = None, error: str | None = None, db: AsyncSession = Depends(get_db)):
+    if not oauth_enabled():
+        raise HTTPException(status_code=404, detail="Not Found")
     if error:
-        return {"detail": "OAuth authentication failed"}
+        _audit.warning("action=oauth_authorization_failed error=%s",
+                       error if OAUTH_ERROR_CODE.fullmatch(error) else "unrecognized")
+        return oauth_failure(request, 400, "Sign-in was cancelled or refused by the identity provider.")
 
     # Verify OAuth state to prevent login CSRF
     cookie_state = request.cookies.get(OAUTH_STATE_COOKIE)
     verifier = request.cookies.get(OAUTH_VERIFIER_COOKIE)
     if not state or not cookie_state or not verifier or not secure_equals(state, cookie_state):
-        raise HTTPException(status_code=400, detail="Invalid OAuth state")
+        return oauth_failure(request, 400, "This sign-in attempt expired or was started in another window. Please sign in again.")
 
     if not code:
-        return {"detail": "No authorization code provided"}
+        return oauth_failure(request, 400, "The identity provider did not return an authorization code. Please sign in again.")
 
-    userinfo = await get_unity_userinfo(code, verifier)
-    user = await get_or_create_user(userinfo, db)
+    try:
+        userinfo = await get_unity_userinfo(code, verifier)
+        user = await get_or_create_user(userinfo, db)
+    except HTTPException as exc:
+        message = exc.detail if exc.status_code in (403, 503) else "Sign-in could not be completed. Please try again."
+        return oauth_failure(request, exc.status_code, message)
     _audit.info("user=%s action=login method=oauth", user.id)
 
     response = RedirectResponse(url="/dashboard", status_code=303)
@@ -458,7 +509,7 @@ async def login_local(
     return response
 
 
-app.mount("/static", StaticFiles(directory="app/static"), name="static")
+app.mount("/static", StaticFiles(directory=APP_DIR / "static"), name="static")
 
 # Register API routers
 app.include_router(tokens.router)
