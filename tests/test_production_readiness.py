@@ -1,20 +1,31 @@
 """Regression tests for the production-readiness fixes (October 2026)."""
 import asyncio
+import os
 from datetime import UTC, datetime, timedelta
 
 import pytest
 from starlette.testclient import TestClient
 
 import app.main as main
-from app.database import init_db
+from app.database import build_engine, init_db
 from app.main import app
 from app.timeutil import isoformat_utc, utcnow
+from tests.conftest import drop_schema
 
 
 @pytest.fixture(scope="module", autouse=True)
 def setup_db():
     asyncio.run(init_db())
     yield
+
+    async def drop():
+        # Leave a shared (PostgreSQL) test database empty for later modules.
+        engine = build_engine(os.environ["DATABASE_URL"])
+        async with engine.begin() as conn:
+            await drop_schema(conn)
+        await engine.dispose()
+
+    asyncio.run(drop())
 
 
 @pytest.fixture
@@ -262,3 +273,50 @@ class TestAccessLog:
             client.get("/")
         statuses = [record.getMessage().split("status=")[1].split()[0] for record in records]
         assert statuses[-1] == "429"
+
+
+def make_admin(client: TestClient, subject: str) -> None:
+    """Promote an OAuth account created by login() (bootstrap rules only
+    apply to new accounts, so tests set the role directly). Runs on the
+    client's event loop, which owns the pooled connections."""
+    from sqlalchemy import update
+    from app import database
+    from app.models import User
+
+    async def promote():
+        async with database.async_session_maker() as db:
+            await db.execute(update(User).where(User.unity_id == subject).values(is_admin=True))
+            await db.commit()
+
+    client.portal.call(promote)
+
+
+class TestAdminPages:
+    def test_token_page_paginates(self, client, monkeypatch):
+        login(client, monkeypatch, "page-admin")
+        make_admin(client, "page-admin")
+        csrf = login(client, monkeypatch, "page-admin")
+        for index in range(3):
+            assert client.post("/tokens", json={"name": f"paged-{index}"},
+                               headers={"X-CSRF-Token": csrf}).status_code == 200
+        first = client.get("/admin/tokens")
+        assert first.status_code == 200
+        assert 'name="current-user-id"' in first.text
+        beyond = client.get("/admin/tokens", params={"page": 100000})
+        assert beyond.status_code == 200
+        assert "No tokens on this page." in beyond.text
+        assert 'href="/admin/tokens?page=99999"' in beyond.text
+
+    def test_admin_can_change_roles_through_the_api(self, client, monkeypatch):
+        login(client, monkeypatch, "role-target")
+        login(client, monkeypatch, "role-admin")
+        make_admin(client, "role-admin")
+        csrf = login(client, monkeypatch, "role-admin")
+        users = client.get("/api/admin/users", params={"page_size": 100}).json()
+        target = next(user for user in users if user["unity_id"] == "role-target")
+        promoted = client.patch(f"/api/admin/users/{target['id']}", json={"is_admin": True},
+                                headers={"X-CSRF-Token": csrf})
+        assert promoted.status_code == 200 and promoted.json()["is_admin"] is True
+        demoted = client.patch(f"/api/admin/users/{target['id']}", json={"is_admin": False},
+                               headers={"X-CSRF-Token": csrf})
+        assert demoted.status_code == 200 and demoted.json()["is_admin"] is False

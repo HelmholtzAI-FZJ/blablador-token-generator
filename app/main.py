@@ -341,12 +341,15 @@ def form_csrf_valid(request: Request, submitted: str) -> bool:
     return bool(cookie_token) and secure_equals(submitted, cookie_token)
 
 
-def render_admin_tokens(request: Request, admin: User, tokens: list[Token], searched: bool):
+def render_admin_tokens(request: Request, admin: User, tokens: list[Token], searched: bool,
+                        page: int = 1, has_next: bool = False):
     return templates.TemplateResponse(request, "admin.html", {
         "app_name": config.app.name,
         "user": admin,
         "tokens_with_users": [{"token": t, "user": t.user} for t in tokens],
         "searched": searched,
+        "page": page,
+        "has_next": has_next,
         "csrf_token": request.state.csrf_token,
         "login_name": config.login.name,
     })
@@ -364,11 +367,13 @@ async def admin_tokens(
     result = await db.execute(
         select(Token)
         .options(joinedload(Token.user))
-        .order_by(Token.created_at.desc())
+        .order_by(Token.created_at.desc(), Token.id)
         .offset((page - 1) * page_size)
-        .limit(page_size)
+        .limit(page_size + 1)
     )
-    return render_admin_tokens(request, admin, list(result.scalars().all()), searched=False)
+    found = list(result.scalars().all())
+    return render_admin_tokens(request, admin, found[:page_size], searched=False,
+                               page=page, has_next=len(found) > page_size)
 
 
 @app.post("/admin/tokens/search", response_class=HTMLResponse)

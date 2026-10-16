@@ -57,7 +57,9 @@ async function loadUsers(page = 1) {
                 <td>${escapeHtml(user.name)}</td>
                 <td>
                     ${user.has_password ? '<span class="badge badge-local">Local</span>' : ''}
-                    ${user.unity_id ? '<span class="badge badge-oauth">OAuth</span>' : ''}
+                    ${user.unity_id
+                        ? `<span class="badge badge-oauth">OAuth</span><code class="subject" title="OAuth subject">${escapeHtml(user.unity_id)}</code>`
+                        : ''}
                 </td>
                 <td>${user.is_admin ? 'Yes' : 'No'}</td>
                 <td>${new Date(user.created_at).toLocaleString()}</td>
@@ -65,6 +67,7 @@ async function loadUsers(page = 1) {
                     ${user.has_password
                         ? `<button class="btn btn-small" data-action="reset-password" data-id="${escapeHtml(user.id)}">Reset Password</button>`
                         : ''}
+                    <button class="btn btn-small" data-action="toggle-admin" data-id="${escapeHtml(user.id)}" data-email="${escapeHtml(user.email)}" data-admin="${user.is_admin}">${user.is_admin ? 'Remove Admin' : 'Make Admin'}</button>
                     <button class="btn btn-small btn-danger" data-action="revoke-credentials" data-id="${escapeHtml(user.id)}">Revoke All Credentials</button>
                     <button class="btn btn-small btn-danger" data-action="delete-user" data-id="${escapeHtml(user.id)}" data-email="${escapeHtml(user.email)}">Delete</button>
                 </td>
@@ -94,8 +97,7 @@ document.getElementById('createUserForm').addEventListener('submit', async (e) =
             document.getElementById('createUserForm').reset();
             loadUsers();
         } else {
-            const error = await response.json();
-            alert('Failed to create user: ' + (error.detail || 'Unknown error'));
+            alert('Failed to create user: ' + await errorMessage(response));
         }
     } catch (e) {
         alert('Failed to create user: ' + e.message);
@@ -151,21 +153,36 @@ async function submitPasswordReset() {
 
         if (response.ok) {
             closePasswordModal();
-            loadUsers();
+            loadUsers(usersPage);
         } else {
-            let msg = 'Unknown error';
-            try {
-                const error = await response.json();
-                if (typeof error.detail === 'string') {
-                    msg = error.detail;
-                } else if (Array.isArray(error.detail)) {
-                    msg = error.detail.map(e => e.msg || JSON.stringify(e)).join('; ');
-                }
-            } catch (e) {}
-            alert('Failed to reset password: ' + msg);
+            alert('Failed to reset password: ' + await errorMessage(response));
         }
     } catch (e) {
         alert('Failed to reset password: ' + e.message);
+    }
+}
+
+// Role changes end the user's sessions, including one's own.
+async function toggleAdmin(userId, email, isAdmin) {
+    const question = isAdmin
+        ? `Remove administrator rights from ${email}?`
+        : `Grant administrator rights to ${email}?`;
+    if (!confirm(question + ' Their current sessions will be signed out.')) return;
+    try {
+        const response = await fetch(`/api/admin/users/${encodeURIComponent(userId)}`, {
+            method: 'PATCH',
+            headers: csrfHeaders({'Content-Type': 'application/json'}),
+            body: JSON.stringify({is_admin: !isAdmin}),
+        });
+        if (!response.ok) throw new Error(await errorMessage(response));
+        const self = document.querySelector('meta[name="current-user-id"]').content;
+        if (userId === self) {
+            window.location.href = '/';
+            return;
+        }
+        loadUsers(usersPage);
+    } catch (error) {
+        alert('Role change failed: ' + error.message);
     }
 }
 
@@ -209,10 +226,9 @@ async function deleteUser(userId, email) {
         
         if (response.ok) {
             alert('User deleted');
-            loadUsers();
+            loadUsers(usersPage);
         } else {
-            const error = await response.json();
-            alert('Failed to delete user: ' + (error.detail || 'Unknown error'));
+            alert('Failed to delete user: ' + await errorMessage(response));
         }
     } catch (e) {
         alert('Failed to delete user');
@@ -271,6 +287,7 @@ registerActions({
     'delete-token': (el) => deleteToken(el.dataset.id),
     'reset-password': (el) => openPasswordModal(el.dataset.id),
     'delete-user': (el) => deleteUser(el.dataset.id, el.dataset.email),
+    'toggle-admin': (el) => toggleAdmin(el.dataset.id, el.dataset.email, el.dataset.admin === 'true'),
     'revoke-credentials': (el) => revokeCredentials(el.dataset.id),
     'restore-oauth': () => restoreOAuthAccount(),
     'users-previous': () => loadUsers(Math.max(1, usersPage - 1)),
