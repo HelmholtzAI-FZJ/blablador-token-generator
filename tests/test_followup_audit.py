@@ -530,3 +530,101 @@ class TestSessionsAndSignIn:
         assert headers["cross-origin-opener-policy"] == "same-origin"
         assert headers["cross-origin-resource-policy"] == "same-origin"
         assert "camera=()" in headers["permissions-policy"]
+
+
+class TestAdministration:
+    @pytest.mark.asyncio
+    async def test_admins_who_cannot_sign_in_do_not_count(self, test_db, monkeypatch):
+        from app.api.admin import is_last_admin
+        from app.auth import hash_password
+        from app.config import get_config
+        from app.models import User
+
+        oauth_admin = User(unity_id="only-oauth-admin", email="oauth-admin@example.org", name="O", is_admin=True)
+        local_admin = User(email="local-admin@example.org", name="L", is_admin=True,
+                           password_hash=hash_password("a long local admin password"))
+        test_db.add_all([oauth_admin, local_admin])
+        await test_db.commit()
+        # On a shared PostgreSQL test database, other tests' admins exist.
+        from sqlalchemy import update
+        await test_db.execute(update(User).where(User.id.notin_([oauth_admin.id, local_admin.id]))
+                              .values(is_admin=False))
+        await test_db.commit()
+        assert not await is_last_admin(test_db, oauth_admin.id)
+        monkeypatch.setattr(get_config().local, "enabled", False)
+        assert await is_last_admin(test_db, oauth_admin.id)
+        assert not await is_last_admin(test_db, local_admin.id)  # removing it changes nothing
+
+    def test_no_local_accounts_while_local_sign_in_is_off(self, client, monkeypatch):
+        from app.config import get_config
+
+        csrf = oauth_login(client, monkeypatch, "admin-local-off", admin=True)
+        monkeypatch.setattr(get_config().local, "enabled", False)
+        response = client.post("/api/admin/users", headers={"X-CSRF-Token": csrf}, json={
+            "email": "cannot-sign-in@example.org", "name": "X", "password": "a long enough local password"})
+        assert response.status_code == 400 and "local.enabled" in response.json()["detail"]
+        assert 'id="createUserForm"' not in client.get("/admin/tokens").text
+
+    def test_audit_trail_names_roles_identities_and_reads(self, client, monkeypatch, caplog):
+        from sqlalchemy import select
+        from app import database
+        from app.models import User
+        from app.tombstones import identity_reference
+
+        csrf = oauth_login(client, monkeypatch, "auditing-admin", admin=True)
+        headers = {"X-CSRF-Token": csrf}
+        other = TestClient(app, follow_redirects=False)
+        with other:
+            oauth_login(other, monkeypatch, "audited-user")
+
+        async def user_id(subject):
+            async with database.async_session_maker() as db:
+                return (await db.execute(select(User.id).where(User.unity_id == subject))).scalar_one()
+
+        target = client.portal.call(user_id, "audited-user")
+        caplog.set_level("INFO", logger="token_generator.audit")
+        assert client.patch(f"/api/admin/users/{target}", json={"is_admin": True}, headers=headers).status_code == 200
+        assert client.get("/api/admin/users").status_code == 200
+        assert client.post("/admin/tokens/search", data={"token": "unknown", "csrf_token": csrf}).status_code == 200
+        assert client.delete(f"/api/admin/users/{target}", headers=headers).status_code == 200
+        assert client.post("/api/admin/users/restore-oauth", json={"subject": "audited-user"},
+                           headers=headers).status_code == 200
+        lines = [r.getMessage() for r in caplog.records if r.name == "token_generator.audit"]
+        reference = identity_reference(subject="audited-user")
+        assert any("action=update_user" in line and "was_admin=False is_admin=True" in line for line in lines)
+        assert any("action=list_users" in line for line in lines)
+        assert any("action=search_token found=False" in line for line in lines)
+        assert any("action=delete_user" in line and f"identity={reference}" in line for line in lines)
+        assert any("action=restore_oauth_identity" in line and f"identity={reference}" in line for line in lines)
+        assert not any("audited-user" in line for line in lines)
+
+    def test_refused_admin_access_is_logged(self, client, monkeypatch, caplog):
+        oauth_login(client, monkeypatch, "not-an-admin")
+        caplog.set_level("INFO", logger="token_generator.audit")
+        assert client.get("/api/admin/users").status_code == 403
+        assert any("action=admin_access_denied" in r.getMessage() for r in caplog.records)
+
+    @pytest.mark.asyncio
+    async def test_token_listing_is_stable_for_equal_timestamps(self, test_db, test_admin):
+        from datetime import datetime
+        from app.api.admin import list_all_tokens
+        from app.auth import generate_token, hash_token
+        from app.models import Token
+
+        moment = datetime(2026, 1, 1)
+        test_db.add_all([Token(user_id=test_admin.id, name=f"t{n}", token_hash=hash_token(generate_token()),
+                               created_at=moment) for n in range(25)])
+        await test_db.commit()
+        request = Request(http_scope("/api/admin/tokens"))
+        pages = [await list_all_tokens.__wrapped__(request, page=page, page_size=10, admin=test_admin, db=test_db)
+                 for page in (1, 2, 3)]
+        ids = [token.id for page in pages for token in page]
+        assert len(ids) == 25 and len(set(ids)) == 25
+
+    def test_command_line_refuses_local_admins_while_local_sign_in_is_off(self, monkeypatch):
+        from app.config import get_config
+        from app.manage import CommandError, create_local_admin
+
+        monkeypatch.setattr(get_config().local, "enabled", False)
+        with pytest.raises(CommandError, match="grant-admin"):
+            asyncio.run(create_local_admin("x@example.org", "X", "a long enough local password"))

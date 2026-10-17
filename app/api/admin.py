@@ -1,15 +1,17 @@
 import logging
 import unicodedata
 from typing import Annotated
-from fastapi import APIRouter, Depends, HTTPException, Request, Query
+from fastapi import APIRouter, Depends, HTTPException, Request, Query, Response
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import delete, select, update
+from sqlalchemy import and_, delete, or_, select, update
 from sqlalchemy.orm import joinedload
 from pydantic import BaseModel, Field, StrictBool, field_validator
 from app.database import get_db, lock_user_for_update
 from app.models import User, Token
+from app.config import get_config
 from app.tombstones import (
-    is_user_deleted, lift_deletions_for_email, lift_deletions_for_subject, record_deletion,
+    identity_reference, is_user_deleted, lift_deletions_for_email, lift_deletions_for_subject,
+    record_deletion,
 )
 from app.auth import (
     get_current_admin, get_current_user, hash_password_async, invalidate_sessions, normalize_email,
@@ -37,15 +39,35 @@ async def lock_admin_actor(db: AsyncSession, admin_id: str, request: Request) ->
     return admin
 
 
+def can_sign_in(user: User) -> bool:
+    """Whether the account has a sign-in method this deployment offers."""
+    config = get_config()
+    if user.unity_id is not None:
+        return bool(config.oauth.client_id)
+    return config.local.enabled and user.password_hash is not None
+
+
+def _can_sign_in_condition():
+    config = get_config()
+    methods = []
+    if config.oauth.client_id:
+        methods.append(User.unity_id.isnot(None))
+    if config.local.enabled:
+        methods.append(and_(User.unity_id.is_(None), User.password_hash.isnot(None)))
+    return or_(*methods) if methods else False
+
+
 async def is_last_admin(db: AsyncSession, user_id: str) -> bool:
-    """Call under the admin membership lock when deciding a mutation."""
+    """Whether removing this administrator would leave nobody able to sign
+    in and administer. Call under the admin membership lock."""
     target = await db.execute(select(User).where(User.id == user_id))
     target_user = target.scalar_one_or_none()
-    if target_user is None or not target_user.is_admin or await is_user_deleted(db, target_user):
+    if (target_user is None or not target_user.is_admin or not can_sign_in(target_user)
+            or await is_user_deleted(db, target_user)):
         return False
     result = await db.execute(
         select(User)
-        .where(User.is_admin.is_(True), User.id != user_id)
+        .where(User.is_admin.is_(True), User.id != user_id, _can_sign_in_condition())
         .order_by(User.id)
         .limit(MAX_PAGE_SIZE + 1)
     )
@@ -125,11 +147,12 @@ async def list_all_tokens(
     result = await db.execute(
         select(Token)
         .options(joinedload(Token.user))
-        .order_by(Token.created_at.desc())
+        .order_by(Token.created_at.desc(), Token.id)
         .offset(offset)
         .limit(page_size)
     )
     tokens = result.scalars().all()
+    logger.info("admin=%s action=list_tokens page=%d", admin.id, page)
 
     return [
         AdminTokenResponse(
@@ -234,6 +257,7 @@ async def delete_token_admin(
 @limiter.limit(ADMIN_RATE_LIMIT, key_func=user_or_ip)
 async def list_users(
     request: Request,
+    response: Response,
     page: Annotated[int, Query(ge=1, le=MAX_PAGE)] = 1,
     page_size: Annotated[int, Query(ge=1, le=MAX_PAGE_SIZE)] = 20,
     admin: User = Depends(get_current_admin),
@@ -244,9 +268,12 @@ async def list_users(
         select(User)
         .order_by(User.created_at.desc(), User.id.desc())
         .offset(offset)
-        .limit(page_size)
+        .limit(page_size + 1)
     )
     users = result.scalars().all()
+    response.headers["X-Has-More"] = "true" if len(users) > page_size else "false"
+    users = users[:page_size]
+    logger.info("admin=%s action=list_users page=%d", admin.id, page)
 
     return [
         UserResponse(
@@ -270,6 +297,11 @@ async def create_user(
     admin: User = Depends(get_current_admin),
     db: AsyncSession = Depends(get_db),
 ):
+    if not get_config().local.enabled:
+        raise HTTPException(
+            status_code=400,
+            detail="Local sign-in is disabled (local.enabled is false); such an account could not sign in",
+        )
     email = normalize_email(body.email)
     if not email:
         raise HTTPException(status_code=400, detail="Email must not be empty")
@@ -353,6 +385,7 @@ async def update_user(
             status_code=400,
             detail="Cannot demote the last remaining admin",
         )
+    was_admin = user.is_admin
     role_changed = body.is_admin is not None and body.is_admin != user.is_admin
     if role_changed:
         user.is_admin = body.is_admin
@@ -367,9 +400,10 @@ async def update_user(
         raise HTTPException(status_code=500, detail="Failed to update user")
 
     logger.info(
-        "admin=%s action=update_user user_id=%s is_admin=%s password_changed=%s name_changed=%s",
+        "admin=%s action=update_user user_id=%s was_admin=%s is_admin=%s password_changed=%s name_changed=%s",
         admin.id,
         user.id,
+        was_admin,
         user.is_admin,
         body.password is not None,
         body.name is not None,
@@ -413,13 +447,15 @@ async def delete_user(
 
     # Tombstone so the account isn't resurrected by logging in again
     record_deletion(db, user)
+    identity = identity_reference(user=user)
     await db.delete(user)
     try:
         await db.commit()
     except Exception:
         await db.rollback()
         raise HTTPException(status_code=500, detail="Failed to delete user")
-    logger.info("admin=%s action=delete_user user_id=%s", admin.id, user.id)
+    logger.info("admin=%s action=delete_user user_id=%s identity=%s was_admin=%s",
+                admin.id, user.id, identity, user.is_admin)
     return {"message": "User deleted successfully"}
 
 
@@ -472,5 +508,6 @@ async def restore_oauth_identity(
     except Exception:
         await db.rollback()
         raise HTTPException(status_code=500, detail="Failed to restore OAuth identity")
-    logger.info("admin=%s action=restore_oauth_identity count=%d", admin.id, count)
+    logger.info("admin=%s action=restore_oauth_identity identity=%s count=%d",
+                admin.id, identity_reference(subject=body.subject), count)
     return {"message": "OAuth identity may sign in again", "deletions_lifted": count}

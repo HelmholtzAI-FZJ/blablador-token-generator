@@ -35,6 +35,14 @@ function switchTab(tab) {
     }
 }
 
+// Confirmations name the account by what identifies it: the OAuth subject
+// (a provider email may be unverified and shared) or the local email.
+function describeAccount(user) {
+    return user.unity_id
+        ? `${user.name} <${user.email}>, OAuth subject ${user.unity_id}`
+        : `${user.name} <${user.email}>, local account`;
+}
+
 async function loadUsers(page = 1) {
     const tbody = document.getElementById('usersTableBody');
     try {
@@ -43,7 +51,7 @@ async function loadUsers(page = 1) {
         const users = await response.json();
         usersPage = page;
         document.getElementById('usersPrevious').disabled = page <= 1;
-        document.getElementById('usersNext').disabled = users.length < 100;
+        document.getElementById('usersNext').disabled = response.headers.get('X-Has-More') !== 'true';
         document.getElementById('usersPage').textContent = `Page ${page}`;
         
         if (users.length === 0) {
@@ -67,9 +75,9 @@ async function loadUsers(page = 1) {
                     ${user.has_password
                         ? `<button class="btn btn-small" data-action="reset-password" data-id="${escapeHtml(user.id)}">Reset Password</button>`
                         : ''}
-                    <button class="btn btn-small" data-action="toggle-admin" data-id="${escapeHtml(user.id)}" data-email="${escapeHtml(user.email)}" data-admin="${user.is_admin}">${user.is_admin ? 'Remove Admin' : 'Make Admin'}</button>
-                    <button class="btn btn-small btn-danger" data-action="revoke-credentials" data-id="${escapeHtml(user.id)}">Revoke All Credentials</button>
-                    <button class="btn btn-small btn-danger" data-action="delete-user" data-id="${escapeHtml(user.id)}" data-email="${escapeHtml(user.email)}">Delete</button>
+                    <button class="btn btn-small" data-action="toggle-admin" data-id="${escapeHtml(user.id)}" data-account="${escapeHtml(describeAccount(user))}" data-admin="${user.is_admin}">${user.is_admin ? 'Remove Admin' : 'Make Admin'}</button>
+                    <button class="btn btn-small btn-danger" data-action="revoke-credentials" data-id="${escapeHtml(user.id)}" data-account="${escapeHtml(describeAccount(user))}">Revoke All Credentials</button>
+                    <button class="btn btn-small btn-danger" data-action="delete-user" data-id="${escapeHtml(user.id)}" data-account="${escapeHtml(describeAccount(user))}">Delete</button>
                 </td>
             </tr>
         `).join('');
@@ -78,7 +86,7 @@ async function loadUsers(page = 1) {
     }
 }
 
-document.getElementById('createUserForm').addEventListener('submit', async (e) => {
+document.getElementById('createUserForm')?.addEventListener('submit', async (e) => {
     e.preventDefault();
     const email = document.getElementById('userEmail').value;
     const name = document.getElementById('userName').value;
@@ -163,10 +171,10 @@ async function submitPasswordReset() {
 }
 
 // Role changes end the user's sessions, including one's own.
-async function toggleAdmin(userId, email, isAdmin) {
+async function toggleAdmin(userId, account, isAdmin) {
     const question = isAdmin
-        ? `Remove administrator rights from ${email}?`
-        : `Grant administrator rights to ${email}?`;
+        ? `Remove administrator rights from ${account}?`
+        : `Grant administrator rights to ${account}?`;
     if (!confirm(question + ' Their current sessions will be signed out.')) return;
     try {
         const response = await fetch(`/api/admin/users/${encodeURIComponent(userId)}`, {
@@ -186,8 +194,8 @@ async function toggleAdmin(userId, email, isAdmin) {
     }
 }
 
-async function revokeCredentials(userId) {
-    if (!confirm('Revoke all API tokens and browser sessions for this user?')) return;
+async function revokeCredentials(userId, account) {
+    if (!confirm(`Revoke all API tokens and browser sessions of ${account}?`)) return;
     try {
         const response = await fetch(`/api/admin/users/${encodeURIComponent(userId)}/revoke-credentials`, {
             method: 'POST', headers: csrfHeaders(),
@@ -215,8 +223,8 @@ async function restoreOAuthAccount() {
     }
 }
 
-async function deleteUser(userId, email) {
-    if (!confirm(`Delete user ${email}? This cannot be undone.`)) return;
+async function deleteUser(userId, account) {
+    if (!confirm(`Delete ${account}? This cannot be undone.`)) return;
     
     try {
         const response = await fetch(`/api/admin/users/${userId}`, {
@@ -286,9 +294,9 @@ registerActions({
     'revoke-token': (el) => revokeToken(el.dataset.id),
     'delete-token': (el) => deleteToken(el.dataset.id),
     'reset-password': (el) => openPasswordModal(el.dataset.id),
-    'delete-user': (el) => deleteUser(el.dataset.id, el.dataset.email),
-    'toggle-admin': (el) => toggleAdmin(el.dataset.id, el.dataset.email, el.dataset.admin === 'true'),
-    'revoke-credentials': (el) => revokeCredentials(el.dataset.id),
+    'delete-user': (el) => deleteUser(el.dataset.id, el.dataset.account),
+    'toggle-admin': (el) => toggleAdmin(el.dataset.id, el.dataset.account, el.dataset.admin === 'true'),
+    'revoke-credentials': (el) => revokeCredentials(el.dataset.id, el.dataset.account),
     'restore-oauth': () => restoreOAuthAccount(),
     'users-previous': () => loadUsers(Math.max(1, usersPage - 1)),
     'users-next': () => loadUsers(usersPage + 1),
