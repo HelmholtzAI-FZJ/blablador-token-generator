@@ -52,7 +52,7 @@ the JSC registry when its credentials are configured.
 
 ```bash
 uv run pytest                     # tests (SQLite; set TEST_DATABASE_URL for PostgreSQL)
-uvx ruff@0.17.1 check .           # lint
+uv run --only-group lint ruff check .  # lint
 uv run --only-group docs mkdocs serve
 ```
 

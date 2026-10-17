@@ -1,4 +1,7 @@
 version: 2
+# Every ecosystem lets new releases age a week first (cooldown): compromised
+# releases are usually found and pulled within days. Security updates are
+# not delayed.
 updates:
   # Application with a hash-locked lockfile: update uv.lock, leave the
   # version ranges in pyproject.toml alone.
@@ -6,6 +9,8 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    cooldown:
+      default-days: 7
     versioning-strategy: lockfile-only
     groups:
       python-minor-and-patch:
@@ -16,15 +21,21 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    cooldown:
+      default-days: 7
   - package-ecosystem: docker
     directory: /helm/blablador-token-generator/files
     schedule:
       interval: weekly
+    cooldown:
+      default-days: 7
 
   - package-ecosystem: github-actions
     directory: /
     schedule:
       interval: weekly
+    cooldown:
+      default-days: 7
     groups:
       actions:
         patterns: ["*"]

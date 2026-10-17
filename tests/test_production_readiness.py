@@ -337,7 +337,7 @@ def test_versions_agree():
     root = Path(__file__).resolve().parents[1]
     project = tomllib.loads((root / "pyproject.toml").read_text())["project"]["version"]
     chart = yaml.safe_load((root / "helm/blablador-token-generator/Chart.yaml").read_text())
-    assert __version__ == project == chart["appVersion"]
+    assert __version__ == project == chart["appVersion"] == chart["version"]
 
 
 def test_configuration_reference_documents_every_setting():

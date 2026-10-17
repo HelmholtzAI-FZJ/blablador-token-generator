@@ -58,7 +58,7 @@ bound to one event loop).
 ### Linting and other checks
 
 ```bash
-uvx ruff@0.17.1 check .
+uv run --only-group lint ruff check .
 python helm/blablador-token-generator/tests/security_render.py
 uv run --only-group docs mkdocs build --strict
 ```
