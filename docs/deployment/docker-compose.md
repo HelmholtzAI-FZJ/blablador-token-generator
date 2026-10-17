@@ -3,11 +3,32 @@
 [`docker-compose.yaml`](https://github.com/HelmholtzAI-FZJ/blablador-token-generator/blob/main/docker-compose.yaml)
 runs the application with the hardened PostgreSQL and Redis images on a single
 host. It uses the same hardening as the Helm chart (non-root, read-only file
-systems, no capabilities, resource limits, TLS between all components) but
-does **not** provide public HTTPS or network isolation: put a TLS reverse proxy
-in front of it and firewall the host.
+systems, no capabilities, resource limits, TLS between all components).
+PostgreSQL and Redis sit on an internal network that only the application
+reaches and that has no route to the internet. Compose does **not** provide
+public HTTPS: put a TLS reverse proxy in front of it and firewall the host.
 
 The application listens on `127.0.0.1:8080` only.
+
+## The reverse proxy and client addresses
+
+Per-client rate limits need each request's real client address, which the
+reverse proxy sends in `X-Forwarded-For`. The application trusts that header
+only from `FORWARDED_ALLOW_IPS`. A proxy on the host connects to the published
+port, and Docker forwards the connection from the gateway of the `edge`
+network, `172.30.240.1`, which is therefore the default. (Trusting
+`127.0.0.1` would match nothing: all clients would share the proxy's budget,
+and a few requests per second would lock everyone out.)
+
+Every process on the host connects from that address as well, so it could
+claim any client address: keep untrusted users off the host. If the subnet
+is taken on your host, set `EDGE_SUBNET`, `EDGE_GATEWAY` and
+`FORWARDED_ALLOW_IPS` together. Check after the first start that the access
+log shows your own address, not the gateway's:
+
+```bash
+docker compose logs app | grep token_generator.access | tail -3
+```
 
 ## Prepare
 
@@ -39,9 +60,12 @@ POSTGRES_TLS_CA_FILE=/etc/tokens/tls/ca.crt
 REDIS_TLS_CERT_FILE=/etc/tokens/tls/redis.crt
 REDIS_TLS_KEY_FILE=/etc/tokens/tls/redis.key
 REDIS_TLS_CA_FILE=/etc/tokens/tls/ca.crt
-# The reverse proxy's address, if it is not on this host:
-# FORWARDED_ALLOW_IPS=192.0.2.10
+# With OAuth sign-in (keeps the secret out of config.yaml):
+# OAUTH_CLIENT_SECRET=<client secret>
 ```
+
+`config.yaml` must be readable by the container's user (UID 10001); keep
+secrets in the environment file rather than in it.
 
 ## Run
 
@@ -79,13 +103,26 @@ docker compose exec app python -m app.manage create-local-admin \
 ## Backups
 
 Compose has no scheduler. Run the same dump the Helm chart uses from cron on
-the host, as the runtime role over verified TLS:
+the host, as the runtime role over verified TLS. Dumps contain password
+hashes, token hashes and emails: this script keeps them private (`umask
+077`), never leaves a half-written file under a final name, and passes the
+password to `docker compose` through the environment instead of its command
+line (which other users could read with `ps`):
 
 ```bash
-set -a; . /etc/tokens/tokens.env; set +a
-docker compose exec -T -e PGPASSWORD="$POSTGRES_PASSWORD" -e PGSSLMODE=verify-full \
-    -e PGSSLROOTCERT=/run/secrets/postgres_ca postgres \
-    pg_dump -h postgres -U tokens -d tokens --format=custom > tokens-$(date -u +%Y%m%dT%H%M%SZ).dump
+#!/bin/sh
+# /etc/tokens/backup.sh
+set -eu
+umask 077
+cd /srv/tokens                              # the checkout with docker-compose.yaml
+target=/var/backups/tokens/tokens-$(date -u +%Y%m%dT%H%M%SZ).dump
+PGPASSWORD=$(sed -n 's/^POSTGRES_PASSWORD=//p' /etc/tokens/tokens.env)
+export PGPASSWORD
+docker compose --env-file /etc/tokens/tokens.env exec -T -e PGPASSWORD \
+    -e PGSSLMODE=verify-full -e PGSSLROOTCERT=/run/secrets/postgres_ca postgres \
+    pg_dump -h postgres -U tokens -d tokens --format=custom > "$target.partial"
+mv "$target.partial" "$target"
+find /var/backups/tokens -maxdepth 1 -name 'tokens-2*Z.dump' -mtime +14 -delete
 ```
 
 Restoring is described in [Backups](../operations/backups.md#restore).
