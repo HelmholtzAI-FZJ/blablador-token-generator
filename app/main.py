@@ -66,6 +66,9 @@ app = FastAPI(
     description=f"Token authentication infrastructure on top of {config.login.name}",
     version=__version__,
     lifespan=lifespan,
+    # Starlette builds trailing-slash redirects from the request's Host
+    # header; no page needs them.
+    redirect_slashes=False,
     docs_url=None if not config.app.debug else "/docs",
     redoc_url=None if not config.app.debug else "/redoc",
     openapi_url=None if not config.app.debug else "/openapi.json",
@@ -76,9 +79,7 @@ app = FastAPI(
     telemetry={"tracing": False, "logs": False},
 )
 
-# Register rate limiter state and exception handler
 app.state.limiter = limiter
-app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 
 APP_DIR = Path(__file__).resolve().parent
@@ -136,14 +137,15 @@ def secure_equals(a: str, b: str) -> bool:
     return compare_digest(a.encode(), b.encode())
 
 FORM_CSRF_PATHS = {"/login/local", "/admin/tokens/search"}
-BEARER_PATH_PREFIX = "/api/v1/"
+# Routes authenticated only by an explicit bearer token, never by cookies:
+# a forged cross-site request gains nothing there. Any route added here
+# must not read the session cookie.
+BEARER_PATHS = {"/api/v1/auth/validate"}
 
 
 @app.middleware("http")
 async def csrf_middleware(request: Request, call_next):
-    # The bearer-token API never reads cookies: its credential is supplied
-    # explicitly by the client, so a forged cross-site request gains nothing.
-    if request.url.path.startswith(BEARER_PATH_PREFIX):
+    if request.url.path in BEARER_PATHS:
         return await call_next(request)
 
     cookie_token = request.cookies.get(CSRF_COOKIE)
@@ -177,6 +179,14 @@ async def csrf_middleware(request: Request, call_next):
             )
 
     return await call_next(request)
+
+
+@app.exception_handler(RateLimitExceeded)
+async def rate_limit_exceeded_handler(request: Request, exc: RateLimitExceeded):
+    if request.url.path == "/login/local" and request.method == "POST":
+        return login_page(request, "Too many sign-in attempts from your network. Wait a minute and try again.",
+                          429, headers={"Retry-After": "60"})
+    return _rate_limit_exceeded_handler(request, exc)
 
 
 @app.exception_handler(RequestValidationError)
@@ -491,16 +501,26 @@ async def delete_my_account(
     return response
 
 
+def login_page(request: Request, error: str | None, status_code: int = 200,
+               headers: Mapping[str, str] | None = None) -> HTMLResponse:
+    response = templates.TemplateResponse(request, "login_local.html", {
+        "app_name": config.app.name,
+        "csrf_token": request.state.csrf_token,
+        "error": error,
+    }, status_code=status_code, headers=headers)
+    # Safe-method responses set the CSRF cookie; a form re-rendered after a
+    # POST must as well, or a visitor whose cookie expired could never retry.
+    if not request.cookies.get(CSRF_COOKIE):
+        set_cookie(response, CSRF_COOKIE, request.state.csrf_token)
+    return response
+
+
 @app.get("/login/local", response_class=HTMLResponse)
 @limiter.limit(RATE_LIMITS.pages)
 async def login_local_form(request: Request):
     if not config.local.enabled:
         raise HTTPException(status_code=404, detail="Local login disabled")
-    return templates.TemplateResponse(request, "login_local.html", {
-        "app_name": config.app.name,
-        "csrf_token": request.state.csrf_token,
-        "error": None
-    })
+    return login_page(request, None)
 
 
 @app.post("/login/local")
@@ -516,22 +536,20 @@ async def login_local(
         raise HTTPException(status_code=404, detail="Local login disabled")
 
     if not form_csrf_valid(request, csrf_token):
-        return templates.TemplateResponse(request, "login_local.html", {
-            "app_name": config.app.name,
-            "csrf_token": request.state.csrf_token,
-            "error": "Invalid CSRF token"
-        }, status_code=403)
+        return login_page(request, "Your sign-in form expired. Please try again.", 403)
 
-    await enforce_account_login_limit(email)
+    try:
+        await enforce_account_login_limit(email)
+    except HTTPException as exc:
+        if exc.status_code == 429:
+            return login_page(request, "Too many sign-in attempts for this account. Wait a minute and try again.",
+                              429, headers=exc.headers)
+        return login_page(request, "Sign-in is temporarily unavailable. Please try again later.", exc.status_code)
     user = await authenticate_local_user(email, password, db)
     if not user:
         _audit.warning("action=login_failed method=local client=%s",
                        loggable_address(request.client.host if request.client else None))
-        return templates.TemplateResponse(request, "login_local.html", {
-            "app_name": config.app.name,
-            "csrf_token": request.state.csrf_token,
-            "error": "Invalid email or password"
-        }, status_code=401)
+        return login_page(request, "Invalid email or password", 401)
 
     _audit.info("user=%s action=login method=local", user.id)
     response = RedirectResponse(url="/dashboard", status_code=303)
