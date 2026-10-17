@@ -89,7 +89,8 @@ tokens:
 
 rate_limits:
   # Where counters are stored. "memory://" is per process, so with several
-  # workers or replicas use Redis, e.g. "redis://:password@redis:6379/0".
+  # workers or replicas use Redis; production requires verified TLS
+  # ("rediss://" with ssl_cert_reqs=required and ssl_check_hostname=true).
   # Env override: RATE_LIMIT_STORAGE_URI.
   storage_uri: "rediss://:PASSWORD@redis.example.com:6379/0?ssl_cert_reqs=required&ssl_check_hostname=true"
   storage_timeout_seconds: 0.5
