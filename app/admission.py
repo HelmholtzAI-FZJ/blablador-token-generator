@@ -1,4 +1,3 @@
-import asyncio
 import logging
 import time
 
@@ -9,12 +8,14 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse
 from starlette.types import ASGIApp, Receive, Scope, Send
 
+from app.clients import client_address
 from app.config import get_config
 from app.auth import hash_token, normalize_email
-from app.rate_limit import is_token_validation_exempt
+from app.rate_limit import is_token_validation_exempt, run_storage
 
 logger = logging.getLogger('token_generator.audit')
 
+VALIDATION_PATH = '/api/v1/auth/validate'
 # After a shared-storage failure, count locally for this long before trying
 # the shared storage again, so an outage does not add a timeout per request.
 STORAGE_RETRY_SECONDS = 5.0
@@ -27,9 +28,8 @@ async def enforce_account_login_limit(email: str) -> None:
     key = hash_token('local-login:' + normalize_email(email))
     budget = parse(get_config().rate_limits.local_login_account)
     try:
-        allowed = await asyncio.to_thread(FixedWindowRateLimiter(limiter._storage).hit,
-                                         budget,
-                                         'local-account', key)
+        allowed = await run_storage(FixedWindowRateLimiter(limiter._storage).hit,
+                                    budget, 'local-account', key)
     except Exception as exc:
         logger.error('action=login_storage_failed error_type=%s', type(exc).__name__)
         raise HTTPException(status_code=503, detail='Login temporarily unavailable') from None
@@ -52,20 +52,32 @@ class AdmissionMiddleware:
         # limits stay enforced (per worker) instead of failing every request.
         self.fallback = FixedWindowRateLimiter(MemoryStorage())
         self.budget = parse(self.config.rate_limits.preauth)
+        # Token validation has its own, larger budget (the gateway's traffic).
+        self.validation_budget = parse(self.config.rate_limits.token_validation)
         self.active = 0
         self.storage_retry_at = 0.0
+        self.probing = False
 
-    async def hit(self, client: str) -> bool:
-        if time.monotonic() < self.storage_retry_at:
-            return self.fallback.hit(self.budget, 'admission', client)
+    async def hit(self, budget, client: str) -> bool:
+        probe = False
+        if self.storage_retry_at:
+            # While the storage is down, one request at a time checks whether
+            # it is back; the others count locally instead of each waiting
+            # for a timeout.
+            if self.probing or time.monotonic() < self.storage_retry_at:
+                return self.fallback.hit(budget, 'admission', client)
+            self.probing = probe = True
         try:
-            allowed = await asyncio.to_thread(self.counter.hit, self.budget, 'admission', client)
+            allowed = await run_storage(self.counter.hit, budget, 'admission', client)
         except Exception as exc:
             if not self.storage_retry_at:
                 logger.error('action=admission_storage_failed fallback=local error_type=%s',
                              type(exc).__name__)
             self.storage_retry_at = time.monotonic() + STORAGE_RETRY_SECONDS
-            return self.fallback.hit(self.budget, 'admission', client)
+            return self.fallback.hit(budget, 'admission', client)
+        finally:
+            if probe:
+                self.probing = False
         if self.storage_retry_at:
             logger.warning('action=admission_storage_recovered')
             self.storage_retry_at = 0.0
@@ -84,13 +96,12 @@ class AdmissionMiddleware:
         self.active += 1
         try:
             request = Request(scope)
-            exempt = scope['path'] == '/api/v1/auth/validate' and is_token_validation_exempt(request)
-            if not exempt:
-                client = request.client.host if request.client else '-'
-                allowed = await self.hit(client)
-                if not allowed:
+            validation = scope['path'] == VALIDATION_PATH
+            if not (validation and is_token_validation_exempt(request)):
+                budget = self.validation_budget if validation else self.budget
+                if not await self.hit(budget, client_address(request)):
                     await JSONResponse({'detail': 'Too many requests'}, status_code=429,
-                                       headers={'Retry-After': str(self.budget.get_expiry())})(scope, receive, send)
+                                       headers={'Retry-After': str(budget.get_expiry())})(scope, receive, send)
                     return
             await self.app(scope, receive, send)
         finally:

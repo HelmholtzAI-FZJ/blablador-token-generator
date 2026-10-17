@@ -190,7 +190,11 @@ class TestReadiness:
         assert response.json() == {"status": "ready", "rate_limit_storage": "ok"}
 
     def test_rate_limit_storage_outage_degrades_but_stays_ready(self, client, monkeypatch):
-        monkeypatch.setattr(main.limiter._storage, "check", lambda: False)
+        def refuse_writes(*args, **kwargs):
+            # What a full (maxmemory, noeviction) Redis does; it still answers pings.
+            raise RuntimeError("OOM command not allowed")
+
+        monkeypatch.setattr(main.limiter._storage, "incr", refuse_writes)
         with captured_logs() as records:
             response = client.get("/readyz")
         assert response.status_code == 200
