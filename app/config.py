@@ -217,7 +217,7 @@ class Config(SecurityConfigModel):
                     f"(current: {len(secret)}). Use a strong, random secret. "
                     'Generate one with: python -c "import secrets; print(secrets.token_hex(32))"'
                 )
-        if self.app.token_hash_key == self.app.secret_key:
+        if self.app.token_hash_key.strip() == self.app.secret_key.strip():
             raise ValueError("token_hash_key must differ from secret_key")
         if self.app.admin_jwt_expiration_hours > self.app.jwt_expiration_hours:
             raise ValueError("Admin sessions must not outlive ordinary sessions")
@@ -246,23 +246,57 @@ class Config(SecurityConfigModel):
                 raise ValueError("Production requires a shared Redis rate-limit backend")
             if not self.rate_limits.storage_uri.startswith("rediss://"):
                 raise ValueError("Production Redis connections require verified TLS (rediss://)")
-            redis_options = parse_qs(urlsplit(self.rate_limits.storage_uri).query)
-            if redis_options.get("ssl_cert_reqs", ["required"])[-1].lower() != "required" or redis_options.get("ssl_check_hostname", ["true"])[-1].lower() not in {"true", "1"}:
+            redis_options = query_options(self.rate_limits.storage_uri, "rate_limits.storage_uri")
+            if redis_options.get("ssl_cert_reqs", "required").lower() != "required" or redis_options.get("ssl_check_hostname", "true").lower() not in {"true", "1"}:
                 raise ValueError("Production Redis TLS must verify certificates and hostnames")
             if not self.database.url.startswith("postgresql+asyncpg://"):
                 raise ValueError("Production requires PostgreSQL with the asyncpg driver")
-            database_options = parse_qs(urlsplit(self.database.url).query)
-            if database_options.get("ssl", ["verify-full"])[-1] not in {"verify-full", "verify-ca", "require"}:
+            database_options = query_options(self.database.url, "database.url")
+            if database_options.get("ssl", "verify-full") not in {"verify-full", "verify-ca", "require"}:
                 raise ValueError("Production PostgreSQL TLS must not be disabled")
-            if not self.database.ssl_ca_file and database_options.get("ssl", [None])[-1] != "verify-full":
+            if not self.database.ssl_ca_file and database_options.get("ssl") != "verify-full":
                 raise ValueError("Production PostgreSQL connections require a trusted CA or ssl=verify-full")
             import os
             for peer in os.environ.get("FORWARDED_ALLOW_IPS", "127.0.0.1").split(","):
-                peer = peer.strip()
-                if peer == "*" or (peer and ip_network(peer, strict=False).prefixlen == 0):
-                    raise ValueError("Production proxy trust must name specific addresses or networks")
-            if any(ip_network(peer, strict=False).prefixlen == 0 for peer in self.rate_limits.token_validation_exempt):
-                raise ValueError("Production validation exemptions must name specific gateway networks")
+                if peer.strip():
+                    trusted_network(peer.strip(), "FORWARDED_ALLOW_IPS")
+            for peer in self.rate_limits.token_validation_exempt:
+                trusted_network(peer, "rate_limits.token_validation_exempt")
+
+
+def query_options(url: str, field: str) -> dict[str, str]:
+    """A URL's query parameters, refusing repeated ones.
+
+    Clients disagree on which copy of a repeated parameter counts (redis-py
+    uses the first), so a check of one copy proves nothing about the other.
+    """
+    options = parse_qs(urlsplit(url).query, keep_blank_values=True)
+    repeated = sorted(name for name, values in options.items() if len(values) > 1)
+    if repeated:
+        raise ValueError(f"{field} must not repeat query parameters ({', '.join(repeated)})")
+    return {name: values[0] for name, values in options.items()}
+
+
+# Narrower than this is a specific proxy or gateway network; wider (such as
+# 0.0.0.0/1 plus 128.0.0.0/1) amounts to trusting everyone.
+MIN_TRUSTED_PREFIX = {4: 8, 6: 8}
+
+
+def trusted_network(entry: str, field: str) -> None:
+    """Validate a trusted proxy or gateway entry as Uvicorn will read it.
+
+    Uvicorn parses entries strictly: one with host bits set ("10.42.0.7/16")
+    silently matches nothing, so every client would share the proxy's
+    address and its rate-limit budget.
+    """
+    try:
+        network = ip_network(entry)
+    except ValueError:
+        raise ValueError(
+            f"{field} entries must be IP addresses or networks without host bits, not {entry!r}"
+        ) from None
+    if network.prefixlen < MIN_TRUSTED_PREFIX[network.version]:
+        raise ValueError(f"{field} must name specific proxy or gateway networks, not {entry}")
 
 
 @lru_cache()
@@ -272,8 +306,10 @@ def get_config() -> Config:
     config_path = Path(os.environ.get("CONFIG_PATH", default_path))
     if config_path.exists():
         with open(config_path) as f:
-            data = yaml.safe_load(f)
-            config = Config(**data)
+            data = yaml.safe_load(f) or {}
+        if not isinstance(data, dict):
+            raise ValueError(f"{config_path} must contain a mapping of configuration sections")
+        config = Config(**data)
     else:
         config = Config()
 

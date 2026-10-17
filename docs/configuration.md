@@ -43,8 +43,12 @@ unless:
   against `ssl_ca_file` or with `ssl=verify-full`;
 - rate-limit counters are in Redis over verified TLS (`rediss://`, certificate
   and host name checked);
-- `FORWARDED_ALLOW_IPS` and `token_validation_exempt` name specific addresses
-  or networks, never `*` or a `/0` network;
+- the database and Redis URLs do not repeat a query parameter (clients
+  disagree on which copy counts);
+- `FORWARDED_ALLOW_IPS` and `token_validation_exempt` contain only IP
+  addresses or networks written without host bits (`10.42.0.0/16`, not
+  `10.42.0.7/16`, which Uvicorn would silently ignore), each no wider than
+  `/8`, and never `*`;
 - the database role is not a superuser and cannot create roles or databases,
   replicate, bypass row security or read/write server files.
 

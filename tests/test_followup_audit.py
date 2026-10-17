@@ -201,3 +201,70 @@ async def call_without_response(middleware, scope: dict) -> None:
         raise AssertionError("nothing should be sent")
 
     await middleware(scope, receive, send)
+
+
+def production_config():
+    from app.config import AppConfig, Config, DatabaseConfig, LocalAuthConfig, RateLimitConfig
+
+    return Config(
+        app=AppConfig(secret_key="synthetic-jwt-" + "x" * 40, token_hash_key="synthetic-hmac-" + "y" * 40),
+        database=DatabaseConfig(url="postgresql+asyncpg://user:password@database/tokens", ssl_ca_file="/synthetic/ca.crt"),
+        rate_limits=RateLimitConfig(storage_uri="rediss://:password@redis/0"),
+        local=LocalAuthConfig(enabled=True),
+    )
+
+
+class TestProductionConfiguration:
+    @pytest.mark.parametrize("uri", [
+        "rediss://:pw@redis/0?ssl_cert_reqs=none&ssl_cert_reqs=required",
+        "rediss://:pw@redis/0?ssl_check_hostname=false&ssl_check_hostname=true",
+    ])
+    def test_repeated_redis_parameters_rejected(self, uri, monkeypatch):
+        monkeypatch.setenv("FORWARDED_ALLOW_IPS", "127.0.0.1")
+        config = production_config()
+        config.rate_limits.storage_uri = uri
+        with pytest.raises(ValueError, match="repeat"):
+            config.validate_security()
+
+    def test_repeated_database_parameters_rejected(self, monkeypatch):
+        monkeypatch.setenv("FORWARDED_ALLOW_IPS", "127.0.0.1")
+        config = production_config()
+        config.database.url += "?ssl=disable&ssl=verify-full"
+        with pytest.raises(ValueError, match="repeat"):
+            config.validate_security()
+
+    @pytest.mark.parametrize("trusted", ["10.42.0.7/16", "0.0.0.0/1,128.0.0.0/1", "::/1", "proxy.example"])
+    def test_proxy_trust_that_uvicorn_would_misread_or_widen_is_rejected(self, trusted, monkeypatch):
+        monkeypatch.setenv("FORWARDED_ALLOW_IPS", trusted)
+        with pytest.raises(ValueError):
+            production_config().validate_security()
+
+    @pytest.mark.parametrize("trusted", ["192.0.2.10", "10.42.0.0/16, 10.43.0.0/16", "10.0.0.0/8", "fd00::/8"])
+    def test_specific_proxy_networks_accepted(self, trusted, monkeypatch):
+        monkeypatch.setenv("FORWARDED_ALLOW_IPS", trusted)
+        production_config().validate_security()
+
+    def test_broad_gateway_exemption_rejected(self, monkeypatch):
+        monkeypatch.setenv("FORWARDED_ALLOW_IPS", "127.0.0.1")
+        config = production_config()
+        config.rate_limits.token_validation_exempt = ["0.0.0.0/1", "128.0.0.0/1"]
+        with pytest.raises(ValueError):
+            config.validate_security()
+
+    def test_keys_differing_only_in_whitespace_rejected(self, monkeypatch):
+        monkeypatch.setenv("FORWARDED_ALLOW_IPS", "127.0.0.1")
+        config = production_config()
+        config.app.token_hash_key = config.app.secret_key + " "
+        with pytest.raises(ValueError, match="differ"):
+            config.validate_security()
+
+    def test_empty_configuration_file(self, tmp_path, monkeypatch):
+        from app.config import get_config
+
+        empty = tmp_path / "config.yaml"
+        empty.write_text("# nothing configured yet\n")
+        monkeypatch.setenv("CONFIG_PATH", str(empty))
+        assert get_config.__wrapped__().app.environment == "development"
+        empty.write_text("- not a mapping\n")
+        with pytest.raises(ValueError, match="mapping"):
+            get_config.__wrapped__()
