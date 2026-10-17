@@ -1,5 +1,7 @@
 # Production security audit and implemented remediation
 
+> **Superseded in part.** This document describes the code as of the first review. Since then: admission falls back to per-process counters when Redis fails instead of answering 503, and `/readyz` requires only the database (password sign-in still fails closed); only the token validation route is exempt from CSRF; the schema is managed by Alembic migrations instead of `create_all`; the application writes its own access log (route templates, never query strings). See [REPORT-2026-10-17.md](REPORT-2026-10-17.md) and the [security page](https://helmholtzai-fzj.github.io/blablador-token-generator/security/).
+
 **Review period: 2026-10-11 to 2026-10-12. Baseline: `3341bc087ffbf4f76b469cd7f272dfbeafdcebe3`. Remediation is in the current working tree.**
 
 The review found real authorization, revocation, concurrency, availability and deployment weaknesses. They have been corrected in application code, deployment templates and tests. This is an implementation report, with the original evidence preserved separately. No production service was attacked, changed, deployed or restarted, and no production database was migrated. A successful local test is not evidence that an unseen production ingress, identity provider or cluster is correctly configured.

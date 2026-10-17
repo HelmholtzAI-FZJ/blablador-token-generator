@@ -1,5 +1,7 @@
 # Endpoint and security-control coverage
 
+> **Superseded in part.** This document describes the code as of the first review. Since then: admission falls back to per-process counters when Redis fails instead of answering 503, and `/readyz` requires only the database (password sign-in still fails closed); only the token validation route is exempt from CSRF; the schema is managed by Alembic migrations instead of `create_all`; the application writes its own access log (route templates, never query strings). See [REPORT-2026-10-17.md](REPORT-2026-10-17.md) and the [security page](https://helmholtzai-fzj.github.io/blablador-token-generator/security/).
+
 Reviewed on 2026-10-12 against the post-fix sources. This inventory separates implemented behavior from regression coverage and deployment assumptions. It complements [REPORT.md](REPORT.md), [THREAT_MODEL.md](THREAT_MODEL.md), [DEPENDENCIES.md](DEPENDENCIES.md) and [CONTAINER_VULNERABILITIES.md](CONTAINER_VULNERABILITIES.md). Values below are validated configuration defaults, not a claim about the live configuration.
 
 ## Common request pipeline
