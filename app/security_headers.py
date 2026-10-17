@@ -9,6 +9,9 @@ def headers_for_path(path: str) -> dict[str, str]:
         'Referrer-Policy': 'no-referrer' if path == '/oauth/openid/callback' else 'strict-origin-when-cross-origin',
         'Content-Security-Policy': "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'",
         'Strict-Transport-Security': 'max-age=31536000; includeSubDomains',
+        'Cross-Origin-Opener-Policy': 'same-origin',
+        'Cross-Origin-Resource-Policy': 'same-origin',
+        'Permissions-Policy': 'camera=(), microphone=(), geolocation=(), payment=(), usb=()',
         'Cache-Control': 'no-cache' if path.startswith('/static/') else 'no-store',
     }
 

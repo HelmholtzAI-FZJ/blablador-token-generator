@@ -184,6 +184,8 @@ async def revoke_jwt(payload: dict, db: AsyncSession) -> None:
     try:
         existing = await db.execute(select(RevokedJWT).where(RevokedJWT.jti == jti))
         if existing.scalar_one_or_none() is None:
+            if await _account_gone(payload, db):
+                return
             await db.execute(delete(RevokedJWT).where(RevokedJWT.expires_at < utcnow()))
             db.add(RevokedJWT(
                 jti=jti,
@@ -195,7 +197,7 @@ async def revoke_jwt(payload: dict, db: AsyncSession) -> None:
     except IntegrityError as exc:
         try:
             await db.rollback()
-            if await is_jwt_revoked(payload, db):
+            if await is_jwt_revoked(payload, db) or await _account_gone(payload, db):
                 return
         except Exception as rollback_error:
             _audit.error("action=session_rollback_failed error=%s", type(rollback_error).__name__)
@@ -208,6 +210,13 @@ async def revoke_jwt(payload: dict, db: AsyncSession) -> None:
             _audit.error("action=session_rollback_failed error=%s", type(rollback_error).__name__)
         _audit.error("action=session_revocation_failed error=%s", type(exc).__name__)
         raise HTTPException(status_code=503, detail="Unable to complete session logout") from None
+
+
+async def _account_gone(payload: dict, db: AsyncSession) -> bool:
+    """A deleted account's sessions can no longer authenticate; there is
+    nothing to revoke (and the revocation row would have no account)."""
+    result = await db.execute(select(User.id).where(User.id == payload.get("sub", "")))
+    return result.scalar_one_or_none() is None
 
 
 async def is_jwt_revoked(payload: dict, db: AsyncSession) -> bool:

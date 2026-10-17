@@ -420,3 +420,113 @@ class TestInputValidation:
         with pytest.raises(argparse.ArgumentTypeError):
             non_empty("subject\x00")
         assert non_empty("subject-1") == "subject-1"
+
+
+def login_form_token(response) -> str:
+    import re
+    return re.search(r'name="csrf_token" value="([^"]+)"', response.text).group(1)
+
+
+class TestSessionsAndSignIn:
+    def test_logout_of_a_deleted_account_succeeds_quietly(self, client, monkeypatch, caplog):
+        from sqlalchemy import delete
+        from app import database
+        from app.models import User
+
+        csrf = oauth_login(client, monkeypatch, "deleted-before-logout")
+
+        async def remove():
+            async with database.async_session_maker() as db:
+                await db.execute(delete(User).where(User.unity_id == "deleted-before-logout"))
+                await db.commit()
+
+        client.portal.call(remove)
+        caplog.set_level("INFO", logger="token_generator.audit")
+        response = client.post("/logout", headers={"X-CSRF-Token": csrf})
+        assert response.status_code == 200
+        assert any("access_token" in header and "Max-Age=0" in header
+                   for header in response.headers.get_list("set-cookie"))
+        assert not any("session_revocation_failed" in r.getMessage() for r in caplog.records)
+
+    def test_csrf_exemption_is_the_bearer_route_only(self, client, monkeypatch):
+        from fastapi.routing import APIRoute
+        from app.auth import get_current_admin, get_current_user
+
+        def dependencies(dependant):
+            for sub in dependant.dependencies:
+                yield sub.call
+                yield from dependencies(sub)
+
+        def api_routes():
+            # FastAPI 0.143 keeps included routers as their own route entries.
+            for route in app.routes:
+                contexts = getattr(route, "effective_route_contexts", None)
+                if contexts is not None:
+                    yield from contexts()
+                elif isinstance(route, APIRoute):
+                    yield route
+
+        exempt = [route for route in api_routes() if route.path in main.BEARER_PATHS]
+        assert [route.path for route in exempt] == ["/api/v1/auth/validate"]
+        for route in exempt:
+            assert not {get_current_user, get_current_admin} & set(dependencies(route.dependant))
+        oauth_login(client, monkeypatch, "csrf-prefix-user")
+        assert client.post("/api/v1/anything-else").status_code == 403
+
+    def test_sign_in_form_recovers_from_a_missing_csrf_cookie(self, client):
+        page = client.get("/login/local")
+        token = login_form_token(page)
+        client.cookies.clear()
+        first = client.post("/login/local", data={"email": "a@example.org", "password": "p" * 20, "csrf_token": token})
+        assert first.status_code == 403 and "form expired" in first.text
+        retry = client.post("/login/local", data={"email": "a@example.org", "password": "p" * 20,
+                                                  "csrf_token": login_form_token(first)})
+        assert retry.status_code == 401 and "Invalid email or password" in retry.text
+
+    def test_sign_in_limits_and_outages_are_pages(self, client, monkeypatch):
+        from fastapi import HTTPException
+
+        token = login_form_token(client.get("/login/local"))
+        form = {"email": "a@example.org", "password": "p" * 20, "csrf_token": token}
+
+        async def throttled(email):
+            raise HTTPException(status_code=429, detail="Too many login attempts", headers={"Retry-After": "60"})
+
+        monkeypatch.setattr(main, "enforce_account_login_limit", throttled)
+        response = client.post("/login/local", data=form)
+        assert response.status_code == 429 and response.headers["retry-after"] == "60"
+        assert response.headers["content-type"].startswith("text/html")
+
+        async def unavailable(email):
+            raise HTTPException(status_code=503, detail="Login temporarily unavailable")
+
+        monkeypatch.setattr(main, "enforce_account_login_limit", unavailable)
+        response = client.post("/login/local", data=form)
+        assert response.status_code == 503 and "temporarily unavailable" in response.text
+
+    def test_per_address_sign_in_limit_is_a_page(self, client, monkeypatch):
+        from slowapi.errors import RateLimitExceeded
+        from slowapi.wrappers import Limit
+        from limits import parse as parse_limit
+
+        token = login_form_token(client.get("/login/local"))
+        limit = Limit(parse_limit("1/minute"), lambda request: "k", None, False, None, None, None, 1, False)
+
+        def exceeded(*args, **kwargs):
+            raise RateLimitExceeded(limit)
+
+        monkeypatch.setattr(main.limiter, "_check_request_limit", exceeded)
+        response = client.post("/login/local", data={"email": "a@example.org", "password": "p" * 20,
+                                                     "csrf_token": token})
+        assert response.status_code == 429 and response.headers["content-type"].startswith("text/html")
+
+    def test_no_slash_redirects_built_from_the_host_header(self, client):
+        response = client.get("/dashboard/", headers={"Host": "attacker.example"})
+        assert response.status_code == 404
+        assert "location" not in response.headers
+
+    def test_cross_origin_isolation_headers(self, client):
+        headers = client.get("/").headers
+        assert headers["cross-origin-opener-policy"] == "same-origin"
+        assert headers["cross-origin-resource-policy"] == "same-origin"
+        assert "camera=()" in headers["permissions-policy"]
