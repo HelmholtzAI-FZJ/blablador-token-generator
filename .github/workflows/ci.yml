@@ -27,6 +27,7 @@ jobs:
       - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
         with:
           version: "0.11.21"
+          enable-cache: false  # nothing a run stores can change a later run
       - name: Lockfile matches pyproject.toml
         run: uv lock --check
       - name: Lint Python
@@ -56,6 +57,7 @@ jobs:
       - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
         with:
           version: "0.11.21"
+          enable-cache: false  # nothing a run stores can change a later run
       - name: Install locked dependencies
         run: uv sync --frozen --all-extras
       - name: Tests (SQLite)
@@ -83,6 +85,7 @@ jobs:
       - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
         with:
           version: "0.11.21"
+          enable-cache: false  # nothing a run stores can change a later run
       - name: Install Helm (checksum verified)
         run: |
           curl -fsSLo "$RUNNER_TEMP/helm.tar.gz" "https://get.helm.sh/helm-$HELM_VERSION-linux-amd64.tar.gz"
@@ -114,6 +117,7 @@ jobs:
       - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
         with:
           version: "0.11.21"
+          enable-cache: false  # nothing a run stores can change a later run
       - name: Build documentation
         run: uv run --frozen --only-group docs mkdocs build --strict
 
