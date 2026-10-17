@@ -24,6 +24,9 @@ hardening listed below.
   database and reports `"rate_limit_storage": "degraded"` when Redis is
   unreachable; alert on that and on `action=admission_storage_failed`.
 - API responses now carry timestamps with an explicit `+00:00` offset.
+- The chart's startup probe now allows 180 seconds (`startupProbe`), enough for
+  a pod to wait for another pod's migration; migration connections wait up
+  to 30 seconds for locks.
 
 ### Added
 

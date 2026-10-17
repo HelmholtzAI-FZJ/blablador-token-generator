@@ -11,8 +11,9 @@ The application listens on `127.0.0.1:8080` only.
 
 ## Prepare
 
-1. Build the three images (see [Kubernetes](kubernetes.md#1-images)) and note
-   their digests or tags.
+1. Check out a release tag of this repository; Compose builds the application
+   image from it. Build (or pull) the hardened PostgreSQL and Redis images
+   (see [Kubernetes](kubernetes.md#1-images)) and note their digests.
 2. Create certificates for the services `postgres` and `redis`, signed by a
    CA you control. On Linux, the PostgreSQL key must be readable by UID 70 and
    the Redis key by UID 999 (Compose keeps host file ownership).
@@ -52,6 +53,18 @@ curl -s http://127.0.0.1:8080/readyz
 
 On first start, PostgreSQL creates the separate runtime role and refuses
 plaintext connections; the application then creates its schema.
+
+## Upgrade
+
+```bash
+git fetch --tags && git checkout v1.1.0      # the release to run
+docker compose --env-file /etc/tokens/tokens.env up -d --build
+```
+
+`--build` rebuilds the application image from the new source; without it the
+old build keeps running. Change `POSTGRES_IMAGE`/`REDIS_IMAGE` when their
+images change. Database migrations run when the new application starts; read
+[Upgrades](../operations/upgrades.md) first.
 
 ## Create the first administrator
 

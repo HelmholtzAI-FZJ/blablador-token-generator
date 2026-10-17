@@ -123,11 +123,20 @@ not on a live cluster); rehearse it on yours.
     If the dump came from an older release, startup migrates it.
 
 !!! danger "Restoring an older backup undoes recent security actions"
-    Tokens revoked and accounts deleted after the backup was taken are valid
-    again. Before reopening access, repeat the revocations and deletions made
-    since then (audit log events `revoke_token`, `revoke_user_credentials`,
-    `delete_user`, `account_deleted`), and check with the identity provider
-    who should still have access.
+    Everything done after the backup was taken is undone, including:
+
+    - revoked tokens work again (`revoke_token`, `revoke_all_credentials`,
+      `revoke_user_credentials`), and **rotated tokens accept their old,
+      possibly leaked value again** (`rotate_token`);
+    - deleted accounts exist again (`delete_user`, `account_deleted`);
+    - removed administrator rights and reset passwords are back to their old
+      state (`update_user`), and sessions ended by those changes or by logout
+      (`logout`, `session_revoked`) become valid again until they expire.
+
+    Before reopening access, rotate `app.secret_key` (this signs everyone
+    out), then repeat the actions above from the audit log since the backup's
+    timestamp, and check with the identity provider who should still have
+    access.
 
 ## Testing restores
 

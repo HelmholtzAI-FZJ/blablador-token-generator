@@ -10,8 +10,9 @@
 ## Rolling out
 
 With Helm, change the image digests and run `helm upgrade`
-([details](../deployment/kubernetes.md#upgrading)). With Compose, change the
-image references and run `docker compose up -d`.
+([details](../deployment/kubernetes.md#upgrading)). With Compose, check out the
+new release and run `docker compose up -d --build`
+([details](../deployment/docker-compose.md#upgrade)).
 
 The schema is managed with [Alembic](https://alembic.sqlalchemy.org)
 migrations in `app/migrations/`. With `database.auto_migrate: true` (the
@@ -24,7 +25,11 @@ WARNING token_generator.audit action=schema_migrated from=0001 to=0002
 ```
 
 Migrations are written so the previous release keeps working while they run
-(new indexes are built `CONCURRENTLY`). Check the state at any time:
+(new indexes are built `CONCURRENTLY`). A starting pod waits up to 120 seconds
+for another pod's migration and the chart's startup probe allows 180 seconds;
+migration statements may run for 120 seconds and wait 30 seconds for locks.
+If a release notes a long migration, run it separately (below). Check the
+state at any time:
 
 ```bash
 kubectl exec deploy/tokens-blablador-token-generator -- python -m app.migrate check

@@ -62,13 +62,15 @@ APP_ENVIRONMENT=development uv run python -m app.manage \
 ./start.sh development
 ```
 
-Open <http://127.0.0.1:8080>, choose **Local Login** and sign in. The
+Open <http://localhost:8080>, choose **Local Login** and sign in. Use the
+same host name throughout (`localhost`, as in `api_url`): cookies belong to
+one host, so mixing `localhost` and `127.0.0.1` breaks sign-in. The
 dashboard creates tokens; **Admin Panel** lists all tokens and accounts.
 
 Try a token against the validation API:
 
 ```bash
-curl -X POST http://127.0.0.1:8080/api/v1/auth/validate \
+curl -X POST http://localhost:8080/api/v1/auth/validate \
      -H "Authorization: Bearer blablador-…"
 ```
 
