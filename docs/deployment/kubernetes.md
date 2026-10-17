@@ -12,9 +12,9 @@ instead of producing an insecure deployment.
 | --- | --- |
 | Application `Deployment` + `Service` | 2 replicas spread over nodes, a disruption budget, non-root, read-only root file system, no capabilities, `RuntimeDefault` seccomp, no service-account token. |
 | `Ingress` | Defaults for ingress-nginx: forced HTTPS, 64 KiB body limit. |
-| PostgreSQL `StatefulSet` | Single replica of the hardened image; TLS only (plaintext TCP rejected); a separate non-superuser runtime role. |
-| Redis `Deployment` | TLS only, password ACL without dangerous commands, no persistence, `noeviction`. |
-| `NetworkPolicy` | The application accepts traffic only from the peers you list; PostgreSQL and Redis only from the application. |
+| PostgreSQL `StatefulSet` | Single replica of the hardened image; TLS only (plaintext TCP rejected); a separate non-superuser runtime role; the administrator can sign in only inside the pod. |
+| Redis `Deployment` | Redis 8, TLS only, an ACL that allows the counter commands and the rate limiter's Lua scripts only, no modules, no persistence, `noeviction`. |
+| `NetworkPolicy` | The application accepts traffic only from the peers you list; PostgreSQL only from the application and the backup job, Redis only from the application. |
 | Backup `CronJob` | Optional nightly `pg_dump`; see [Backups](../operations/backups.md). |
 
 Requirements: Kubernetes 1.25 or newer, an ingress controller, a CNI that
@@ -49,8 +49,9 @@ local image IDs.
 
 Create these in the target namespace. The examples use release name `tokens`,
 which makes the service names `tokens-blablador-token-generator-postgresql`
-and `tokens-blablador-token-generator-redis`. Read passwords into variables
-with `read -rs` so they stay out of your shell history.
+and `tokens-blablador-token-generator-redis`. They write secret values to
+private files and create the Secrets from those, so no value appears on a
+command line (visible to other users in `ps`) or in your shell history.
 
 **Datastore certificates.** One Secret each for PostgreSQL and Redis with
 `tls.crt`, `tls.key` and `ca.crt`, valid for the service name (and its
@@ -78,21 +79,26 @@ spec:
 URL encoding:
 
 ```bash
-PG_ADMIN=$(openssl rand -hex 32); PG_RUNTIME=$(openssl rand -hex 32)
-kubectl create secret generic tokens-postgresql-credentials \
-  --from-literal=admin-password="$PG_ADMIN" \
-  --from-literal=password="$PG_RUNTIME" \
-  --from-literal=database-url="postgresql+asyncpg://tokens:$PG_RUNTIME@tokens-blablador-token-generator-postgresql:5432/tokens"
+umask 077; secrets=$(mktemp -d)
+openssl rand -hex 32 > "$secrets/admin-password"
+openssl rand -hex 32 > "$secrets/password"
+printf 'postgresql+asyncpg://tokens:%s@tokens-blablador-token-generator-postgresql:5432/tokens' \
+  "$(cat "$secrets/password")" > "$secrets/database-url"
+kubectl create secret generic tokens-postgresql-credentials --from-file="$secrets/admin-password" \
+  --from-file="$secrets/password" --from-file="$secrets/database-url"
 ```
 
 **Redis credentials** (`redis.existingSecret`): `password` and
 `storage-uri`:
 
 ```bash
-REDIS_PASSWORD=$(openssl rand -hex 32)
-kubectl create secret generic tokens-redis-credentials \
-  --from-literal=password="$REDIS_PASSWORD" \
-  --from-literal=storage-uri="rediss://:$REDIS_PASSWORD@tokens-blablador-token-generator-redis:6379/0?ssl_ca_certs=/app/tls/redis/ca.crt&ssl_cert_reqs=required&ssl_check_hostname=true"
+mkdir "$secrets/redis"
+openssl rand -hex 32 > "$secrets/redis/password"
+printf 'rediss://:%s@tokens-blablador-token-generator-redis:6379/0?ssl_ca_certs=/app/tls/redis/ca.crt&ssl_cert_reqs=required&ssl_check_hostname=true' \
+  "$(cat "$secrets/redis/password")" > "$secrets/redis/storage-uri"
+kubectl create secret generic tokens-redis-credentials --from-file="$secrets/redis/password" \
+  --from-file="$secrets/redis/storage-uri"
+rm -r "$secrets"
 ```
 
 **Application configuration** (`configExistingSecret`), key `config.yaml`.
@@ -121,6 +127,8 @@ login:
 admin:
   admin_subjects: ["<subject of the first administrator>"]
 rate_limits:
+  # The gateway validates tokens for many users from few addresses; without
+  # this, each of its addresses is limited to 600 validations a minute.
   token_validation_exempt: ["<gateway address>/32"]
 ```
 
@@ -165,8 +173,9 @@ ingress:
     - secretName: tokens-public-tls
       hosts: [tokens.example.org]
 
-# Addresses the ingress controller connects from (trusted X-Forwarded-For).
-forwardedAllowIps: "10.42.0.17,10.42.1.23"
+# Where the ingress controller connects from (trusted X-Forwarded-For).
+forwardedAllowIps: "10.42.0.0/16"
+allowForwardedCidrs: true
 
 networkPolicy:
   app:
@@ -183,9 +192,22 @@ networkPolicy:
           ports: [{port: 443, protocol: TCP}]
 ```
 
-`forwardedAllowIps` takes exact addresses; a CIDR additionally needs
-`allowForwardedCidrs: true` and must contain only trusted proxies. With a
-`hostNetwork` ingress controller, list the nodes' addresses.
+`forwardedAllowIps` lists addresses or networks (written without host bits:
+`10.42.0.0/16`, not `10.42.0.7/16`, which Uvicorn ignores); networks need
+`allowForwardedCidrs: true`. Choose addresses that do not change: ingress
+controller pods get new IP addresses when they restart, and a stale list makes
+every client share the ingress pod's rate-limit budget. Use the pod network
+(as above) while `networkPolicy.app.from` admits only the ingress controller
+(and the gateway), or the nodes' addresses with a `hostNetwork` ingress
+controller. The ingress controller itself must replace, not trust, the
+`X-Forwarded-For` header clients send (ingress-nginx does by default).
+
+After installing, check that the access log shows clients' real addresses,
+not the ingress controller's:
+
+```bash
+kubectl logs deploy/tokens-blablador-token-generator | grep token_generator.access | tail -3
+```
 
 All other values (resources, probes, replicas, `workers`, the full `config`
 block for generated config Secrets) are documented in
@@ -217,7 +239,7 @@ serving until the new ones are ready. Read the
 Helm cannot see changes inside existing Secrets. After changing one, bump
 `secretRevision` (any new string) and upgrade, so the pods restart with the
 new values. A changed PostgreSQL password must first be set in the database
-(`ALTER ROLE`); see [Incident response](../operations/incidents.md#rotate-keys-and-passwords).
+(with psql's `\password`); see [Incident response](../operations/incidents.md#rotate-keys-and-passwords).
 
 ## External PostgreSQL or Redis
 

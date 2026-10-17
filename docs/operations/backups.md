@@ -25,10 +25,14 @@ postgresql:
     storageClass: ""          # default storage class
 ```
 
-Every run writes `tokens-<UTC timestamp>.dump` (PostgreSQL custom format) to
-the volume `<release>-blablador-token-generator-postgresql-backup` and deletes
-dumps older than `retentionDays`. The job connects as the runtime role over
-verified TLS. The volume is kept when the release is uninstalled.
+Every run writes `tokens-<UTC timestamp>.dump` (PostgreSQL custom format,
+readable by its owner only) to the volume
+`<release>-blablador-token-generator-postgresql-backup` and deletes its own
+dumps older than `retentionDays` (other files, and anything in
+subdirectories, are left alone). The job connects as the runtime role over
+verified TLS, after waiting up to a minute for the database to accept it. The
+volume is kept when the release is uninstalled. Alert on failed backup Jobs
+and on the age of the newest dump ([Monitoring](monitoring.md#alerts)).
 
 !!! warning "Copy backups off the cluster"
     A dump on the same storage as the database does not survive losing that
@@ -51,10 +55,15 @@ The procedure below restores a dump into the bundled database. Its dump and
 restore commands were tested end to end with the hardened images (in Docker,
 not on a live cluster); rehearse it on yours.
 
-1. **Stop the application** so nothing writes during the restore:
+1. **Stop everything that writes or starts the application.** Suspend GitOps
+   auto-sync for the release and any autoscaler, suspend the backup job, scale
+   the application to zero and wait until its pods are gone:
 
     ```bash
+    kubectl patch cronjob tokens-blablador-token-generator-postgresql-backup -p '{"spec":{"suspend":true}}'
     kubectl scale deploy/tokens-blablador-token-generator --replicas=0
+    kubectl wait --for=delete pod --timeout=120s \
+      -l app.kubernetes.io/instance=tokens,app.kubernetes.io/name=blablador-token-generator
     ```
 
 2. **Start a toolbox pod** that mounts the backup volume and the database CA,
@@ -70,6 +79,7 @@ not on a live cluster); rehearse it on yours.
         app.kubernetes.io/name: tokens-blablador-token-generator-postgresql-backup
         app.kubernetes.io/instance: tokens
     spec:
+      automountServiceAccountToken: false
       securityContext: {runAsNonRoot: true, runAsUser: 70, fsGroup: 70,
                         seccompProfile: {type: RuntimeDefault}}
       containers:
@@ -95,32 +105,46 @@ not on a live cluster); rehearse it on yours.
         - {name: tmp, emptyDir: {}}
     ```
 
-3. **Empty the application schema** as the PostgreSQL administrator (the
-   `admin-password` in the credentials Secret), and give it back to the
-   runtime role:
+3. **Empty the application schema** as the PostgreSQL administrator, inside
+   the database pod (the administrator can sign in only there), and give it
+   back to the runtime role:
 
     ```bash
-    kubectl exec -it tokens-restore -- psql -U token_admin -c \
+    kubectl exec -it tokens-blablador-token-generator-postgresql-0 -- psql -U token_admin -d tokens -c \
       "DROP SCHEMA public CASCADE; CREATE SCHEMA public AUTHORIZATION tokens; REVOKE ALL ON SCHEMA public FROM PUBLIC;"
     ```
 
-4. **Restore** as the runtime role (the `password` in the Secret):
+4. **Restore** as the runtime role (the `password` in the Secret), all or
+   nothing:
 
     ```bash
     kubectl exec -it tokens-restore -- ls -l /backup
     kubectl exec -it tokens-restore -- pg_restore -U tokens --no-owner --role=tokens \
-        --exit-on-error -d tokens /backup/tokens-20261016T213652Z.dump
+        --single-transaction --exit-on-error -d tokens /backup/tokens-20261016T213652Z.dump
     ```
 
-5. **Start the application** and check it:
+    **If `pg_restore` fails, do not start the application.** It would
+    initialise the empty schema as a new installation, and every deleted
+    account could sign in again. Fix the cause and repeat steps 3 and 4.
+
+5. **Start the application**, check that the schema is complete, and resume
+   backups:
 
     ```bash
     kubectl scale deploy/tokens-blablador-token-generator --replicas=2
     kubectl exec deploy/tokens-blablador-token-generator -- python -m app.migrate check
+    kubectl patch cronjob tokens-blablador-token-generator-postgresql-backup -p '{"spec":{"suspend":false}}'
     kubectl delete pod tokens-restore
     ```
 
-    If the dump came from an older release, startup migrates it.
+    `check` compares revision and schema with the release. If the dump came
+    from an older release, startup migrates it first.
+
+With Docker Compose the steps are the same: stop the `app` service, run the
+`DROP SCHEMA` statement with `docker compose exec postgres psql -U
+token_admin -d tokens`, restore with `docker compose exec -T postgres
+pg_restore -U tokens --no-owner --role=tokens --single-transaction
+--exit-on-error -d tokens < tokens-….dump`, and start `app` again.
 
 !!! danger "Restoring an older backup undoes recent security actions"
     Everything done after the backup was taken is undone, including:

@@ -18,7 +18,7 @@ The chart refuses to render without them:
 | `postgresql.existingSecret` | Keys `admin-password`, `password`, `database-url` (or the `postgresql.*Password` values). |
 | `redis.existingSecret` | Keys `password`, `storage-uri` (or `redis.password`). |
 | `postgresql.tls.existingSecret`, `redis.tls.existingSecret` | `tls.crt`, `tls.key`, `ca.crt`, valid for the datastore service names. |
-| `forwardedAllowIps` | Exact addresses of the ingress controller (trusted `X-Forwarded-For`). |
+| `forwardedAllowIps` | Where the ingress controller connects from (trusted `X-Forwarded-For`): addresses, or networks without host bits with `allowForwardedCidrs: true`. Prefer addresses that survive ingress restarts; see the guide. |
 | `networkPolicy.app.from` | Peers allowed to reach the application (ingress controller, API gateway). |
 | `networkPolicy.app.egress.extraRules` | The identity provider's addresses on port 443. |
 
@@ -38,5 +38,6 @@ python helm/blablador-token-generator/tests/container_risk_gate.py --self-test
 `ci/test-values.yaml` contains synthetic values for these checks only. The
 render tests cover the security settings, Secret handling, rollouts on
 credential changes, graceful shutdown, backups and the rejection of unsafe
-values; the risk gate fails on high or critical image findings without a
-current assessment.
+values, and keep names within Kubernetes limits for long release names; the
+risk gate fails on high or critical image findings without a current
+assessment, on secrets in images and on unsupported operating systems.

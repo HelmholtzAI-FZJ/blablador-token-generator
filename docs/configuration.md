@@ -149,7 +149,7 @@ Limits use the [limits](https://limits.readthedocs.io/) syntax, such as
 | --- | --- | --- |
 | `storage_uri` | `memory://` | Counter storage. Production: `rediss://:<password>@<host>:6379/0?ssl_ca_certs=<ca file>&ssl_cert_reqs=required&ssl_check_hostname=true`. |
 | `storage_timeout_seconds` | `0.5` | Redis connect/read deadline. |
-| `preauth` | `240/minute` | Admission budget for every request, per client address. |
+| `preauth` | `240/minute` | Admission budget for every request except token validation, per client address (IPv6: per /64). |
 | `pages` | `120/minute` | Pages and the sign-in redirect, per address. |
 | `oauth_callback` | `60/minute` | OAuth callback, per address. |
 | `local_login` | `10/minute` | Password sign-in attempts per address. |
@@ -159,7 +159,7 @@ Limits use the [limits](https://limits.readthedocs.io/) syntax, such as
 | `session` | `30/minute` | Logout, per user. |
 | `account_delete` | `5/minute` | Account deletion, per user. |
 | `admin` | `120/minute` | Administration, per user. |
-| `token_validation` | `600/minute` | Validation API, per address. |
+| `token_validation` | `600/minute` | Validation API, per address; also its admission budget. |
 | `token_validation_exempt` | `[]` | Addresses or networks (for example the API gateway) exempt from validation limits. |
 
 ## `admin`

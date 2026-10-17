@@ -38,8 +38,16 @@ links to the details.
 
 - [ ] Build the application, PostgreSQL and Redis images in CI (the release
       workflow does this for version tags) and deploy them **by digest**.
+- [ ] Verify each digest's provenance before deploying it, with the command
+      in the GitHub release notes (`gh attestation verify … --repo …
+      --signer-workflow …`).
 - [ ] Check the image scan of the exact digest you deploy, for every
-      architecture you run.
+      architecture you run (attached to the GitHub release).
+- [ ] Protect the release path in the repository settings: reviewers for the
+      `release` environment (and the registry secrets moved there), a
+      protected `main` that requires pull requests with passing CI, and a tag
+      ruleset that lets only release managers create `v*` tags. Require
+      two-factor authentication in the organisation.
 - [ ] Review the container risk assessments in
       [`security_audit/container-risk-exceptions.json`](https://github.com/HelmholtzAI-FZJ/blablador-token-generator/blob/main/security_audit/container-risk-exceptions.json)
       before they expire (2026-11-10); CI fails afterwards by design.
@@ -50,8 +58,10 @@ links to the details.
       HTTPS (the chart's default ingress annotations do this for ingress-nginx).
 - [ ] Certificates for PostgreSQL and Redis that are valid for their service
       names, and a Secret with their CA for the application.
-- [ ] `forwardedAllowIps`: exactly the addresses your ingress controller
-      connects from, so clients cannot forge `X-Forwarded-For`.
+- [ ] `forwardedAllowIps`: where your ingress controller connects from, in a
+      form that survives its restarts (see
+      [Kubernetes](kubernetes.md#3-values)), so clients cannot forge
+      `X-Forwarded-For` and do not share one rate-limit budget.
 - [ ] `networkPolicy.app.from`: the ingress controller and the Blablador
       gateway. `networkPolicy.app.egress.extraRules`: the identity provider's
       addresses on port 443. Confirm your CNI enforces NetworkPolicy.
@@ -74,7 +84,8 @@ links to the details.
 ## 6. Monitoring
 
 - [ ] Collect the application logs centrally and alert on the events listed in
-      [Monitoring](../operations/monitoring.md#alerts).
+      [Monitoring](../operations/monitoring.md#alerts), including failed
+      backup Jobs and the age of the newest dump.
 - [ ] Probe `https://<host>/readyz` from outside and alert on failures and on
       `"rate_limit_storage": "degraded"`.
 
@@ -82,6 +93,8 @@ links to the details.
 
 - [ ] Sign in with JSC Login; create, validate, rotate and revoke a token.
 - [ ] Validate a token from the gateway; check it is not rate limited.
+- [ ] The access log shows your own address for your requests, not the
+      ingress controller's.
 - [ ] From an unrelated pod, confirm the application, PostgreSQL and Redis are
       unreachable, and that plaintext connections to PostgreSQL and Redis are
       refused.
