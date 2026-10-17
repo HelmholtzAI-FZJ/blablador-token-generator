@@ -83,3 +83,11 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- printf "redis://:%s@%s:6379/0" $password $name -}}
 {{- end -}}
 {{- end -}}
+
+{{/*
+Backup CronJob, volume and pod label. CronJob names may have at most 52
+characters (Job names get a suffix).
+*/}}
+{{- define "blablador-token-generator.backupName" -}}
+{{- printf "%s-postgresql-backup" (include "blablador-token-generator.fullname" . | trunc 34 | trimSuffix "-") -}}
+{{- end -}}

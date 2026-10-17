@@ -46,7 +46,8 @@ spec:
   template:
     metadata:
       annotations:
-        checksum/credentials: {{ $pg | toJson | sha256sum }}
+        # Backup settings must not restart the only database replica.
+        checksum/credentials: {{ omit $pg "backup" | toJson | sha256sum }}
         checksum/init: {{ .Files.Get "files/init-runtime-role.sh" | sha256sum }}
         secrets/revision: {{ .Values.secretRevision | quote }}
       labels:

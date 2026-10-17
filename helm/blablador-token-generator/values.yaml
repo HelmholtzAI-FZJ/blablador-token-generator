@@ -45,6 +45,14 @@ readinessProbe:
     port: 8080
   initialDelaySeconds: 5
   periodSeconds: 10
+# Startup applies pending database migrations; a pod may wait up to 120 s
+# for another pod's migration lock, so allow 180 s.
+startupProbe:
+  httpGet:
+    path: /healthz
+    port: 8080
+  failureThreshold: 90
+  periodSeconds: 2
 forwardedAllowIps: ''
 # Rolling updates: keep serving this long after termination starts (the
 # ingress needs a moment to stop routing to the pod), then let in-flight
