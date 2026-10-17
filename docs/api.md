@@ -137,18 +137,21 @@ the configured block list.
 | Path | Purpose | Response |
 | --- | --- | --- |
 | `GET /healthz` | Liveness: the process answers | Always `200 {"status": "ok"}` |
-| `GET /readyz` | Readiness: the database answers | `200 {"status": "ready", "rate_limit_storage": "ok"}`; `"degraded"` when Redis is unreachable (limits then apply per process); `503 {"status": "unavailable"}` when the database is unreachable |
+| `GET /readyz` | Readiness: the database answers | `200 {"status": "ready", "rate_limit_storage": "ok"}`; `"degraded"` when Redis is unreachable or full (limits then apply per process); `503 {"status": "unavailable"}` when the database is unreachable |
 
 ## Rate limits
 
 Limits are counted in Redis, so they hold across workers and replicas. Every
 request first passes a per-address admission budget (`rate_limits.preauth`,
-240 per minute); routes then apply their own limits. Exceeding a limit answers
-`429` with `Retry-After`. All values are [configurable](configuration.md#rate_limits).
+240 per minute; token validation has its own, `rate_limits.token_validation`);
+routes then apply their own limits. Exceeding a limit answers `429` with
+`Retry-After`. IPv6 clients are counted per /64 network, since one host
+usually controls a whole /64. All values are
+[configurable](configuration.md#rate_limits).
 
 | Budget | Default | Counted per |
 | --- | --- | --- |
-| Any request (admission) | 240/minute | client address |
+| Any request except token validation (admission) | 240/minute | client address |
 | Pages, sign-in redirect | 120/minute | client address |
 | OAuth callback | 60/minute | client address |
 | Local password sign-in | 10/minute, and 5/minute per account | client address / account |
