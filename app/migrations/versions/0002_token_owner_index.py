@@ -39,7 +39,8 @@ def upgrade() -> None:
     indexes = {index["name"]: index for index in sa.inspect(bind).get_indexes("tokens")}
     owner = indexes.get("ix_tokens_user_id")
     if owner is None or owner["column_names"] != ["user_id"] or owner["unique"]:
-        raise RuntimeError("Existing ix_tokens_user_id has an unexpected definition; review it before migrating")
+        from app.migrate import SchemaError
+        raise SchemaError("Existing ix_tokens_user_id has an unexpected definition; review it before migrating")
 
 
 def downgrade() -> None:
