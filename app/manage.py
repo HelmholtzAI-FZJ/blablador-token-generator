@@ -30,6 +30,7 @@ from app.config import get_config
 from app.logging_config import APP_LOGGER, configure_logging
 from app.models import User
 from app.tombstones import is_user_deleted, lift_deletions_for_email
+from app.validation import has_unsafe_characters
 
 logger = logging.getLogger("token_generator.audit")
 
@@ -135,6 +136,8 @@ async def run(args: argparse.Namespace) -> str:
 def non_empty(value: str) -> str:
     if not value.strip():
         raise argparse.ArgumentTypeError("must not be empty")
+    if has_unsafe_characters(value):
+        raise argparse.ArgumentTypeError("must not contain control characters")
     return value
 
 
