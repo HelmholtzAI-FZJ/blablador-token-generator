@@ -172,20 +172,39 @@ def test_operations() -> None:
     after = index(render(rescheduled))
     assert after[("StatefulSet", name + "-postgresql")]["spec"]["template"] == mapped[("StatefulSet", name + "-postgresql")]["spec"]["template"]
 
-    # Long release names keep CronJob names within Kubernetes' 52 characters.
-    for release in ("blablador", "a-much-longer-release-name-for-tokens"):
+    # Long release names keep every name and label within Kubernetes limits:
+    # 52 characters for CronJobs and StatefulSets (their pods' labels add a
+    # suffix), 63 for Services and label values. Selectors still match.
+    for release in ("blablador", "a-much-longer-release-name-for-tokens", "r" * 53):
         long_names = render(values, release=release)
+        for resource in long_names:
+            limit = 52 if resource["kind"] in ("CronJob", "StatefulSet") else 63
+            if resource["kind"] in ("CronJob", "StatefulSet", "Service", "Deployment"):
+                assert len(resource["metadata"]["name"]) <= limit, (release, resource["metadata"]["name"])
+            template = resource.get("spec", {}).get("template") or resource.get("spec", {}).get("jobTemplate", {}).get("spec", {}).get("template")
+            for value in ((template or {}).get("metadata", {}).get("labels") or {}).values():
+                assert len(value) <= 63, (release, value)
         cronjob = next(r for r in long_names if r["kind"] == "CronJob")
-        assert len(cronjob["metadata"]["name"]) <= 52, cronjob["metadata"]["name"]
         assert cronjob["metadata"]["name"].endswith("-postgresql-backup")
         label = cronjob["spec"]["jobTemplate"]["spec"]["template"]["metadata"]["labels"]["app.kubernetes.io/name"]
         policies = [r for r in long_names if r["kind"] == "NetworkPolicy"]
         assert any(p["spec"]["podSelector"]["matchLabels"].get("app.kubernetes.io/name") == label for p in policies)
+        services = {r["metadata"]["name"] for r in long_names if r["kind"] == "Service"}
+        for workload in (r for r in long_names if r["kind"] in ("StatefulSet", "Deployment")):
+            pod_labels = workload["spec"]["template"]["metadata"]["labels"]
+            assert any(all(pod_labels.get(k) == v for k, v in p["spec"]["podSelector"]["matchLabels"].items())
+                       for p in policies), workload["metadata"]["name"]
+        database = next(r for r in long_names if r["kind"] == "StatefulSet")["metadata"]["name"]
+        assert database in services
+        assert next(r for r in long_names if r["kind"] == "CronJob")["spec"]["jobTemplate"]["spec"]["template"]["spec"]["containers"][0]["env"][0]["value"] == database
     assert pod["containers"][0]["startupProbe"]["failureThreshold"] * pod["containers"][0]["startupProbe"]["periodSeconds"] >= 150
     no_delay = copy.deepcopy(values)
     no_delay["shutdownDelaySeconds"] = 0
     assert "lifecycle" not in index(render(no_delay))[("Deployment", name)]["spec"]["template"]["spec"]["containers"][0]
-    for unsafe in ({"postgresql": {"backup": {"retentionDays": 0}}}, {"shutdownDelaySeconds": 120}):
+    readiness = pod["containers"][0]["readinessProbe"]
+    assert readiness["timeoutSeconds"] >= 4, "readiness waits for the database and Redis in turn"
+    for unsafe in ({"postgresql": {"backup": {"retentionDays": 0}}}, {"shutdownDelaySeconds": 120},
+                   {"shutdownDelaySeconds": 26}, {"unknownTopLevelKey": True}):
         broken = copy.deepcopy(values)
         for key, value in unsafe.items():
             if key == "postgresql":
@@ -225,13 +244,19 @@ def test_postgresql_separation() -> None:
         executable = work / "psql"
         executable.write_text('#!/bin/sh\nprintf "called\\n" >> "$AUDIT_PSQL_MARKER"\ncat >/dev/null\n')
         executable.chmod(0o700)
+        data = work / "pgdata"
+        data.mkdir()
+        (data / "pg_hba.conf").write_text("host all all all scram-sha-256\n")
         environment = dict(os.environ, PATH=str(work) + os.pathsep + os.environ["PATH"],
             AUDIT_PSQL_MARKER=str(marker), POSTGRES_USER="token_admin", POSTGRES_DB="tokens",
             POSTGRES_PASSWORD="SyntheticSeparateAdminPassword", TOKEN_DB_USER="tokens",
-            TOKEN_DB_PASSWORD="SyntheticSeparateRuntimePassword", TOKEN_DB_REQUIRE_TLS="false")
+            TOKEN_DB_PASSWORD="SyntheticSeparateRuntimePassword", TOKEN_DB_REQUIRE_TLS="true",
+            PGDATA=str(data))
         cases = [
             {"TOKEN_DB_USER": environment["POSTGRES_USER"]},
             {"TOKEN_DB_PASSWORD": environment["POSTGRES_PASSWORD"]},
+            {"POSTGRES_USER": "admin all all trust\nhost"},
+            {"POSTGRES_USER": "Admin"},
             *({name: ""} for name in credential_names),
         ]
         for overrides in cases:
@@ -253,6 +278,14 @@ def test_postgresql_separation() -> None:
             capture_output=True, text=True)
         assert safe.returncode == 0, safe.stderr
         assert marker.read_text() == "called\n"
+        # The administrator never signs in over the network; nothing over
+        # plaintext; the image's own rules follow.
+        assert (data / "pg_hba.conf").read_text().splitlines() == [
+            "host all token_admin all reject",
+            "hostnossl all all 0.0.0.0/0 reject",
+            "hostnossl all all ::/0 reject",
+            "host all all all scram-sha-256",
+        ]
     print("PostgreSQL credential separation guards passed before SQL")
 
 

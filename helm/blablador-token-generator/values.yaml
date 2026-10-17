@@ -39,12 +39,16 @@ livenessProbe:
     port: 8080
   initialDelaySeconds: 10
   periodSeconds: 30
+  timeoutSeconds: 3
+# /readyz waits up to readiness_timeout_seconds for the database and again
+# for Redis; the probe allows both.
 readinessProbe:
   httpGet:
     path: /readyz
     port: 8080
   initialDelaySeconds: 5
   periodSeconds: 10
+  timeoutSeconds: 5
 # Startup applies pending database migrations; a pod may wait up to 120 s
 # for another pod's migration lock, so allow 180 s.
 startupProbe:

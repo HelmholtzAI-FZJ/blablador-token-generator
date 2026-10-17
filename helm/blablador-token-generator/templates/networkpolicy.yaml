@@ -5,13 +5,13 @@
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
-  name: {{ $fullname }}-{{ $component }}
+  name: {{ include "blablador-token-generator.componentName" (dict "root" $ "component" $component) }}
   labels:
     {{- include "blablador-token-generator.labels" $ | nindent 4 }}
 spec:
   podSelector:
     matchLabels:
-      app.kubernetes.io/name: {{ $fullname }}-{{ $component }}
+      app.kubernetes.io/name: {{ include "blablador-token-generator.componentName" (dict "root" $ "component" $component) }}
       app.kubernetes.io/instance: {{ $.Release.Name }}
   policyTypes: ["Ingress", "Egress"]
   ingress:
@@ -59,7 +59,7 @@ spec:
     - to:
         - podSelector:
             matchLabels:
-              app.kubernetes.io/name: {{ $fullname }}-postgresql
+              app.kubernetes.io/name: {{ include "blablador-token-generator.componentName" (dict "root" $ "component" "postgresql") }}
               app.kubernetes.io/instance: {{ .Release.Name }}
       ports:
         - port: 5432
@@ -127,7 +127,7 @@ spec:
     - to:
         - podSelector:
             matchLabels:
-              app.kubernetes.io/name: {{ $fullname }}-{{ $component }}
+              app.kubernetes.io/name: {{ include "blablador-token-generator.componentName" (dict "root" $ "component" $component) }}
               app.kubernetes.io/instance: {{ $.Release.Name }}
       ports:
         - port: {{ $port }}

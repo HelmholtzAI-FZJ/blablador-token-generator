@@ -36,6 +36,9 @@ metadata:
   labels:
     {{- include "blablador-token-generator.labels" . | nindent 4 }}
 spec:
+  {{- if ge (int .Values.shutdownDelaySeconds) (sub (int .Values.terminationGracePeriodSeconds) 5) }}
+  {{- fail "shutdownDelaySeconds must be at least 5 seconds shorter than terminationGracePeriodSeconds" }}
+  {{- end }}
   replicas: {{ .Values.replicaCount }}
   selector:
     matchLabels:
@@ -77,7 +80,7 @@ spec:
             capabilities:
               drop: ["ALL"]
           image: {{ include "blablador-token-generator.image" .Values.image | quote }}
-          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          imagePullPolicy: {{ .Values.image.pullPolicy | quote }}
           env:
             - name: APP_ENVIRONMENT
               value: {{ .Values.config.app.environment | quote }}

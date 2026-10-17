@@ -557,6 +557,37 @@
     },
     "startupProbe": {
       "type": "object"
+    },
+    "imagePullSecrets": {
+      "type": "array"
+    },
+    "nameOverride": {
+      "type": "string"
+    },
+    "fullnameOverride": {
+      "type": "string"
+    },
+    "service": {
+      "type": "object"
+    },
+    "ingress": {
+      "type": "object"
+    },
+    "resources": {
+      "type": "object"
+    },
+    "livenessProbe": {
+      "type": "object"
+    },
+    "readinessProbe": {
+      "type": "object"
+    },
+    "networkPolicy": {
+      "type": "object"
+    },
+    "persistence": {
+      "type": "object"
     }
-  }
+  },
+  "additionalProperties": false
 }

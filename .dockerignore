@@ -6,3 +6,13 @@
 !uv.lock
 **/__pycache__
 **/*.pyc
+# Local files that could sit inside app/ during development.
+**/*.db
+**/*.db-*
+**/*.sqlite*
+**/.env*
+**/*.pem
+**/*.key
+**/*.crt
+**/config.yaml
+**/*.log

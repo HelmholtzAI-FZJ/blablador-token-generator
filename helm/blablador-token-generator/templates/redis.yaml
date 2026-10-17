@@ -1,5 +1,5 @@
 {{- if .Values.redis.enabled }}
-{{- $name := printf "%s-redis" (include "blablador-token-generator.fullname" .) }}
+{{- $name := include "blablador-token-generator.componentName" (dict "root" . "component" "redis") }}
 {{- $redis := .Values.redis }}
 {{- if and (eq .Values.config.app.environment "production") (not $redis.tls.enabled) }}{{- fail "Production Redis requires verified TLS" }}{{- end }}
 {{- if not $redis.existingSecret }}
