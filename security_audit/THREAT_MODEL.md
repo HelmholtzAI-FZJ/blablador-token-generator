@@ -1,5 +1,7 @@
 # Token Generator threat model
 
+> **Superseded in part.** This document describes the code as of the first review. Since then: admission falls back to per-process counters when Redis fails instead of answering 503, and `/readyz` requires only the database (password sign-in still fails closed); only the token validation route is exempt from CSRF; the schema is managed by Alembic migrations instead of `create_all`; the application writes its own access log (route templates, never query strings). See [REPORT-2026-10-17.md](REPORT-2026-10-17.md) and the [security page](https://helmholtzai-fzj.github.io/blablador-token-generator/security/).
+
 Reviewed on 2026-10-12 against the application and deployment sources after the security fixes. This document describes the intended production boundary, the controls implemented in this repository, and assumptions that need deployment evidence. It is not evidence that a particular production installation satisfies those assumptions. The finding register and final verification interpretation are in [REPORT.md](REPORT.md). The route and verification inventory is in [CONTROLS.md](CONTROLS.md); dependency and image findings are in [DEPENDENCIES.md](DEPENDENCIES.md) and [CONTAINER_VULNERABILITIES.md](CONTAINER_VULNERABILITIES.md).
 
 ## Scope and security objectives
