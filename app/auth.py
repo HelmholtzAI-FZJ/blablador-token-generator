@@ -25,6 +25,7 @@ from app.database import get_db
 from app.models import User, RevokedJWT
 from app.timeutil import utcnow
 from app.tombstones import is_subject_deleted, is_user_deleted
+from app.validation import has_unsafe_characters, without_unsafe_characters
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token", auto_error=False)
 config = get_config()
@@ -367,7 +368,7 @@ class _OAuthUserInfo(BaseModel):
     @field_validator("email")
     @classmethod
     def valid_email(cls, value: str) -> str:
-        if value.count("@") != 1 or any(character.isspace() or ord(character) < 32 or ord(character) == 127 for character in value):
+        if value.count("@") != 1 or has_unsafe_characters(value) or any(character.isspace() for character in value):
             raise ValueError("Invalid provider email")
         local, domain = value.split("@")
         if not local or not domain:
@@ -421,7 +422,10 @@ async def get_or_create_user(userinfo: dict, db: AsyncSession) -> User:
         raise HTTPException(status_code=503, detail="Authentication provider temporarily unavailable") from None
     unity_id = profile.sub
     email = profile.email
-    name = (profile.name or profile.preferred_username or email)[:PROFILE_FIELD_MAX]
+    # Names are free text the person may edit at the provider; drop control
+    # and invisible formatting characters rather than refusing the sign-in.
+    name = without_unsafe_characters(profile.name or profile.preferred_username or "").strip()
+    name = (name or email)[:PROFILE_FIELD_MAX]
     email_trusted = (
         profile.email_verified or config.oauth.trust_provider_emails
     )
@@ -484,14 +488,17 @@ async def get_or_create_user(userinfo: dict, db: AsyncSession) -> User:
 
 
 async def authenticate_local_user(email: str, password: str, db: AsyncSession) -> User | None:
-    result = await db.execute(
-        select(User).where(
-            User.email == normalize_email(email),
-            User.unity_id.is_(None),
-            User.password_hash.isnot(None),
+    user = None
+    # No local account can have such an email (and PostgreSQL refuses NUL).
+    if not has_unsafe_characters(email):
+        result = await db.execute(
+            select(User).where(
+                User.email == normalize_email(email),
+                User.unity_id.is_(None),
+                User.password_hash.isnot(None),
+            )
         )
-    )
-    user = result.scalar_one_or_none()
+        user = result.scalar_one_or_none()
     stored_hash = user.password_hash if (user and user.password_hash) else _DUMMY_HASH
     # Always run bcrypt so response timing doesn't reveal whether the
     # email exists (prevents user enumeration via timing side-channel).

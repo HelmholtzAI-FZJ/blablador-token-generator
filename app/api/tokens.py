@@ -1,5 +1,6 @@
 import logging
 from datetime import datetime, timedelta, timezone
+from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import func, select, update
@@ -11,6 +12,7 @@ from app.config import get_config
 from app.cookies import SESSION_COOKIE
 from app.rate_limit import limiter, RATE_LIMITS, user_or_ip
 from app.timeutil import isoformat_utc, utcnow
+from app.validation import DisplayText, ResourceId
 
 router = APIRouter(prefix="/tokens", tags=["tokens"])
 logger = logging.getLogger("token_generator.audit")
@@ -51,7 +53,7 @@ class TokenExpirationRequest(BaseModel):
 
 
 class CreateTokenRequest(TokenExpirationRequest):
-    name: str = Field(..., min_length=1, max_length=255)
+    name: Annotated[str, Field(min_length=1, max_length=255), DisplayText]
 
 
 def check_expiration(expires_at: datetime) -> None:
@@ -197,7 +199,7 @@ async def list_tokens(
 @limiter.limit(TOKEN_WRITE_LIMIT, key_func=user_or_ip)
 async def revoke_token(
     request: Request,
-    token_id: str,
+    token_id: ResourceId,
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -225,7 +227,7 @@ async def revoke_token(
 @limiter.limit(TOKEN_WRITE_LIMIT, key_func=user_or_ip)
 async def delete_token(
     request: Request,
-    token_id: str,
+    token_id: ResourceId,
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -257,7 +259,7 @@ class RenewTokenRequest(TokenExpirationRequest):
 @limiter.limit(TOKEN_WRITE_LIMIT, key_func=user_or_ip)
 async def renew_token(
     request: Request,
-    token_id: str,
+    token_id: ResourceId,
     body: RenewTokenRequest | None = None,
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
@@ -310,7 +312,7 @@ async def renew_token(
 @limiter.limit(TOKEN_WRITE_LIMIT, key_func=user_or_ip)
 async def rotate_token(
     request: Request,
-    token_id: str,
+    token_id: ResourceId,
     body: RenewTokenRequest | None = None,
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),

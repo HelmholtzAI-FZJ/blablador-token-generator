@@ -333,3 +333,90 @@ def make_url_for(url: str, username: str, password: str):
     from sqlalchemy.engine import make_url
 
     return make_url(url).set(username=username, password=password)
+
+
+def oauth_login(client: TestClient, monkeypatch, subject: str, name: str | None = None, admin: bool = False) -> str:
+    """Sign in through the OAuth callback; returns the CSRF token."""
+    async def fake_userinfo(code, code_verifier):
+        return {"sub": subject, "email": f"{subject}@example.com", "name": name or subject}
+
+    monkeypatch.setattr(main, "get_unity_userinfo", fake_userinfo)
+    if admin:
+        async def promote():
+            from sqlalchemy import update
+            from app import database
+            from app.models import User
+
+            async with database.async_session_maker() as db:
+                await db.execute(update(User).where(User.unity_id == subject).values(is_admin=True))
+                await db.commit()
+
+    client.cookies.set("oauth_state", "state")
+    client.cookies.set("oauth_verifier", "v" * 43)
+    assert client.get("/oauth/openid/callback", params={"state": "state", "code": "code"}).status_code == 303
+    if admin:
+        client.portal.call(promote)
+        client.cookies.set("oauth_state", "state")
+        client.cookies.set("oauth_verifier", "v" * 43)
+        assert client.get("/oauth/openid/callback", params={"state": "state", "code": "code"}).status_code == 303
+    client.get("/")
+    return client.cookies.get("csrf_token")
+
+
+class TestInputValidation:
+    @pytest.mark.parametrize("name", ["nul\x00name", "line\nbreak", "evil‮exe.txt", "zero​width"])
+    def test_token_names_without_control_or_invisible_characters(self, client, monkeypatch, name):
+        csrf = oauth_login(client, monkeypatch, "names-user")
+        response = client.post("/tokens", json={"name": name}, headers={"X-CSRF-Token": csrf})
+        assert response.status_code == 422
+
+    def test_emoji_sequences_stay_allowed(self, client, monkeypatch):
+        csrf = oauth_login(client, monkeypatch, "emoji-user")
+        response = client.post("/tokens", json={"name": "\U0001F468‍\U0001F4BB laptop"},
+                               headers={"X-CSRF-Token": csrf})
+        assert response.status_code == 200, response.text
+
+    @pytest.mark.parametrize("token_id", ["a%00b", "a.b", "x" * 37])
+    def test_malformed_ids_are_client_errors(self, client, monkeypatch, token_id):
+        csrf = oauth_login(client, monkeypatch, "ids-user")
+        for method, path in (("DELETE", f"/tokens/{token_id}"), ("POST", f"/tokens/{token_id}/rotate"),
+                             ("DELETE", f"/api/admin/tokens/{token_id}")):
+            response = client.request(method, path, headers={"X-CSRF-Token": csrf})
+            assert response.status_code in (403, 422), (path, response.status_code)
+
+    def test_login_with_impossible_email_is_an_ordinary_failure(self, client):
+        import re
+        page = client.get("/login/local")
+        csrf = re.search(r'name="csrf_token" value="([^"]+)"', page.text).group(1)
+        response = client.post("/login/local", data={"email": "a\x00b@example.org", "password": "x" * 20,
+                                                     "csrf_token": csrf})
+        assert response.status_code == 401
+
+    def test_admin_inputs(self, client, monkeypatch):
+        csrf = oauth_login(client, monkeypatch, "validation-admin", admin=True)
+        headers = {"X-CSRF-Token": csrf}
+        base = {"email": "new-local@example.org", "password": "a long enough local password"}
+        assert client.post("/api/admin/users", json={**base, "name": "Mallory‮"}, headers=headers).status_code == 422
+        assert client.post("/api/admin/users", json={**base, "name": "M", "is_admin": "yes"}, headers=headers).status_code == 422
+        assert client.post("/api/admin/users/restore-oauth", json={"subject": "a\x00b"}, headers=headers).status_code == 422
+
+    def test_provider_names_are_cleaned_not_refused(self, client, monkeypatch):
+        from sqlalchemy import select
+        from app import database
+        from app.models import User
+
+        oauth_login(client, monkeypatch, "named-user", name="Ada\x00 ‮Lovelace")
+
+        async def stored_name():
+            async with database.async_session_maker() as db:
+                return (await db.execute(select(User.name).where(User.unity_id == "named-user"))).scalar_one()
+
+        assert client.portal.call(stored_name) == "Ada Lovelace"
+
+    def test_command_line_selectors(self):
+        import argparse
+        from app.manage import non_empty
+
+        with pytest.raises(argparse.ArgumentTypeError):
+            non_empty("subject\x00")
+        assert non_empty("subject-1") == "subject-1"

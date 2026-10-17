@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import delete, select, update
 from sqlalchemy.orm import joinedload
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, StrictBool, field_validator
 from app.database import get_db, lock_user_for_update
 from app.models import User, Token
 from app.tombstones import (
@@ -18,6 +18,7 @@ from app.auth import (
 from app.rate_limit import limiter, RATE_LIMITS, user_or_ip
 from app.cookies import SESSION_COOKIE
 from app.timeutil import isoformat_utc, utcnow
+from app.validation import DisplayText, ResourceId
 
 logger = logging.getLogger("token_generator.audit")
 router = APIRouter(prefix="/api/admin", tags=["admin"])
@@ -84,9 +85,9 @@ class UserResponse(BaseModel):
 
 class CreateUserRequest(BaseModel):
     email: str = Field(..., min_length=3, max_length=255)
-    name: str = Field(..., min_length=1, max_length=255)
+    name: Annotated[str, Field(min_length=1, max_length=255), DisplayText]
     password: str = Field(..., min_length=8, max_length=128)
-    is_admin: bool = False
+    is_admin: StrictBool = False
 
     @field_validator("email")
     @classmethod
@@ -101,13 +102,14 @@ class CreateUserRequest(BaseModel):
 
 
 class UpdateUserRequest(BaseModel):
-    name: str | None = Field(None, min_length=1, max_length=255)
+    name: Annotated[str, Field(min_length=1, max_length=255), DisplayText] | None = None
     password: str | None = Field(None, min_length=8, max_length=128)
-    is_admin: bool | None = None
+    is_admin: StrictBool | None = None
 
 
 class RestoreOAuthRequest(BaseModel):
-    subject: str = Field(..., min_length=1, max_length=255)
+    # Provider subjects are printable ASCII (see the OAuth profile check).
+    subject: str = Field(..., min_length=1, max_length=255, pattern=r"^[\x21-\x7e]+$")
 
 
 @router.get("/tokens", response_model=list[AdminTokenResponse])
@@ -172,7 +174,7 @@ async def delete_revoked_tokens(
 @limiter.limit(ADMIN_RATE_LIMIT, key_func=user_or_ip)
 async def revoke_token_admin(
     request: Request,
-    token_id: str,
+    token_id: ResourceId,
     admin: User = Depends(get_current_admin),
     db: AsyncSession = Depends(get_db),
 ):
@@ -202,7 +204,7 @@ async def revoke_token_admin(
 @limiter.limit(ADMIN_RATE_LIMIT, key_func=user_or_ip)
 async def delete_token_admin(
     request: Request,
-    token_id: str,
+    token_id: ResourceId,
     admin: User = Depends(get_current_admin),
     db: AsyncSession = Depends(get_db),
 ):
@@ -319,7 +321,7 @@ async def create_user(
 @limiter.limit(ADMIN_RATE_LIMIT, key_func=user_or_ip)
 async def update_user(
     request: Request,
-    user_id: str,
+    user_id: ResourceId,
     body: UpdateUserRequest,
     admin: User = Depends(get_current_admin),
     db: AsyncSession = Depends(get_db),
@@ -387,7 +389,7 @@ async def update_user(
 @limiter.limit(ADMIN_RATE_LIMIT, key_func=user_or_ip)
 async def delete_user(
     request: Request,
-    user_id: str,
+    user_id: ResourceId,
     admin: User = Depends(get_current_admin),
     db: AsyncSession = Depends(get_db),
 ):
@@ -425,7 +427,7 @@ async def delete_user(
 @limiter.limit(ADMIN_RATE_LIMIT, key_func=user_or_ip)
 async def revoke_user_credentials(
     request: Request,
-    user_id: str,
+    user_id: ResourceId,
     admin: User = Depends(get_current_admin),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
