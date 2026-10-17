@@ -48,6 +48,6 @@ fi
 
 export APP_ENVIRONMENT="$mode"
 if [[ "$mode" == development ]]; then
-    exec .venv/bin/python -m uvicorn app.main:app --host "$HOST" --port "$PORT" --reload --no-access-log
+    exec .venv/bin/python -m uvicorn app.main:app --host "$HOST" --port "$PORT" --reload --no-access-log --ws none --no-server-header
 fi
-exec .venv/bin/python -m uvicorn app.main:app --host "$HOST" --port "$PORT" --workers "$WORKERS" --proxy-headers --forwarded-allow-ips "${FORWARDED_ALLOW_IPS:-127.0.0.1}" --no-access-log
+exec .venv/bin/python -m uvicorn app.main:app --host "$HOST" --port "$PORT" --workers "$WORKERS" --proxy-headers --forwarded-allow-ips "${FORWARDED_ALLOW_IPS:-127.0.0.1}" --no-access-log --ws none --no-server-header --timeout-keep-alive 75

@@ -3,6 +3,8 @@ import time
 
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
+from app.clients import loggable_address
+
 logger = logging.getLogger("token_generator.access")
 
 # Kubelet probes would otherwise dominate the log.
@@ -14,7 +16,9 @@ class AccessLogMiddleware:
 
     Uvicorn's access log is disabled because it records query strings, which
     carry OAuth authorization codes. This logs the matched route template
-    (never the raw path or query), the status and the duration.
+    (never the raw path or query), the status and the duration. Requests
+    that ended before any response was sent (the client went away) are
+    logged with status=-.
     """
 
     def __init__(self, app: ASGIApp) -> None:
@@ -25,19 +29,21 @@ class AccessLogMiddleware:
             await self.app(scope, receive, send)
             return
         started = time.perf_counter()
-        status = 500
+        status = "-"
 
         async def record_status(message: Message) -> None:
             nonlocal status
             if message["type"] == "http.response.start":
-                status = message["status"]
+                status = str(message["status"])
             await send(message)
 
         try:
             await self.app(scope, receive, record_status)
         finally:
-            route = getattr(scope.get("route"), "path", None) or "unmatched"
+            route = getattr(scope.get("route"), "path", None)
+            if route is None:
+                route = "/static" if scope["path"].startswith("/static/") else "unmatched"
             client = scope.get("client")
-            logger.info("method=%s route=%s status=%d duration_ms=%.1f client=%s",
+            logger.info("method=%s route=%s status=%s duration_ms=%.1f client=%s",
                         scope["method"], route, status, (time.perf_counter() - started) * 1000,
-                        client[0] if client else "-")
+                        loggable_address(client[0] if client else None))
