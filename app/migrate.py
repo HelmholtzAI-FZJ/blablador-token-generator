@@ -205,4 +205,7 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    # Run the importable module, so SchemaError raised by revisions (which
+    # import app.migrate) is the class main() catches.
+    from app.migrate import main as run_main
+    run_main()

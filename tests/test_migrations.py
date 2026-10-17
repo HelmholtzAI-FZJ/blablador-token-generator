@@ -129,7 +129,7 @@ async def test_unexpected_owner_index_definition_is_refused(engine):
     await create_pre_migration_database(engine)
     async with engine.begin() as conn:
         await conn.execute(text("CREATE INDEX ix_tokens_user_id ON tokens (name)"))
-    with pytest.raises(RuntimeError, match="unexpected definition"):
+    with pytest.raises(migrate.SchemaError, match="unexpected definition"):
         await migrate.upgrade_database(engine)
 
 
@@ -198,3 +198,17 @@ def test_command_line_hides_connection_errors(tmp_path):
     result = run_cli("check", database_url="postgresql+asyncpg://user:synthetic-secret@127.0.0.1:1/x")
     assert result.returncode == 1
     assert "synthetic-secret" not in result.stdout + result.stderr
+
+
+def test_command_line_explains_schema_problems(tmp_path):
+    import sqlite3
+    database = tmp_path / "wrong-index.db"
+    url = f"sqlite+aiosqlite:///{database}"
+    assert run_cli("upgrade", database_url=url).returncode == 0
+    with sqlite3.connect(database) as connection:
+        connection.execute("DROP INDEX ix_tokens_user_id")
+        connection.execute("CREATE INDEX ix_tokens_user_id ON tokens (name)")
+        connection.execute("UPDATE alembic_version SET version_num = '0001'")
+    result = run_cli("upgrade", database_url=url)
+    assert result.returncode == 1
+    assert "unexpected definition" in result.stderr

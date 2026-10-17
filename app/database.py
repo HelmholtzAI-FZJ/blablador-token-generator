@@ -11,6 +11,9 @@ from app.models import User
 SCHEMA_LOCK_KEY = 7_316_201
 ADMIN_MEMBERSHIP_LOCK_KEY = 7_316_202
 MIGRATION_STATEMENT_TIMEOUT_SECONDS = 120
+# CREATE INDEX CONCURRENTLY waits for older transactions (a running
+# backup, an idle transaction) through lock waits.
+MIGRATION_LOCK_TIMEOUT_SECONDS = 30
 
 engine = None
 async_session_maker = None
@@ -20,6 +23,8 @@ def postgres_connect_args(connect_args: dict | None = None, *, migration: bool =
     database = get_config().database
     statement_timeout = (MIGRATION_STATEMENT_TIMEOUT_SECONDS if migration
                          else database.statement_timeout_seconds)
+    lock_timeout = (max(database.lock_timeout_seconds, MIGRATION_LOCK_TIMEOUT_SECONDS) if migration
+                    else database.lock_timeout_seconds)
     idle_timeout = max(database.idle_transaction_timeout_seconds, statement_timeout)
     options = dict(connect_args or {})
     options.setdefault("timeout", database.connect_timeout_seconds)
@@ -27,7 +32,7 @@ def postgres_connect_args(connect_args: dict | None = None, *, migration: bool =
     settings = dict(options.get("server_settings", {}))
     for name, seconds in (
         ("statement_timeout", statement_timeout),
-        ("lock_timeout", database.lock_timeout_seconds),
+        ("lock_timeout", lock_timeout),
         ("idle_in_transaction_session_timeout", idle_timeout),
     ):
         settings.setdefault(name, f"{max(1, ceil(seconds * 1000))}ms")

@@ -442,7 +442,8 @@ def test_runtime_and_migration_have_separate_bounded_statement_deadlines():
     assert runtime["server_settings"]["statement_timeout"] == "5000ms"
     assert migration["command_timeout"] == 120
     assert migration["server_settings"]["statement_timeout"] == "120000ms"
-    assert migration["server_settings"]["lock_timeout"] == "2000ms"
+    assert runtime["server_settings"]["lock_timeout"] == "2000ms"
+    assert migration["server_settings"]["lock_timeout"] == "30000ms"
     assert migration["server_settings"]["idle_in_transaction_session_timeout"] == "120000ms"
 
 
