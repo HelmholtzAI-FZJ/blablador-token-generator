@@ -13,6 +13,8 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import RedirectResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from limits import parse as parse_limit
+from limits.strategies import FixedWindowRateLimiter
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from starlette.exceptions import HTTPException as StarletteHTTPException
@@ -36,7 +38,7 @@ from app.auth import (
     decode_access_token, revoke_jwt,
 )
 from app.api import tokens, validate, admin
-from app.rate_limit import limiter, RATE_LIMITS, user_or_ip
+from app.rate_limit import limiter, RATE_LIMITS, run_storage, user_or_ip
 from app.logging_config import configure_logging
 from app.body_limit import BodySizeLimitMiddleware
 from app.timeutil import isoformat_utc
@@ -214,6 +216,9 @@ async def healthz():
     return {"status": "ok"}
 
 
+READINESS_PROBE = parse_limit("1000000/minute")
+
+
 @app.get("/readyz")
 async def readyz():
     # Only the database is required. Without the shared rate-limit storage,
@@ -226,9 +231,12 @@ async def readyz():
     except Exception as exc:
         _audit.error("action=readiness_failed dependency=database error_type=%s", type(exc).__name__)
         return JSONResponse(status_code=503, content={"status": "unavailable"})
+    # A write, not a ping: a Redis that is full answers pings but refuses the
+    # counter updates every limit needs.
     try:
         async with asyncio.timeout(config.app.readiness_timeout_seconds):
-            storage_ok = await asyncio.to_thread(limiter._storage.check)
+            await run_storage(FixedWindowRateLimiter(limiter._storage).hit, READINESS_PROBE, "readiness")
+        storage_ok = True
     except Exception:
         storage_ok = False
     if not storage_ok:
