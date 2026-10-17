@@ -58,7 +58,10 @@ serves the whole test; asyncpg connections cannot move between loops.
    while the migration runs and until all pods are replaced. Add columns as
    nullable or with a server default, build indexes `CONCURRENTLY` inside
    `op.get_context().autocommit_block()` on PostgreSQL, and remove columns
-   only in a later release.
+   only in a later release. Statements that take exclusive locks (most
+   `ALTER TABLE`) should set a short `lock_timeout` themselves: while they
+   wait, they block other queries on the table, and migration connections
+   otherwise allow 30 seconds.
 4. `tests/test_migrations.py` fails until the migrations produce exactly the
    models' schema; run it on both SQLite and PostgreSQL.
 
@@ -87,7 +90,7 @@ week.
 2. Merge to `main`, then tag: `git tag -s v1.0.0 -m "v1.0.0" && git push origin v1.0.0`.
 
 The release workflow then builds the three images for `linux/amd64` and
-`linux/arm64`, scans them, pushes them to
+`linux/arm64`, scans and gates each architecture, pushes them to
 `ghcr.io/helmholtzai-fzj/blablador-token-generator{,-postgresql,-redis}` with
 SBOM and provenance attestations, publishes the chart to
 `oci://ghcr.io/helmholtzai-fzj/charts`, and creates a GitHub release with the
