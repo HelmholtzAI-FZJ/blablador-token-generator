@@ -349,3 +349,26 @@ def test_configuration_reference_documents_every_setting():
         body = text.split(heading, 1)[1].split("\n## ", 1)[0]
         missing += [f"{section}.{name}" for name in field.annotation.model_fields if f"`{name}`" not in body]
     assert missing == [], f"undocumented settings: {missing}"
+
+
+class TestExpiredSessions:
+    def expired_session(self) -> str:
+        import jwt
+
+        from app.auth import config as auth_config
+
+        payload = {"sub": "someone", "jti": "expired-session", "sep": 0,
+                   "exp": datetime.now(UTC) - timedelta(minutes=1)}
+        return jwt.encode(payload, auth_config.app.secret_key, algorithm="HS256")
+
+    def test_pages_send_expired_sessions_back_to_sign_in(self, client):
+        client.cookies.set("access_token", self.expired_session())
+        response = client.get("/dashboard", headers=HTML)
+        assert response.status_code == 303
+        assert response.headers["location"] == "/"
+
+    def test_api_calls_with_expired_sessions_get_401(self, client):
+        client.cookies.set("access_token", self.expired_session())
+        response = client.get("/tokens")
+        assert response.status_code == 401
+        assert response.json() == {"detail": "Authentication required"}

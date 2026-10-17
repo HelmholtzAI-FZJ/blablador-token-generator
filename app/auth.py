@@ -226,7 +226,12 @@ async def get_current_user(
     if not token:
         raise HTTPException(status_code=302, detail="Not authenticated")
 
-    payload = decode_access_token(token)
+    try:
+        payload = decode_access_token(token)
+    except HTTPException:
+        # An expired or malformed session is handled like a missing one:
+        # pages go back to sign-in, API calls get 401.
+        raise HTTPException(status_code=302, detail="Session expired") from None
     user_id: str = payload.get("sub")
     if user_id is None:
         raise HTTPException(status_code=302, detail="Invalid token payload")
