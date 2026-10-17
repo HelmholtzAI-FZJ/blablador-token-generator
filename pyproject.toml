@@ -55,3 +55,6 @@ docs = [
     # MkDocs 2 drops the plugin and theme system Material relies on.
     "mkdocs>=1.6,<2",
 ]
+# CI tools, locked with hashes like everything else (uv run --only-group).
+lint = ["ruff==0.17.1"]
+audit = ["pip-audit==2.10.1"]

@@ -8,6 +8,14 @@ on:
 permissions:
   contents: read
 
+# Scanners and tools are pinned by digest or hash and use no caches shared
+# between runs, so a run cannot influence what a later one checks.
+env:
+  TRIVY_IMAGE: aquasec/trivy:0.76.0@sha256:2416d1f74045b57274df1a340eee6b510cacd73c66a6ccb8da092b117eb7d222
+  GRYPE_IMAGE: anchore/grype:v0.120.1@sha256:e4a44ef45d285b829ce6efe2642980329661bd2d18eab5fc539138d4adaebbbe
+  HELM_VERSION: v4.2.1
+  HELM_SHA256: 479dca836e5b45e8bd222400c5591b0e3a647378f03ff96597180db97c17fdae
+
 jobs:
   lint:
     runs-on: ubuntu-latest
@@ -22,7 +30,7 @@ jobs:
       - name: Lockfile matches pyproject.toml
         run: uv lock --check
       - name: Lint Python
-        run: uvx ruff@0.17.1 check .
+        run: uv run --frozen --only-group lint ruff check .
       - name: Check browser scripts parse
         run: for script in app/static/*.js; do node --check "$script"; done
 
@@ -31,7 +39,7 @@ jobs:
     timeout-minutes: 15
     services:
       postgres:
-        image: postgres:16-alpine
+        image: postgres:16-alpine@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea
         env:
           POSTGRES_PASSWORD: postgres
           POSTGRES_DB: tokens
@@ -58,8 +66,12 @@ jobs:
           TEST_DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/tokens
       - name: Audit dependencies for known vulnerabilities
         run: |
-          uv export --frozen --no-dev --no-emit-project -o requirements.txt
-          uvx pip-audit==2.10.1 -r requirements.txt --require-hashes --disable-pip
+          # Production dependencies, and every group CI itself runs.
+          uv export --frozen --no-dev --no-emit-project -o "$RUNNER_TEMP/requirements.txt"
+          uv export --frozen --all-groups --all-extras --no-emit-project -o "$RUNNER_TEMP/all-requirements.txt"
+          for requirements in requirements all-requirements; do
+            uv run --frozen --only-group audit pip-audit -r "$RUNNER_TEMP/$requirements.txt" --require-hashes --disable-pip
+          done
 
   chart:
     runs-on: ubuntu-latest
@@ -71,9 +83,12 @@ jobs:
       - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
         with:
           version: "0.11.21"
-      - uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
-        with:
-          version: v4.2.1
+      - name: Install Helm (checksum verified)
+        run: |
+          curl -fsSLo "$RUNNER_TEMP/helm.tar.gz" "https://get.helm.sh/helm-$HELM_VERSION-linux-amd64.tar.gz"
+          echo "$HELM_SHA256  $RUNNER_TEMP/helm.tar.gz" | sha256sum -c -
+          tar -xzf "$RUNNER_TEMP/helm.tar.gz" -C "$RUNNER_TEMP" linux-amd64/helm
+          sudo install "$RUNNER_TEMP/linux-amd64/helm" /usr/local/bin/helm
       - name: Install locked dependencies
         run: uv sync --frozen --all-extras
       - name: Deployment security regressions
@@ -110,33 +125,34 @@ jobs:
         with:
           persist-credentials: false
       - name: Build image
-        run: docker build --build-arg VERSION=ci --build-arg REVISION="$GITHUB_SHA" -t token-generator:ci .
-      - name: Record complete image vulnerability inventory
-        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
-        with:
-          image-ref: token-generator:ci
-          severity: UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL
-          ignore-unfixed: false
-          exit-code: "0"
-          format: json
-          output: trivy-results.json
-      - name: Produce image SBOM
-        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
-        with:
-          image-ref: token-generator:ci
-          format: cyclonedx
-          output: image-sbom.json
-          exit-code: "0"
+        run: |
+          docker build --build-arg VERSION=ci --build-arg REVISION="$GITHUB_SHA" -t token-generator:ci .
+          mkdir -p "$RUNNER_TEMP/scan" && docker save token-generator:ci -o "$RUNNER_TEMP/scan/image.tar"
+      - name: Scan at all severities, with SBOM
+        working-directory: ${{ runner.temp }}/scan
+        run: |
+          # The scanner sees only the saved image, never the repository (so
+          # no trivy.yaml or .trivyignore can change what it reports).
+          trivy() { docker run --rm -v "$PWD:/work" "$TRIVY_IMAGE" "$@"; }
+          for attempt in 1 2 3; do
+            trivy image --cache-dir /work/cache --download-db-only --quiet && break
+            [ "$attempt" -lt 3 ] || exit 1
+            sleep 20
+          done
+          trivy image --quiet --cache-dir /work/cache --skip-db-update --input /work/image.tar \
+            --scanners vuln,secret --severity UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL --format json --output /work/trivy-results.json
+          trivy image --quiet --cache-dir /work/cache --skip-db-update --input /work/image.tar \
+            --format cyclonedx --output /work/image-sbom.json
       - name: Gate unreviewed vulnerabilities
-        run: python helm/blablador-token-generator/tests/container_risk_gate.py trivy-results.json security_audit/container-risk-exceptions.json
+        run: python3 helm/blablador-token-generator/tests/container_risk_gate.py "$RUNNER_TEMP/scan/trivy-results.json" security_audit/container-risk-exceptions.json
       - name: Preserve complete scan and SBOM
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: container-security-evidence
           path: |
-            trivy-results.json
-            image-sbom.json
+            ${{ runner.temp }}/scan/trivy-results.json
+            ${{ runner.temp }}/scan/image-sbom.json
           if-no-files-found: error
           retention-days: 30
 
@@ -146,37 +162,47 @@ jobs:
     strategy:
       matrix:
         component: [postgresql, redis]
+    env:
+      COMPONENT: ${{ matrix.component }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       - name: Build hardened datastore
-        run: docker build -f helm/blablador-token-generator/files/Dockerfile.${{ matrix.component }} -t token-generator-${{ matrix.component }}:ci .
-      - name: Record full datastore scan
-        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
-        with:
-          image-ref: token-generator-${{ matrix.component }}:ci
-          format: json
-          output: datastore-trivy.json
-          severity: UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL
-          ignore-unfixed: false
-          exit-code: "0"
-      - name: Produce datastore SBOM
-        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
-        with:
-          image-ref: token-generator-${{ matrix.component }}:ci
-          format: cyclonedx
-          output: datastore-sbom.json
-          exit-code: "0"
+        run: |
+          docker build -f "helm/blablador-token-generator/files/Dockerfile.$COMPONENT" -t "token-generator-$COMPONENT:ci" .
+          mkdir -p "$RUNNER_TEMP/scan" && docker save "token-generator-$COMPONENT:ci" -o "$RUNNER_TEMP/scan/image.tar"
+      - name: Scan packages (Trivy) and server binaries (Grype)
+        working-directory: ${{ runner.temp }}/scan
+        run: |
+          for attempt in 1 2 3; do
+            docker run --rm -v "$PWD:/work" "$TRIVY_IMAGE" image --cache-dir /work/cache/trivy --download-db-only --quiet \
+              && docker run --rm -v "$PWD:/work" -e GRYPE_DB_CACHE_DIR=/work/cache/grype "$GRYPE_IMAGE" db update \
+              && break
+            [ "$attempt" -lt 3 ] || exit 1
+            sleep 20
+          done
+          docker run --rm -v "$PWD:/work" "$TRIVY_IMAGE" image --quiet --cache-dir /work/cache/trivy --skip-db-update \
+            --input /work/image.tar --scanners vuln,secret --severity UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL \
+            --format json --output /work/datastore-trivy.json
+          docker run --rm -v "$PWD:/work" "$TRIVY_IMAGE" image --quiet --cache-dir /work/cache/trivy --skip-db-update \
+            --input /work/image.tar --format cyclonedx --output /work/datastore-sbom.json
+          # Trivy sees Alpine packages only; the PostgreSQL and Redis servers
+          # are built from source, which Grype's binary cataloguer detects.
+          docker run --rm -v "$PWD:/work" -e GRYPE_DB_CACHE_DIR=/work/cache/grype -e GRYPE_DB_AUTO_UPDATE=false \
+            "$GRYPE_IMAGE" --quiet -o json docker-archive:/work/image.tar > datastore-grype.json
       - name: Gate unreviewed datastore vulnerabilities
-        run: python helm/blablador-token-generator/tests/container_risk_gate.py datastore-trivy.json security_audit/container-risk-exceptions.json
+        run: |
+          python3 helm/blablador-token-generator/tests/container_risk_gate.py "$RUNNER_TEMP/scan/datastore-trivy.json" security_audit/container-risk-exceptions.json
+          python3 helm/blablador-token-generator/tests/container_risk_gate.py --grype "$RUNNER_TEMP/scan/datastore-grype.json" security_audit/container-risk-exceptions.json
       - name: Preserve datastore inventory
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: datastore-${{ matrix.component }}
           path: |
-            datastore-trivy.json
-            datastore-sbom.json
+            ${{ runner.temp }}/scan/datastore-trivy.json
+            ${{ runner.temp }}/scan/datastore-grype.json
+            ${{ runner.temp }}/scan/datastore-sbom.json
           if-no-files-found: error
           retention-days: 30

@@ -1,5 +1,11 @@
 name: Release
 
+# A v* tag on a commit of main whose CI passed publishes exactly the images
+# that were scanned: each image is built once (no caches) into an OCI
+# archive by a job without credentials, every architecture of that archive
+# is scanned and gated, and a separate job (environment "release") pushes
+# the same bytes. Scanners run only where no publishing credential exists.
+
 on:
   push:
     tags: ["v*.*.*"]
@@ -7,35 +13,56 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: release
+  cancel-in-progress: false
+
 env:
   GHCR_NAMESPACE: ghcr.io/helmholtzai-fzj
   JSC_NAMESPACE: registry.jsc.fz-juelich.de/kaas/rke2-clusters/blablador
+  TRIVY_IMAGE: aquasec/trivy:0.76.0@sha256:2416d1f74045b57274df1a340eee6b510cacd73c66a6ccb8da092b117eb7d222
+  GRYPE_IMAGE: anchore/grype:v0.120.1@sha256:e4a44ef45d285b829ce6efe2642980329661bd2d18eab5fc539138d4adaebbbe
+  SKOPEO_IMAGE: quay.io/skopeo/stable:v1.22.3@sha256:7e735527d9d64c7456fc82d7f954c380b4a5dd1a8173115ce2ed7b3442ef36e0
+  HELM_VERSION: v4.2.1
+  HELM_SHA256: 479dca836e5b45e8bd222400c5591b0e3a647378f03ff96597180db97c17fdae
 
 jobs:
   verify:
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: read  # CI results of the tagged commit
+    outputs:
+      version: ${{ steps.check.outputs.version }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          fetch-depth: 0
           persist-credentials: false
-      - name: Tag matches the project version
+      - id: check
+        name: Tagged commit is on main, passed CI, and versions agree
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
+          fail() { echo "::error::$1"; exit 1; }
           version=$(python3 -c 'import tomllib; print(tomllib.load(open("pyproject.toml", "rb"))["project"]["version"])')
-          if [ "v$version" != "$GITHUB_REF_NAME" ]; then
-            echo "Tag $GITHUB_REF_NAME does not match version $version in pyproject.toml" >&2
-            exit 1
-          fi
+          app_version=$(sed -n 's/^appVersion: *"\{0,1\}\([^"]*\)"\{0,1\}$/\1/p' helm/blablador-token-generator/Chart.yaml)
+          chart_version=$(sed -n 's/^version: *//p' helm/blablador-token-generator/Chart.yaml)
+          [ "v$version" = "$GITHUB_REF_NAME" ] || fail "Tag $GITHUB_REF_NAME does not match version $version in pyproject.toml"
+          [ "$app_version" = "$version" ] || fail "Chart appVersion $app_version does not match $version"
+          [ "$chart_version" = "$version" ] || fail "Chart version $chart_version does not match $version"
+          git merge-base --is-ancestor "$GITHUB_SHA" origin/main || fail "Only commits on main are released"
+          passed=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs?head_sha=$GITHUB_SHA&event=push&status=success" --jq '.total_count')
+          [ "$passed" -gt 0 ] || fail "CI has not passed for $GITHUB_SHA on main yet; re-run this workflow once it has"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
 
-  images:
+  build:
     needs: verify
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 60
     permissions:
       contents: read
-      packages: write
-      id-token: write
-      attestations: write
     strategy:
       fail-fast: true
       matrix:
@@ -48,65 +75,104 @@ jobs:
             dockerfile: helm/blablador-token-generator/files/Dockerfile.redis
     env:
       IMAGE_NAME: ${{ matrix.name }}
-      PUSH_TO_JSC: ${{ secrets.JSC_REGISTRY_TOKEN != '' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       - uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
+        with:
+          image: tonistiigi/binfmt:qemu-v10.2.3@sha256:400a4873b838d1b89194d982c45e5fb3cda4593fbfd7e08a02e76b03b21166f0
       - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
-
-      # Every architecture that will be published is scanned and gated first.
-      - name: Build for scanning (amd64)
+        with:
+          driver-opts: image=moby/buildkit:v0.34.0@sha256:b059f8d7226d0b326bc871af489a5dddf65e36af4d20d14251b072974d9ee87c
+      - name: Build amd64 and arm64 into an OCI archive
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: .
           file: ${{ matrix.dockerfile }}
-          platforms: linux/amd64
-          load: true
-          tags: release-scan:amd64
+          platforms: linux/amd64,linux/arm64
+          outputs: type=oci,dest=${{ runner.temp }}/image.tar
           build-args: |
-            VERSION=${{ github.ref_name }}
+            VERSION=${{ needs.verify.outputs.version }}
             REVISION=${{ github.sha }}
-          cache-from: type=gha,scope=${{ matrix.name }}
-          cache-to: type=gha,mode=max,scope=${{ matrix.name }}
-      - name: Build for scanning (arm64)
-        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
-        with:
-          context: .
-          file: ${{ matrix.dockerfile }}
-          platforms: linux/arm64
-          load: true
-          tags: release-scan:arm64
-          build-args: |
-            VERSION=${{ github.ref_name }}
-            REVISION=${{ github.sha }}
-          cache-from: type=gha,scope=${{ matrix.name }}
-          cache-to: type=gha,mode=max,scope=${{ matrix.name }}
-      - name: Scan amd64 at all severities
-        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
-        with:
-          image-ref: release-scan:amd64
-          severity: UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL
-          ignore-unfixed: false
-          exit-code: "0"
-          format: json
-          output: trivy-amd64.json
-      - name: Scan arm64 at all severities
-        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
-        with:
-          image-ref: release-scan:arm64
-          severity: UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL
-          ignore-unfixed: false
-          exit-code: "0"
-          format: json
-          output: trivy-arm64.json
-      - name: Gate unreviewed vulnerabilities
+          provenance: mode=max
+          sbom: generator=docker/buildkit-syft-scanner:1.12.0@sha256:ae4f3b554449e7e25548e7d8ccc029d17357348e30c6e3df01b92bc93654d6a9
+      - name: Scan and gate every architecture of the archive
+        working-directory: ${{ runner.temp }}
         run: |
-          for architecture in amd64 arm64; do
-            python3 helm/blablador-token-generator/tests/container_risk_gate.py "trivy-$architecture.json" security_audit/container-risk-exceptions.json
+          mkdir oci cache && tar -xf image.tar -C oci
+          # Vulnerability databases, fetched once per job (no shared cache).
+          for attempt in 1 2 3; do
+            docker run --rm -v "$PWD/cache:/cache" "$TRIVY_IMAGE" image --cache-dir /cache/trivy --download-db-only --quiet \
+              && docker run --rm -v "$PWD/cache:/cache" -e GRYPE_DB_CACHE_DIR=/cache/grype "$GRYPE_IMAGE" db update \
+              && break
+            [ "$attempt" -lt 3 ] || exit 1
+            sleep 20
           done
+          for arch in amd64 arm64; do
+            # One architecture at a time, digests preserved, so the scanned
+            # manifest is the one in the published index (checked below).
+            docker run --rm -v "$PWD:/work" "$SKOPEO_IMAGE" copy --quiet --override-os linux \
+              --override-arch "$arch" --preserve-digests oci:/work/oci "oci:/work/oci-$arch"
+            python3 - "$arch" <<'EOF'
+          import json, sys
+          arch = sys.argv[1]
+          outer = json.load(open("oci/index.json"))["manifests"][0]["digest"].split(":")[1]
+          index = json.load(open(f"oci/blobs/sha256/{outer}"))
+          published = [m["digest"] for m in index["manifests"] if m.get("platform", {}).get("architecture") == arch]
+          scanned = json.load(open(f"oci-{arch}/index.json"))["manifests"][0]["digest"]
+          if published != [scanned]:
+              sys.exit(f"Scanned {arch} manifest {scanned} is not the one to be published {published}")
+          EOF
+            # The scanner sees only the extracted image, never the repository.
+            docker run --rm -v "$PWD:/work" "$TRIVY_IMAGE" image --quiet --input "/work/oci-$arch" \
+              --cache-dir /work/cache/trivy --skip-db-update \
+              --scanners vuln,secret --severity UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL --format json \
+              --output "/work/trivy-$arch.json"
+            python3 "$GITHUB_WORKSPACE/helm/blablador-token-generator/tests/container_risk_gate.py" \
+              "trivy-$arch.json" "$GITHUB_WORKSPACE/security_audit/container-risk-exceptions.json"
+            if [ "$IMAGE_NAME" != blablador-token-generator ]; then
+              docker run --rm -v "$PWD:/work" -e GRYPE_DB_CACHE_DIR=/work/cache/grype -e GRYPE_DB_AUTO_UPDATE=false \
+                "$GRYPE_IMAGE" --quiet -o json "oci-dir:/work/oci-$arch" > "grype-$arch.json"
+              python3 "$GITHUB_WORKSPACE/helm/blablador-token-generator/tests/container_risk_gate.py" --grype \
+                "grype-$arch.json" "$GITHUB_WORKSPACE/security_audit/container-risk-exceptions.json"
+            fi
+          done
+          mkdir release && mv image.tar trivy-*.json release/
+          mv grype-*.json release/ 2>/dev/null || true
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: image-${{ matrix.name }}
+          path: ${{ runner.temp }}/release/
+          if-no-files-found: error
+          retention-days: 7
 
+  publish:
+    needs: [verify, build]
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: release
+    permissions:
+      contents: read
+      packages: write  # push images to GHCR
+      id-token: write  # sign provenance attestations (Sigstore)
+      attestations: write
+    strategy:
+      fail-fast: false
+      matrix:
+        name:
+          - blablador-token-generator
+          - blablador-token-generator-postgresql
+          - blablador-token-generator-redis
+    env:
+      IMAGE_NAME: ${{ matrix.name }}
+      VERSION: ${{ needs.verify.outputs.version }}
+      PUSH_TO_JSC: ${{ secrets.JSC_REGISTRY_TOKEN != '' }}
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: image-${{ matrix.name }}
+          path: ${{ runner.temp }}/release
       - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
         with:
           registry: ghcr.io
@@ -118,81 +184,90 @@ jobs:
           registry: registry.jsc.fz-juelich.de
           username: ${{ secrets.JSC_REGISTRY_USER }}
           password: ${{ secrets.JSC_REGISTRY_TOKEN }}
-      - id: meta
-        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
-        with:
-          images: |
-            ${{ env.GHCR_NAMESPACE }}/${{ matrix.name }}
-            name=${{ env.JSC_NAMESPACE }}/${{ matrix.name }},enable=${{ env.PUSH_TO_JSC }}
-          tags: |
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-            type=sha,format=long
       - id: push
-        name: Build and push (amd64, arm64)
-        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
-        with:
-          context: .
-          file: ${{ matrix.dockerfile }}
-          platforms: linux/amd64,linux/arm64
-          push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          build-args: |
-            VERSION=${{ github.ref_name }}
-            REVISION=${{ github.sha }}
-          provenance: mode=max
-          sbom: true
-          cache-from: type=gha,scope=${{ matrix.name }}
-          cache-to: type=gha,mode=max,scope=${{ matrix.name }}
+        name: Push the scanned archive
+        working-directory: ${{ runner.temp }}/release
+        run: |
+          skopeo() {
+            docker run --rm -v "$PWD:/work" -v "$HOME/.docker/config.json:/auth.json:ro" \
+              -e REGISTRY_AUTH_FILE=/auth.json "$SKOPEO_IMAGE" "$@"
+          }
+          mkdir oci && tar -xf image.tar -C oci
+          digest=$(python3 -c 'import json; print(json.load(open("oci/index.json"))["manifests"][0]["digest"])')
+          minor="${VERSION%.*}"
+          registries="$GHCR_NAMESPACE"
+          if [ "$PUSH_TO_JSC" = true ]; then registries="$registries $JSC_NAMESPACE"; fi
+          for registry in $registries; do
+            image="$registry/$IMAGE_NAME"
+            # Published versions are never overwritten.
+            if skopeo inspect --raw "docker://$image:$VERSION" >/dev/null 2>&1; then
+              echo "::error::$image:$VERSION already exists"; exit 1
+            fi
+            skopeo copy --quiet --all --preserve-digests oci:/work/oci "docker://$image:$VERSION"
+            pushed=$(skopeo inspect --raw "docker://$image:$VERSION" | sha256sum | cut -d' ' -f1)
+            [ "sha256:$pushed" = "$digest" ] || { echo "::error::$image:$VERSION is sha256:$pushed, not $digest"; exit 1; }
+            skopeo copy --quiet --all --preserve-digests "docker://$image@$digest" "docker://$image:$minor"
+          done
+          echo "digest=$digest" >> "$GITHUB_OUTPUT"
       - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
           subject-name: ${{ env.GHCR_NAMESPACE }}/${{ matrix.name }}
           subject-digest: ${{ steps.push.outputs.digest }}
           push-to-registry: true
-      - name: Record digest
+      - name: Record digest and scans
+        working-directory: ${{ runner.temp }}/release
         env:
           DIGEST: ${{ steps.push.outputs.digest }}
         run: |
-          mkdir -p digests
-          printf '%s\n' "$DIGEST" > "digests/$IMAGE_NAME"
-          cp trivy-amd64.json "digests/$IMAGE_NAME.amd64.trivy.json"
-          cp trivy-arm64.json "digests/$IMAGE_NAME.arm64.trivy.json"
+          mkdir -p ../digests
+          printf '%s\n' "$DIGEST" > "../digests/$IMAGE_NAME"
+          for scan in trivy-*.json grype-*.json; do
+            [ -e "$scan" ] && cp "$scan" "../digests/$IMAGE_NAME.$scan"
+          done
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: release-${{ matrix.name }}
-          path: digests/
+          path: ${{ runner.temp }}/digests/
           if-no-files-found: error
 
   chart:
-    needs: images
+    needs: [verify, publish]
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    environment: release
     permissions:
       contents: read
-      packages: write
+      packages: write  # push the chart to GHCR
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
-        with:
-          version: v4.2.1
+      - name: Install Helm (checksum verified)
+        run: |
+          curl -fsSLo "$RUNNER_TEMP/helm.tar.gz" "https://get.helm.sh/helm-$HELM_VERSION-linux-amd64.tar.gz"
+          echo "$HELM_SHA256  $RUNNER_TEMP/helm.tar.gz" | sha256sum -c -
+          tar -xzf "$RUNNER_TEMP/helm.tar.gz" -C "$RUNNER_TEMP" linux-amd64/helm
+          sudo install "$RUNNER_TEMP/linux-amd64/helm" /usr/local/bin/helm
       - name: Package and push the chart
         env:
           REGISTRY_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REGISTRY_USER: ${{ github.actor }}
         run: |
-          helm package helm/blablador-token-generator --destination dist
+          chart_version=$(sed -n 's/^version: *//p' helm/blablador-token-generator/Chart.yaml)
           printf '%s' "$REGISTRY_TOKEN" | helm registry login ghcr.io --username "$REGISTRY_USER" --password-stdin
+          # Published versions are never overwritten.
+          if helm show chart "oci://$GHCR_NAMESPACE/charts/blablador-token-generator" --version "$chart_version" >/dev/null 2>&1; then
+            echo "::error::Chart $chart_version is already published"; exit 1
+          fi
+          helm package helm/blablador-token-generator --destination dist
           helm push dist/*.tgz "oci://$GHCR_NAMESPACE/charts"
 
   github-release:
-    needs: [images, chart]
+    needs: [verify, publish, chart]
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
-      contents: write
+      contents: write  # create the GitHub release
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -205,9 +280,9 @@ jobs:
       - name: Create the release
         env:
           GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.verify.outputs.version }}
         run: |
-          version="${GITHUB_REF_NAME#v}"
-          awk -v heading="## [$version]" 'index($0, "## [") == 1 { keep = index($0, heading) == 1; next } keep' CHANGELOG.md > notes.md
+          awk -v heading="## [$VERSION]" 'index($0, "## [") == 1 { keep = index($0, heading) == 1; next } keep' CHANGELOG.md > notes.md
           {
             echo
             echo "## Images"
@@ -216,10 +291,17 @@ jobs:
             echo "| --- | --- |"
             for file in digests/*; do
               case "$file" in *.json) continue ;; esac
-              echo "| \`$GHCR_NAMESPACE/$(basename "$file"):$version\` | \`$(cat "$file")\` |"
+              echo "| \`$GHCR_NAMESPACE/$(basename "$file"):$VERSION\` | \`$(cat "$file")\` |"
             done
             echo
             echo "Helm chart: \`oci://$GHCR_NAMESPACE/charts/blablador-token-generator\`."
-            echo "Verify an image with \`gh attestation verify oci://<image>@<digest> --owner HelmholtzAI-FZJ\`."
+            echo
+            echo "Verify an image before deploying it:"
+            echo
+            echo '```'
+            echo "gh attestation verify oci://<image>@<digest> --repo $GITHUB_REPOSITORY \\"
+            echo "  --signer-workflow $GITHUB_REPOSITORY/.github/workflows/release.yml \\"
+            echo "  --source-ref refs/tags/$GITHUB_REF_NAME --deny-self-hosted-runners"
+            echo '```'
           } >> notes.md
-          gh release create "$GITHUB_REF_NAME" --title "$GITHUB_REF_NAME" --notes-file notes.md --verify-tag digests/*.trivy.json
+          gh release create "$GITHUB_REF_NAME" --title "$GITHUB_REF_NAME" --notes-file notes.md --verify-tag digests/*.json
