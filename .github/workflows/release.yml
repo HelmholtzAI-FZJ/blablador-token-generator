@@ -5,6 +5,7 @@ name: Release
 # archive by a job without credentials, every architecture of that archive
 # is scanned and gated, and a separate job (environment "release") pushes
 # the same bytes. Scanners run only where no publishing credential exists.
+# Runners are pinned, so the publishing path does not change with ubuntu-latest.
 
 on:
   push:
@@ -28,7 +29,7 @@ env:
 
 jobs:
   verify:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
       contents: read
@@ -59,7 +60,7 @@ jobs:
 
   build:
     needs: verify
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 60
     permissions:
       contents: read
@@ -149,7 +150,7 @@ jobs:
 
   publish:
     needs: [verify, build]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     environment: release
     permissions:
@@ -232,7 +233,7 @@ jobs:
 
   chart:
     needs: [verify, publish]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     environment: release
     permissions:
@@ -264,7 +265,7 @@ jobs:
 
   github-release:
     needs: [verify, publish, chart]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
       contents: write  # create the GitHub release
