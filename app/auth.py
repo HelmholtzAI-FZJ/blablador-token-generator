@@ -12,7 +12,6 @@ import bcrypt
 import httpx
 import jwt
 from fastapi import HTTPException, status, Depends, Request
-from fastapi.security import OAuth2PasswordBearer
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 from sqlalchemy import delete, select, update
 from sqlalchemy.exc import IntegrityError
@@ -27,7 +26,6 @@ from app.timeutil import utcnow
 from app.tombstones import is_subject_deleted, is_user_deleted
 from app.validation import has_unsafe_characters, without_unsafe_characters
 
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token", auto_error=False)
 config = get_config()
 _audit = logging.getLogger("token_generator.audit")
 _password_operations: WeakKeyDictionary[asyncio.AbstractEventLoop, int] = WeakKeyDictionary()
@@ -35,6 +33,7 @@ _PasswordResult = TypeVar("_PasswordResult")
 # bcrypt only uses the first 72 bytes; older bcrypt releases truncated
 # silently, so verify against the same prefix to keep existing hashes valid.
 BCRYPT_MAX_BYTES = 72
+REVOCATION_PURGE_MARGIN = timedelta(minutes=10)
 
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
@@ -186,7 +185,9 @@ async def revoke_jwt(payload: dict, db: AsyncSession) -> None:
         if existing.scalar_one_or_none() is None:
             if await _account_gone(payload, db):
                 return
-            await db.execute(delete(RevokedJWT).where(RevokedJWT.expires_at < utcnow()))
+            # Keep entries a little past expiry: a replica whose clock runs
+            # behind would still accept such a session.
+            await db.execute(delete(RevokedJWT).where(RevokedJWT.expires_at < utcnow() - REVOCATION_PURGE_MARGIN))
             db.add(RevokedJWT(
                 jti=jti,
                 user_id=payload.get("sub", ""),

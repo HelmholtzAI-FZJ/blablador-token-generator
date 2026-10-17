@@ -3,7 +3,7 @@ from fastapi import APIRouter, Depends, HTTPException, Header, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import or_, select, update
 from sqlalchemy.orm import joinedload
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 import logging as _logging
 from app.database import get_db
 from app.config import get_config
@@ -16,10 +16,6 @@ from app.timeutil import isoformat_utc
 router = APIRouter(prefix="/api/v1/auth", tags=["auth"])
 
 _audit = _logging.getLogger("token_generator.audit")
-
-
-class ValidateRequest(BaseModel):
-    token: str | None = Field(None, max_length=256)
 
 
 class ValidateResponse(BaseModel):

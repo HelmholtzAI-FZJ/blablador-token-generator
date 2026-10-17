@@ -212,7 +212,9 @@ async def revoke_token(
     if not token:
         raise HTTPException(status_code=404, detail="Token not found")
 
-    token.revoked_at = utcnow()
+    # The first revocation time is the one that matters in an investigation.
+    if token.revoked_at is None:
+        token.revoked_at = utcnow()
     try:
         await db.commit()
     except Exception:
@@ -240,13 +242,15 @@ async def delete_token(
     if not token:
         raise HTTPException(status_code=404, detail="Token not found")
 
+    last_used_at = token.last_used_at
     await db.delete(token)
     try:
         await db.commit()
     except Exception:
         await db.rollback()
         raise HTTPException(status_code=500, detail="Failed to delete token")
-    logger.info("user=%s action=delete_token token_id=%s", user.id, token_id)
+    logger.info("user=%s action=delete_token token_id=%s last_used_at=%s",
+                user.id, token_id, isoformat_utc(last_used_at) or "never")
 
     return {"message": "Token deleted successfully"}
 
@@ -274,10 +278,12 @@ async def renew_token(
 
     config = get_config()
 
-    if token.expires_at and token.created_at:
-        original_duration = token.expires_at - token.created_at
-    else:
-        original_duration = timedelta(days=config.tokens.default_expiration_days)
+    # The lifetime the token was given, within today's limit: a rotation
+    # may have set a far later expiry than its creation date suggests.
+    original_duration = timedelta(days=config.tokens.default_expiration_days)
+    if token.expires_at and token.created_at and token.expires_at > token.created_at:
+        original_duration = min(token.expires_at - token.created_at,
+                                timedelta(days=config.tokens.max_expiration_days))
 
     if body and body.expires_at is not None:
         new_expires_at = body.expires_at
@@ -335,6 +341,9 @@ async def rotate_token(
         expires_at = utcnow() + timedelta(days=get_config().tokens.default_expiration_days)
     check_expiration(expires_at)
     plain_token = generate_token()
+    # The old value's last use is evidence when rotating after a leak; it
+    # stays in the audit log while the token's record starts afresh.
+    previous_use = token.last_used_at
     token.token_hash = hash_token(plain_token)
     token.expires_at = expires_at
     token.last_used_at = None
@@ -344,7 +353,8 @@ async def rotate_token(
     except Exception:
         await db.rollback()
         raise HTTPException(status_code=500, detail="Failed to rotate token")
-    logger.info("user=%s action=rotate_token token_id=%s", user.id, token.id)
+    logger.info("user=%s action=rotate_token token_id=%s previous_last_used_at=%s",
+                user.id, token.id, isoformat_utc(previous_use) or "never")
     return TokenWithValueResponse(
         id=token.id,
         name=token.name,
