@@ -129,7 +129,7 @@ async def test_unexpected_owner_index_definition_is_refused(engine):
     await create_pre_migration_database(engine)
     async with engine.begin() as conn:
         await conn.execute(text("CREATE INDEX ix_tokens_user_id ON tokens (name)"))
-    with pytest.raises(migrate.SchemaError, match="unexpected definition"):
+    with pytest.raises(migrate.SchemaError, match="unexpected index ix_tokens_user_id on tokens"):
         await migrate.upgrade_database(engine)
 
 
@@ -212,3 +212,88 @@ def test_command_line_explains_schema_problems(tmp_path):
     result = run_cli("upgrade", database_url=url)
     assert result.returncode == 1
     assert "unexpected definition" in result.stderr
+
+
+@pytest.mark.asyncio
+async def test_hand_patched_old_schema_is_not_adopted(engine):
+    # An August database kept alive by adding the new columns by hand still
+    # has the old unique email index (one account could block another).
+    await create_pre_migration_database(engine)
+    async with engine.begin() as conn:
+        await conn.execute(text("DROP INDEX ix_users_email"))
+        await conn.execute(text("CREATE UNIQUE INDEX ix_users_email ON users (email)"))
+    with pytest.raises(migrate.SchemaError, match="ix_users_email"):
+        await migrate.upgrade_database(engine)
+    assert await migrate.database_revision(engine) is None
+
+
+@pytest.mark.asyncio
+async def test_newer_schema_is_refused_with_an_explanation(engine):
+    await migrate.upgrade_database(engine)
+    async with engine.begin() as conn:
+        await conn.execute(text("UPDATE alembic_version SET version_num = '0099'"))
+    for check in (migrate.upgrade_database, migrate.require_current_schema):
+        with pytest.raises(migrate.SchemaError, match="newer release"):
+            await check(engine)
+
+
+async def hold_schema_lock(engine):
+    connection = await engine.connect()
+    await connection.execute(text("SELECT pg_advisory_lock(:key)"), {"key": migrate.SCHEMA_LOCK_KEY})
+    await connection.commit()
+    return connection
+
+
+@pytest.mark.asyncio
+async def test_current_schema_starts_without_the_lock(engine):
+    if engine.dialect.name != "postgresql":
+        pytest.skip("The schema lock is a PostgreSQL advisory lock")
+    await migrate.upgrade_database(engine)
+    holder = await hold_schema_lock(engine)
+    try:
+        assert await asyncio.wait_for(migrate.upgrade_database(engine), 5) == "0002"
+    finally:
+        await holder.close()
+
+
+@pytest.mark.asyncio
+async def test_lock_timeout_names_the_holder(engine, monkeypatch):
+    if engine.dialect.name != "postgresql":
+        pytest.skip("The schema lock is a PostgreSQL advisory lock")
+    monkeypatch.setattr(migrate, "LOCK_WAIT_SECONDS", 1)
+    holder = await hold_schema_lock(engine)
+    try:
+        pid = await holder.scalar(text("SELECT pg_backend_pid()"))
+        with pytest.raises(migrate.SchemaError, match=f"server process {pid}"):
+            await migrate.upgrade_database(engine)
+    finally:
+        await holder.close()
+
+
+@pytest.mark.asyncio
+async def test_failed_migration_reports_its_error_and_releases_the_lock(engine, monkeypatch):
+    if engine.dialect.name != "postgresql":
+        pytest.skip("The schema lock is a PostgreSQL advisory lock")
+
+    def failing_upgrade(connection):
+        connection.execute(text("SELECT 1 / 0"))
+
+    monkeypatch.setattr(migrate, "_upgrade", failing_upgrade)
+    with pytest.raises(Exception, match="division by zero"):
+        await migrate.upgrade_database(engine)
+    async with engine.connect() as conn:
+        assert await conn.scalar(text("SELECT pg_try_advisory_lock(:key)"), {"key": migrate.SCHEMA_LOCK_KEY})
+        await conn.execute(text("SELECT pg_advisory_unlock(:key)"), {"key": migrate.SCHEMA_LOCK_KEY})
+
+
+def test_command_line_check_compares_the_schema(tmp_path):
+    import sqlite3
+    database = tmp_path / "partial.db"
+    url = f"sqlite+aiosqlite:///{database}"
+    assert run_cli("upgrade", database_url=url).returncode == 0
+    assert "matches this release" in run_cli("check", database_url=url).stdout
+    with sqlite3.connect(database) as connection:
+        connection.execute("DROP INDEX ix_deleted_users_email_hash")
+    result = run_cli("check", database_url=url)
+    assert result.returncode == 1
+    assert "missing index ix_deleted_users_email_hash on deleted_users" in result.stdout

@@ -268,3 +268,68 @@ class TestProductionConfiguration:
         empty.write_text("- not a mapping\n")
         with pytest.raises(ValueError, match="mapping"):
             get_config.__wrapped__()
+
+
+class TestDatabaseRoleCheck:
+    """Needs a disposable PostgreSQL where the test user may create roles
+    (TEST_DATABASE_URL, as in CI)."""
+
+    @pytest.mark.asyncio
+    async def test_reach_beyond_the_application_schema_is_refused(self):
+        import uuid
+        from sqlalchemy import text
+        from app.database import verify_production_database_role
+
+        url = os.environ.get("TEST_DATABASE_URL", "")
+        if not url.startswith("postgresql"):
+            pytest.skip("Needs PostgreSQL")
+        administrator = build_engine(url)
+        async with administrator.connect() as connection:
+            if not await connection.scalar(text("SELECT rolsuper FROM pg_roles WHERE rolname = current_user")):
+                await administrator.dispose()
+                pytest.skip("Needs a superuser to create test roles")
+            version = int(await connection.scalar(text("SHOW server_version_num")))
+        role = "tg_check_" + uuid.uuid4().hex[:10]
+        password = uuid.uuid4().hex
+        grants = [
+            (f'GRANT pg_read_all_data TO "{role}"', f'REVOKE pg_read_all_data FROM "{role}"'),
+            (f'GRANT pg_write_all_data TO "{role}"', f'REVOKE pg_write_all_data FROM "{role}"'),
+            (f'GRANT pg_signal_backend TO "{role}"', f'REVOKE pg_signal_backend FROM "{role}"'),
+            (f'GRANT EXECUTE ON FUNCTION pg_read_binary_file(text) TO "{role}"',
+             f'REVOKE EXECUTE ON FUNCTION pg_read_binary_file(text) FROM "{role}"'),
+            (f'GRANT EXECUTE ON FUNCTION lo_export(oid, text) TO "{role}"',
+             f'REVOKE EXECUTE ON FUNCTION lo_export(oid, text) FROM "{role}"'),
+        ]
+        if version >= 150000:
+            grants.append((f'GRANT SET ON PARAMETER session_preload_libraries TO "{role}"',
+                           f'REVOKE SET ON PARAMETER session_preload_libraries FROM "{role}"'))
+        restricted = None
+        try:
+            async with administrator.begin() as connection:
+                await connection.execute(text(f"CREATE ROLE \"{role}\" LOGIN PASSWORD '{password}'"))
+                await connection.execute(text(f'GRANT pg_monitor TO "{role}"'))
+            restricted = build_engine(make_url_for(url, role, password))
+            async with restricted.connect() as connection:
+                await verify_production_database_role(connection)  # monitoring is fine
+            for grant, revoke in grants:
+                async with administrator.begin() as connection:
+                    await connection.execute(text(grant))
+                async with restricted.connect() as connection:
+                    with pytest.raises(RuntimeError, match="unsafe"):
+                        await verify_production_database_role(connection)
+                async with administrator.begin() as connection:
+                    await connection.execute(text(revoke))
+            async with restricted.connect() as connection:
+                await verify_production_database_role(connection)
+        finally:
+            if restricted is not None:
+                await restricted.dispose()
+            async with administrator.begin() as connection:
+                await connection.execute(text(f'DROP ROLE IF EXISTS "{role}"'))
+            await administrator.dispose()
+
+
+def make_url_for(url: str, username: str, password: str):
+    from sqlalchemy.engine import make_url
+
+    return make_url(url).set(username=username, password=password)

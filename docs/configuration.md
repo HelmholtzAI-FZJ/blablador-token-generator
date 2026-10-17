@@ -50,7 +50,12 @@ unless:
   `10.42.0.7/16`, which Uvicorn would silently ignore), each no wider than
   `/8`, and never `*`;
 - the database role is not a superuser and cannot create roles or databases,
-  replicate, bypass row security or read/write server files.
+  replicate or bypass row security; it is not a member of the predefined roles
+  that reach server files and programs, every table (`pg_read_all_data`,
+  `pg_write_all_data`), subscriptions or other sessions; and it has no
+  `EXECUTE` on the server-file functions (`pg_read_file`, `lo_export`, …) and
+  no `SET`/`ALTER SYSTEM` grant on server parameters. Monitoring roles such
+  as `pg_monitor` are allowed.
 
 `development` relaxes the transport and storage rules (SQLite, in-memory
 counters, plain HTTP) for local work. Never use it for a shared deployment.
