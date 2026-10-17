@@ -39,10 +39,14 @@ class CommandError(Exception):
     pass
 
 
-async def create_local_admin(email: str, name: str, password: str) -> str:
+def require_local_sign_in() -> None:
     if not get_config().local.enabled:
         raise CommandError("Local sign-in is disabled (local.enabled is false), so a local "
                            "administrator could not sign in; use grant-admin --subject instead")
+
+
+async def create_local_admin(email: str, name: str, password: str) -> str:
+    require_local_sign_in()
     # The same checks as creating a local account in the admin panel.
     try:
         validate_password_strength(password)
@@ -115,6 +119,10 @@ def copy_events_to_container_log() -> None:
 
 def read_password(from_stdin: bool) -> str:
     if from_stdin:
+        if sys.stdin.isatty():
+            # A terminal would show the password as it is typed.
+            raise CommandError("--password-stdin reads a piped password; at a terminal, "
+                               "leave it out to be prompted without echo")
         return sys.stdin.readline().rstrip("\n")
     password = getpass.getpass("Password: ")
     if getpass.getpass("Repeat password: ") != password:
@@ -126,8 +134,7 @@ async def run(args: argparse.Namespace) -> str:
     await database.init_db()
     try:
         if args.command == "create-local-admin":
-            if not get_config().local.enabled:
-                print("Note: local.enabled is false, so this account cannot sign in yet.", file=sys.stderr)
+            require_local_sign_in()
             user_id = await create_local_admin(args.email, args.name, read_password(args.password_stdin))
             return f"Created local administrator {user_id}"
         user_id = await grant_admin(user_id=args.user_id, subject=args.subject)

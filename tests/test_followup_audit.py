@@ -704,3 +704,19 @@ class TestTokenLifecycle:
                           "exp": int((datetime.now(UTC) + timedelta(hours=1)).timestamp())}, test_db)
         remaining = set((await test_db.execute(select(RevokedJWT.jti))).scalars())
         assert {"just-expired", "new-session"} <= remaining and "long-expired" not in remaining
+
+
+class TestOperatorCommands:
+    def test_password_stdin_refuses_a_terminal(self, monkeypatch):
+        from app.manage import CommandError, read_password
+
+        class Terminal:
+            def isatty(self):
+                return True
+
+            def readline(self):
+                raise AssertionError("must not read an echoed password")
+
+        monkeypatch.setattr("sys.stdin", Terminal())
+        with pytest.raises(CommandError, match="piped"):
+            read_password(True)
