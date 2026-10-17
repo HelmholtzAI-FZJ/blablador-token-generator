@@ -36,6 +36,14 @@ def postgres_connect_args(connect_args: dict | None = None, *, migration: bool =
         ("idle_in_transaction_session_timeout", idle_timeout),
     ):
         settings.setdefault(name, f"{max(1, ceil(seconds * 1000))}ms")
+    # Lets an operator tell the service's sessions apart in pg_stat_activity.
+    settings.setdefault("application_name", "token-generator-migrate" if migration else "token-generator")
+    if migration:
+        # A migrator on a lost node holds the schema lock until the server
+        # notices; probe idle connections instead of waiting for TCP's hours.
+        settings.setdefault("tcp_keepalives_idle", "30")
+        settings.setdefault("tcp_keepalives_interval", "10")
+        settings.setdefault("tcp_keepalives_count", "3")
     options["server_settings"] = settings
     return options
 
@@ -82,16 +90,47 @@ async def lock_user_for_update(
     return result.scalar_one_or_none()
 
 
+# Predefined roles that reach beyond the application's own tables: server
+# files and programs, every table in the cluster, other sessions.
+UNSAFE_PREDEFINED_ROLES = (
+    "pg_read_server_files", "pg_write_server_files", "pg_execute_server_program",
+    "pg_read_all_data", "pg_write_all_data", "pg_create_subscription", "pg_signal_backend",
+)
+# Superuser-only functions that read, list or write server files, or reload
+# the server configuration, when EXECUTE has been granted on them.
+UNSAFE_FUNCTIONS = (
+    "pg_read_file", "pg_read_binary_file", "pg_ls_dir", "pg_stat_file",
+    "lo_import", "lo_export", "pg_reload_conf", "pg_file_write", "pg_file_rename", "pg_file_unlink",
+)
+_ROLE_OR_MEMBER = (
+    "(pg_catalog.pg_has_role(current_user, {oid}, 'MEMBER') "
+    "OR pg_catalog.pg_has_role(session_user, {oid}, 'MEMBER'))"
+)
+
+
 async def verify_production_database_role(conn: AsyncConnection) -> None:
-    unsafe = await conn.scalar(text(
-        "SELECT EXISTS (SELECT 1 FROM pg_catalog.pg_roles AS role WHERE "
-        "(role.rolname = current_user OR role.rolname = session_user OR "
-        "pg_catalog.pg_has_role(current_user, role.oid, 'MEMBER') OR "
-        "pg_catalog.pg_has_role(session_user, role.oid, 'MEMBER')) AND "
-        "(role.rolsuper OR role.rolcreatedb OR role.rolcreaterole OR "
-        "role.rolreplication OR role.rolbypassrls OR role.rolname IN "
-        "('pg_read_server_files', 'pg_write_server_files', 'pg_execute_server_program')))"
-    ))
+    """Refuse a runtime role that can do more than use its own schema."""
+    checks = [
+        "SELECT 1 FROM pg_catalog.pg_roles AS role WHERE "
+        + _ROLE_OR_MEMBER.format(oid="role.oid")
+        + " AND (role.rolsuper OR role.rolcreatedb OR role.rolcreaterole OR role.rolreplication "
+        "OR role.rolbypassrls OR role.rolname = ANY(:roles))",
+        "SELECT 1 FROM pg_catalog.pg_proc AS function WHERE function.proname = ANY(:functions) "
+        "AND (pg_catalog.has_function_privilege(current_user, function.oid, 'EXECUTE') "
+        "OR pg_catalog.has_function_privilege(session_user, function.oid, 'EXECUTE'))",
+    ]
+    if int(await conn.scalar(text("SHOW server_version_num")) or 0) >= 150000:
+        # GRANT SET / ALTER SYSTEM ON PARAMETER (PostgreSQL 15+), to the role,
+        # a role it belongs to, or PUBLIC (grantee 0).
+        checks.append(
+            "SELECT 1 FROM pg_catalog.pg_parameter_acl AS parameter, "
+            "pg_catalog.aclexplode(parameter.paracl) AS entry WHERE CASE WHEN entry.grantee = 0 "
+            "THEN true ELSE " + _ROLE_OR_MEMBER.format(oid="entry.grantee") + " END"
+        )
+    unsafe = await conn.scalar(
+        text("SELECT " + " OR ".join(f"EXISTS ({check})" for check in checks)),
+        {"roles": list(UNSAFE_PREDEFINED_ROLES), "functions": list(UNSAFE_FUNCTIONS)},
+    )
     if unsafe is not False:
         raise RuntimeError("Production database role has unsafe or unverified privileges")
 
