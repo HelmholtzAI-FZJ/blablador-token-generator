@@ -156,6 +156,15 @@ document.querySelectorAll('.datetime-date').forEach(el => {
     }
 });
 
+// A new token is shown once; keep it out of a page the browser may restore
+// from its back-forward cache.
+window.addEventListener('pagehide', () => {
+    const value = document.getElementById('newTokenValue');
+    if (value) value.textContent = '';
+    const display = document.getElementById('newTokenDisplay');
+    if (display) display.style.display = 'none';
+});
+
 // Set token status (Active/Revoked/Expired)
 document.querySelectorAll('.token-status').forEach(el => {
     const isRevoked = el.dataset.revoked === 'true';

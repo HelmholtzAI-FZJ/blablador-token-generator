@@ -178,6 +178,7 @@
             <div class="card">
                 <h2>Manage Users</h2>
                 <button class="btn" data-action="restore-oauth">Restore Disabled OAuth Account</button>
+                {% if local_enabled %}
                 <div style="margin-bottom: 1.5rem;">
                     <h3>Create Local User</h3>
                     <form id="createUserForm">
@@ -202,6 +203,7 @@
                         <button type="submit" class="btn btn-success">Create User</button>
                     </form>
                 </div>
+                {% endif %}
 
                 <h3>Existing Users</h3>
                 <div>

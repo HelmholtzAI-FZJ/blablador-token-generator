@@ -31,7 +31,7 @@ from app.error_safety import ErrorSafetyMiddleware
 from app.access_log import AccessLogMiddleware
 from app.clients import loggable_address
 from app.models import User, Token
-from app.tombstones import record_deletion
+from app.tombstones import identity_reference, record_deletion
 from app.auth import (
     get_current_user, get_current_admin,
     get_or_create_user, get_unity_userinfo, create_session_token,
@@ -380,6 +380,7 @@ def render_admin_tokens(request: Request, admin: User, tokens: list[Token], sear
         "has_next": has_next,
         "csrf_token": request.state.csrf_token,
         "login_name": config.login.name,
+        "local_enabled": config.local.enabled,
     })
 
 
@@ -400,6 +401,7 @@ async def admin_tokens(
         .limit(page_size + 1)
     )
     found = list(result.scalars().all())
+    _audit.info("admin=%s action=list_tokens page=%d", admin.id, page)
     return render_admin_tokens(request, admin, found[:page_size], searched=False,
                                page=page, has_next=len(found) > page_size)
 
@@ -423,6 +425,7 @@ async def admin_token_search(
         .where(Token.token_hash == hash_token(token.strip()))
     )
     found = result.scalar_one_or_none()
+    _audit.info("admin=%s action=search_token found=%s", admin.id, found is not None)
     return render_admin_tokens(request, admin, [found] if found else [], searched=True)
 
 
@@ -469,6 +472,7 @@ async def delete_my_account(
         raise HTTPException(status_code=400, detail="Cannot delete the last remaining admin")
 
     user_id = user.id
+    identity = identity_reference(user=user)
     result = await db.execute(select(Token).where(Token.user_id == user.id))
     tokens = result.scalars().all()
     # 2. Write tombstone (blocks OAuth resurrection)
@@ -486,8 +490,9 @@ async def delete_my_account(
 
     # 4. Log deletion (safe — only internal IDs, no secrets)
     _account_logger.info(
-        "user=%s action=account_deleted token_count=%d",
+        "user=%s action=account_deleted identity=%s token_count=%d",
         user_id,
+        identity,
         len(tokens),
     )
 

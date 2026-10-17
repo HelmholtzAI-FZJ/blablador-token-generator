@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 import httpx
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Response
 from pydantic import ValidationError
 from sqlalchemy import func, select, text, update
 from sqlalchemy.exc import DBAPIError
@@ -56,8 +56,10 @@ async def mutation_sessions(tmp_path):
 
 
 async def seed_users(sessions, count: int = 1, admin: bool = False) -> list[str]:
+    # OAuth accounts, so they can sign in and count as administrators.
     async with sessions() as db:
-        users = [User(email=f"fix-{i}@example.invalid", name=f"User {i}", is_admin=admin)
+        users = [User(email=f"fix-{i}@example.invalid", name=f"User {i}", is_admin=admin,
+                      unity_id=f"fix-subject-{uuid.uuid4().hex}")
                  for i in range(count)]
         db.add_all(users)
         await db.commit()
@@ -187,14 +189,15 @@ async def test_user_pagination_is_bounded_stable_and_preserves_default_page(test
     test_db.add_all(users)
     await test_db.commit()
     expected_ids = sorted([test_admin.id] + [user.id for user in users], reverse=True)
-    first = await list_users.__wrapped__(request(method="GET"), page_size=100,
+    first_response, second_response = Response(), Response()
+    first = await list_users.__wrapped__(request(method="GET"), first_response, page_size=100,
                                          admin=test_admin, db=test_db)
-    second = await list_users.__wrapped__(request(method="GET"), page=2, page_size=100,
+    second = await list_users.__wrapped__(request(method="GET"), second_response, page=2, page_size=100,
                                           admin=test_admin, db=test_db)
-    assert len(first) == 100
-    assert len(second) == 1
+    assert len(first) == 100 and first_response.headers["X-Has-More"] == "true"
+    assert len(second) == 1 and second_response.headers["X-Has-More"] == "false"
     assert [user.id for user in first + second] == expected_ids
-    default = await list_users.__wrapped__(request(method="GET"), admin=test_admin, db=test_db)
+    default = await list_users.__wrapped__(request(method="GET"), Response(), admin=test_admin, db=test_db)
     assert [user.id for user in default] == expected_ids[:20]
 
 

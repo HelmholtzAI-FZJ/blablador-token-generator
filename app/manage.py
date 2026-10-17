@@ -40,6 +40,9 @@ class CommandError(Exception):
 
 
 async def create_local_admin(email: str, name: str, password: str) -> str:
+    if not get_config().local.enabled:
+        raise CommandError("Local sign-in is disabled (local.enabled is false), so a local "
+                           "administrator could not sign in; use grant-admin --subject instead")
     # The same checks as creating a local account in the admin panel.
     try:
         validate_password_strength(password)

@@ -32,6 +32,17 @@ def _email_hash(email: str) -> str:
     return _identifier_hash("email", email.strip().lower())
 
 
+def identity_reference(*, user: User | None = None, subject: str | None = None) -> str:
+    """Short keyed reference to an account's identity for audit lines: it
+    matches the deletion record and a later restoration without putting the
+    subject or email in the logs."""
+    if user is not None:
+        subject = user.unity_id
+        if subject is None:
+            return "local:" + _email_hash(user.email)[:16]
+    return "oauth:" + _subject_hash(subject)[:16]
+
+
 def record_deletion(db: AsyncSession, user: User) -> None:
     db.add(DeletedUser(
         unity_id_hash=_subject_hash(user.unity_id) if user.unity_id else None,
