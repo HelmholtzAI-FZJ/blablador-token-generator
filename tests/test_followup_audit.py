@@ -628,3 +628,79 @@ class TestAdministration:
         monkeypatch.setattr(get_config().local, "enabled", False)
         with pytest.raises(CommandError, match="grant-admin"):
             asyncio.run(create_local_admin("x@example.org", "X", "a long enough local password"))
+
+
+class TestTokenLifecycle:
+    def test_repeated_revocation_keeps_the_first_time(self, client, monkeypatch):
+        from sqlalchemy import select
+        from app import database
+        from app.models import Token
+
+        csrf = oauth_login(client, monkeypatch, "revoking-user")
+        headers = {"X-CSRF-Token": csrf}
+        token_id = client.post("/tokens", json={"name": "twice"}, headers=headers).json()["id"]
+
+        async def revoked_at():
+            async with database.async_session_maker() as db:
+                return (await db.execute(select(Token.revoked_at).where(Token.id == token_id))).scalar_one()
+
+        assert client.delete(f"/tokens/{token_id}", headers=headers).status_code == 200
+        first = client.portal.call(revoked_at)
+        time.sleep(0.01)
+        assert client.delete(f"/tokens/{token_id}", headers=headers).status_code == 200
+        assert client.portal.call(revoked_at) == first
+
+    def test_renewal_without_a_body_after_rotation(self, client, monkeypatch):
+        from datetime import datetime, timedelta, timezone
+        from sqlalchemy import update
+        from app import database
+        from app.models import Token
+
+        csrf = oauth_login(client, monkeypatch, "renewing-user")
+        headers = {"X-CSRF-Token": csrf}
+        token_id = client.post("/tokens", json={"name": "rotated", "expires_in_days": 30}, headers=headers).json()["id"]
+
+        async def created_long_ago():
+            async with database.async_session_maker() as db:
+                await db.execute(update(Token).where(Token.id == token_id)
+                                 .values(created_at=datetime(2025, 1, 1)))
+                await db.commit()
+
+        client.portal.call(created_long_ago)
+        assert client.post(f"/tokens/{token_id}/rotate", json={"expires_in_days": 300},
+                           headers=headers).status_code == 200
+        renewed = client.post(f"/tokens/{token_id}/renew", headers=headers)
+        assert renewed.status_code == 200, renewed.text
+        expires = datetime.fromisoformat(renewed.json()["expires_at"])
+        assert expires <= datetime.now(timezone.utc) + timedelta(days=365, minutes=1)
+
+    def test_rotation_keeps_the_previous_use_in_the_audit_log(self, client, monkeypatch, caplog):
+        csrf = oauth_login(client, monkeypatch, "rotating-user")
+        headers = {"X-CSRF-Token": csrf}
+        created = client.post("/tokens", json={"name": "leaked"}, headers=headers).json()
+        validation = client.post("/api/v1/auth/validate", headers={"Authorization": f"Bearer {created['token']}"})
+        assert validation.status_code == 200
+        caplog.set_level("INFO", logger="token_generator.audit")
+        assert client.post(f"/tokens/{created['id']}/rotate", headers=headers).status_code == 200
+        line = next(r.getMessage() for r in caplog.records if "action=rotate_token" in r.getMessage())
+        assert "previous_last_used_at=20" in line
+
+    @pytest.mark.asyncio
+    async def test_revocations_are_purged_only_well_after_expiry(self, test_db, test_user):
+        from datetime import timedelta
+        from sqlalchemy import select
+        from app.auth import REVOCATION_PURGE_MARGIN, revoke_jwt
+        from app.models import RevokedJWT
+        from app.timeutil import utcnow
+
+        just_expired = RevokedJWT(jti="just-expired", user_id=test_user.id,
+                                  expires_at=utcnow() - REVOCATION_PURGE_MARGIN / 2)
+        long_expired = RevokedJWT(jti="long-expired", user_id=test_user.id,
+                                  expires_at=utcnow() - REVOCATION_PURGE_MARGIN - timedelta(minutes=1))
+        test_db.add_all([just_expired, long_expired])
+        await test_db.commit()
+        from datetime import UTC, datetime
+        await revoke_jwt({"jti": "new-session", "sub": test_user.id,
+                          "exp": int((datetime.now(UTC) + timedelta(hours=1)).timestamp())}, test_db)
+        remaining = set((await test_db.execute(select(RevokedJWT.jti))).scalars())
+        assert {"just-expired", "new-session"} <= remaining and "long-expired" not in remaining

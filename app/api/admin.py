@@ -208,7 +208,8 @@ async def revoke_token_admin(
     if not token:
         raise HTTPException(status_code=404, detail="Token not found")
 
-    token.revoked_at = utcnow()
+    if token.revoked_at is None:
+        token.revoked_at = utcnow()
     try:
         await db.commit()
     except Exception:
@@ -238,6 +239,7 @@ async def delete_token_admin(
     if not token:
         raise HTTPException(status_code=404, detail="Token not found")
 
+    last_used_at = token.last_used_at
     await db.delete(token)
     try:
         await db.commit()
@@ -245,10 +247,11 @@ async def delete_token_admin(
         await db.rollback()
         raise HTTPException(status_code=500, detail="Failed to delete token")
     logger.info(
-        "admin=%s action=delete_token token_id=%s user_id=%s",
+        "admin=%s action=delete_token token_id=%s user_id=%s last_used_at=%s",
         admin.id,
         token.id,
         token.user_id,
+        isoformat_utc(last_used_at) or "never",
     )
     return {"message": "Token deleted successfully"}
 
