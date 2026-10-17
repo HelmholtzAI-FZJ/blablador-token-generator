@@ -31,8 +31,16 @@ services:
       DATABASE_SSL_CA_FILE: /app/tls/postgresql/ca.crt
       RATE_LIMIT_STORAGE_URI: ${RATE_LIMIT_STORAGE_URI:?set the verified rediss runtime
         URL}
-      FORWARDED_ALLOW_IPS: ${FORWARDED_ALLOW_IPS:-127.0.0.1}
+      OAUTH_CLIENT_SECRET: ${OAUTH_CLIENT_SECRET:-}
+      # A reverse proxy on this host reaches the app from the gateway of the
+      # "edge" network (Docker forwards the published port from there), so
+      # that address is the trusted proxy. Any process on the host connects
+      # from it too: keep untrusted users off the host.
+      FORWARDED_ALLOW_IPS: ${FORWARDED_ALLOW_IPS:-172.30.240.1}
       WORKERS: ${WORKERS:-2}
+    networks:
+    - edge
+    - backend
     depends_on:
       postgres:
         condition: service_healthy
@@ -85,6 +93,8 @@ services:
       TOKEN_DB_PASSWORD: ${POSTGRES_PASSWORD:?set the PostgreSQL runtime-role password}
       TOKEN_DB_REQUIRE_TLS: 'true'
       PGDATA: /var/lib/postgresql/data/pgdata
+    networks:
+    - backend
     volumes:
     - postgres-data:/var/lib/postgresql/data
     - ./helm/blablador-token-generator/files/init-runtime-role.sh:/docker-entrypoint-initdb.d/10-runtime-role.sh:ro
@@ -155,6 +165,8 @@ services:
       timeout: 3s
       retries: 10
     restart: unless-stopped
+    networks:
+    - backend
     entrypoint:
     - /startup/redis-entrypoint.sh
     volumes:
@@ -174,5 +186,17 @@ secrets:
       only}
   redis_ca:
     file: ${REDIS_TLS_CA_FILE:?set the Redis CA certificate path}
+networks:
+  # The app's network to the host and the identity provider. Fixed, so the
+  # trusted proxy address above is known; change both together if the
+  # subnet is taken on this host.
+  edge:
+    ipam:
+      config:
+      - subnet: ${EDGE_SUBNET:-172.30.240.0/24}
+        gateway: ${EDGE_GATEWAY:-172.30.240.1}
+  # PostgreSQL and Redis: reachable from the app only, no internet access.
+  backend:
+    internal: true
 volumes:
   postgres-data: null
