@@ -1,5 +1,5 @@
 {{- if .Values.postgresql.enabled }}
-{{- $name := printf "%s-postgresql" (include "blablador-token-generator.fullname" .) }}
+{{- $name := include "blablador-token-generator.componentName" (dict "root" . "component" "postgresql") }}
 {{- $pg := .Values.postgresql }}
 {{- if eq $pg.username $pg.adminUsername }}{{- fail "PostgreSQL runtime and administrator usernames must differ" }}{{- end }}
 {{- if and (eq .Values.config.app.environment "production") (not $pg.tls.enabled) }}{{- fail "Production PostgreSQL requires verified TLS" }}{{- end }}

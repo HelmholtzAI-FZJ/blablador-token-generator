@@ -5,7 +5,7 @@ metadata:
   labels:
     {{- include "blablador-token-generator.labels" . | nindent 4 }}
 spec:
-  type: {{ .Values.service.type }}
+  type: {{ .Values.service.type | quote }}
   ports:
     - port: {{ .Values.service.port }}
       targetPort: http

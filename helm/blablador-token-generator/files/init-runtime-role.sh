@@ -9,6 +9,11 @@ if [ "$TOKEN_DB_USER" = "$POSTGRES_USER" ] || [ "$TOKEN_DB_PASSWORD" = "$POSTGRE
     printf '%s\n' 'PostgreSQL runtime and administrator credentials must differ.' >&2
     exit 1
 fi
+case "$POSTGRES_USER" in
+    ''|[!a-z]*|*[!a-z0-9_]*)
+        printf '%s\n' 'The PostgreSQL administrator name must be lowercase letters, digits and underscores.' >&2
+        exit 1 ;;
+esac
 
 psql --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" --no-psqlrc \
     --set=ON_ERROR_STOP=1 --set=runtime_user="$TOKEN_DB_USER" \
@@ -18,10 +23,18 @@ REVOKE ALL ON DATABASE :"runtime_database" FROM PUBLIC;
 GRANT CONNECT ON DATABASE :"runtime_database" TO :"runtime_user";
 REVOKE ALL ON SCHEMA public FROM PUBLIC;
 ALTER SCHEMA public OWNER TO :"runtime_user";
+REVOKE CONNECT ON DATABASE postgres FROM PUBLIC;
+REVOKE CONNECT ON DATABASE template1 FROM PUBLIC;
 SQL
 
-if [ "${TOKEN_DB_REQUIRE_TLS:-false}" = true ]; then
-    umask 077
-    { printf 'hostnossl all all 0.0.0.0/0 reject\nhostnossl all all ::/0 reject\n'; cat "$PGDATA/pg_hba.conf"; } > "$PGDATA/pg_hba.conf.tmp"
-    mv "$PGDATA/pg_hba.conf.tmp" "$PGDATA/pg_hba.conf"
-fi
+# The administrator signs in only inside the database container (local
+# socket): its password in a stolen Secret is no network superuser login.
+umask 077
+{
+    printf 'host all %s all reject\n' "$POSTGRES_USER"
+    if [ "${TOKEN_DB_REQUIRE_TLS:-false}" = true ]; then
+        printf 'hostnossl all all 0.0.0.0/0 reject\nhostnossl all all ::/0 reject\n'
+    fi
+    cat "$PGDATA/pg_hba.conf"
+} > "$PGDATA/pg_hba.conf.tmp"
+mv "$PGDATA/pg_hba.conf.tmp" "$PGDATA/pg_hba.conf"

@@ -1,6 +1,6 @@
 {{- $pg := .Values.postgresql }}
 {{- if and $pg.enabled $pg.backup.enabled }}
-{{- $name := printf "%s-postgresql" (include "blablador-token-generator.fullname" .) }}
+{{- $name := include "blablador-token-generator.componentName" (dict "root" . "component" "postgresql") }}
 {{- $backup := include "blablador-token-generator.backupName" . }}
 apiVersion: v1
 kind: PersistentVolumeClaim
@@ -14,11 +14,11 @@ metadata:
 spec:
   accessModes: ["ReadWriteOnce"]
   {{- if $pg.backup.storageClass }}
-  storageClassName: {{ $pg.backup.storageClass }}
+  storageClassName: {{ $pg.backup.storageClass | quote }}
   {{- end }}
   resources:
     requests:
-      storage: {{ $pg.backup.size }}
+      storage: {{ $pg.backup.size | quote }}
 ---
 apiVersion: batch/v1
 kind: CronJob
@@ -57,11 +57,20 @@ spec:
               args:
                 - |
                   umask 077
+                  # A new pod may not reach PostgreSQL at once (network
+                  # policies can take a moment to admit it).
+                  tries=0
+                  until pg_isready --quiet --timeout=5; do
+                    tries=$((tries + 1))
+                    if [ "$tries" -ge 30 ]; then echo "PostgreSQL is not reachable" >&2; exit 1; fi
+                    sleep 2
+                  done
                   stamp=$(date -u +%Y%m%dT%H%M%SZ)
                   pg_dump --format=custom --no-owner --file="/backup/tokens-$stamp.dump.partial"
                   mv "/backup/tokens-$stamp.dump.partial" "/backup/tokens-$stamp.dump"
-                  find /backup -name 'tokens-*.dump' -mtime +{{ int $pg.backup.retentionDays }} -delete
-                  find /backup -name 'tokens-*.dump.partial' -mmin +120 -delete
+                  # Only this job's own files, only at the top of the volume.
+                  find /backup -maxdepth 1 -type f -name 'tokens-2*Z.dump' -mtime +{{ int $pg.backup.retentionDays }} -delete
+                  find /backup -maxdepth 1 -type f -name 'tokens-2*Z.dump.partial' -mmin +120 -delete
                   echo "Wrote tokens-$stamp.dump"
               env:
                 - name: PGHOST

@@ -1,5 +1,8 @@
 FROM postgres:16-alpine@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea
 
-RUN apk add --no-cache --upgrade zlib=1.3.2-r1 \
+# Security updates published for this Alpine release since the base image
+# was built (exact versions would break the build once Alpine moves on);
+# gosu is unused because the container never starts as root.
+RUN apk upgrade --no-cache \
     && rm -f /usr/local/bin/gosu
 USER 70

@@ -1,4 +1,10 @@
-FROM redis:7.4-alpine@sha256:858f009f9709ce576febc734aa78b8f6d624b82571f9ddb6bda4377c833b3499
+# Redis 7.4 is built only on Alpine 3.21, which reaches end of support on
+# 2026-11-01; Redis 8 (Alpine 3.23) speaks the same protocol and ACLs.
+FROM redis:8.10.2-alpine@sha256:3811787313eba226a2ef38658c6ccb91cd5e110edc89c37767de373120a0e5a0
 
-RUN apk add --no-cache --upgrade libcrypto3=3.3.7-r2 libssl3=3.3.7-r2 zlib=1.3.2-r1
+# Security updates published for this Alpine release since the base image
+# was built. The rate limiter needs plain Redis: drop the bundled modules
+# (search, JSON, time series, probabilistic) the image's entrypoint loads.
+RUN apk upgrade --no-cache \
+    && rm -rf /usr/local/lib/redis/modules
 USER 999

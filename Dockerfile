@@ -1,14 +1,18 @@
-# Base image and uv are pinned by digest; Dependabot proposes updates.
+# Base images are pinned by digest; Dependabot proposes updates (it reads
+# only FROM lines, hence the stage for uv).
+FROM ghcr.io/astral-sh/uv:0.11.21@sha256:ff07b86af50d4d9391d9daf4ff89ce427bc544f9aae87057e69a1cc0aa369946 AS uv
+
 FROM python:3.12-slim@sha256:a6e34c598f2467ed0e9a8d349809fcd8b5c603269512df273a0bb1784edc11b1 AS build
 
-COPY --from=ghcr.io/astral-sh/uv:0.11.21@sha256:ff07b86af50d4d9391d9daf4ff89ce427bc544f9aae87057e69a1cc0aa369946 /uv /bin/uv
+COPY --from=uv /uv /bin/uv
 
 # Install exactly the locked, hash-verified dependency set into a venv.
 # uv and its cache stay in this stage; only the venv reaches the image.
 COPY pyproject.toml uv.lock /build/
 RUN uv export --frozen --no-dev --no-emit-project --project /build -o /build/requirements.txt \
     && uv venv /opt/venv \
-    && VIRTUAL_ENV=/opt/venv uv pip install --no-cache --require-hashes -r /build/requirements.txt
+    && VIRTUAL_ENV=/opt/venv uv pip install --no-cache --require-hashes -r /build/requirements.txt \
+    && rm -f /opt/venv/.lock
 
 
 FROM python:3.12-slim@sha256:a6e34c598f2467ed0e9a8d349809fcd8b5c603269512df273a0bb1784edc11b1
@@ -38,7 +42,8 @@ RUN /usr/local/bin/python -c 'import pathlib, shutil, sysconfig; site = pathlib.
     && rm -rf /var/lib/apt/lists/* \
     && useradd --system --uid 10001 --no-create-home app \
     && mkdir -p /app/data \
-    && chown app /app/data
+    && chown app /app/data \
+    && find / -xdev -perm /6000 -type f -exec chmod a-s {} +
 
 USER 10001
 

@@ -61,21 +61,33 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- default (printf "%s-config" (include "blablador-token-generator.fullname" .)) .Values.configExistingSecret -}}
 {{- end -}}
 
+{{/*
+Name of a bundled datastore's resources and pods: "<fullname>-postgresql" or
+"<fullname>-redis", shortened so that every name and label derived from it
+stays within Kubernetes limits (a StatefulSet's pods carry a label of its
+name plus an 11-character revision suffix, 63 characters at most).
+Call with (dict "root" $ "component" "postgresql").
+*/}}
+{{- define "blablador-token-generator.componentName" -}}
+{{- $suffix := printf "-%s" .component -}}
+{{- printf "%s%s" (include "blablador-token-generator.fullname" .root | trunc (int (sub 52 (len $suffix))) | trimSuffix "-") $suffix -}}
+{{- end -}}
+
 {{- define "blablador-token-generator.postgresSecret" -}}
-{{- default (printf "%s-postgresql" (include "blablador-token-generator.fullname" .)) .Values.postgresql.existingSecret -}}
+{{- default (include "blablador-token-generator.componentName" (dict "root" . "component" "postgresql")) .Values.postgresql.existingSecret -}}
 {{- end -}}
 
 {{- define "blablador-token-generator.redisSecret" -}}
-{{- default (printf "%s-redis" (include "blablador-token-generator.fullname" .)) .Values.redis.existingSecret -}}
+{{- default (include "blablador-token-generator.componentName" (dict "root" . "component" "redis")) .Values.redis.existingSecret -}}
 {{- end -}}
 
 {{- define "blablador-token-generator.postgresUrl" -}}
 {{- $pg := .Values.postgresql -}}
-{{- printf "postgresql+asyncpg://%s:%s@%s-postgresql:5432/%s" ($pg.username | urlquery | replace "+" "%20") ($pg.password | urlquery | replace "+" "%20") (include "blablador-token-generator.fullname" .) ($pg.database | urlquery | replace "+" "%20") -}}
+{{- printf "postgresql+asyncpg://%s:%s@%s:5432/%s" ($pg.username | urlquery | replace "+" "%20") ($pg.password | urlquery | replace "+" "%20") (include "blablador-token-generator.componentName" (dict "root" . "component" "postgresql")) ($pg.database | urlquery | replace "+" "%20") -}}
 {{- end -}}
 
 {{- define "blablador-token-generator.redisUrl" -}}
-{{- $name := printf "%s-redis" (include "blablador-token-generator.fullname" .) -}}
+{{- $name := include "blablador-token-generator.componentName" (dict "root" . "component" "redis") -}}
 {{- $password := .Values.redis.password | urlquery | replace "+" "%20" -}}
 {{- if .Values.redis.tls.enabled -}}
 {{- printf "rediss://:%s@%s:6379/0?ssl_ca_certs=/app/tls/redis/ca.crt&ssl_cert_reqs=required&ssl_check_hostname=true" $password $name -}}
