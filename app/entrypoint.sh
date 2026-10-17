@@ -17,4 +17,7 @@ fi
 case "$FORWARDED_ALLOW_IPS" in
     *'*'*) echo "Proxy trust must name specific addresses or networks." >&2; exit 1 ;;
 esac
-exec uvicorn app.main:app --host 0.0.0.0 --port 8080 --workers "$WORKERS" --proxy-headers --forwarded-allow-ips "$FORWARDED_ALLOW_IPS" --no-access-log --timeout-graceful-shutdown "$GRACEFUL_SHUTDOWN_SECONDS"
+# No WebSocket support: the service has no WebSocket routes, and Uvicorn
+# would log every handshake's path and query string. The keep-alive timeout
+# outlasts the ingress's idle upstream connections (60 s in ingress-nginx).
+exec uvicorn app.main:app --host 0.0.0.0 --port 8080 --workers "$WORKERS" --proxy-headers --forwarded-allow-ips "$FORWARDED_ALLOW_IPS" --no-access-log --ws none --no-server-header --timeout-keep-alive 75 --timeout-graceful-shutdown "$GRACEFUL_SHUTDOWN_SECONDS"

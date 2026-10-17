@@ -72,11 +72,9 @@ async def validate_token(
     # Check if the account was deleted after this token was created
     if await is_user_deleted(db, token.user):
         _audit.warning(
-            "user=%s action=revoked_token_used_by_deleted_account "
-            "token_id=%s user_email=%s",
+            "user=%s action=revoked_token_used_by_deleted_account token_id=%s",
             token.user_id,
             token.id,
-            token.user.email,
         )
         raise invalid_token("Token invalid: account has been deleted")
     

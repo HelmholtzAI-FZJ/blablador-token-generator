@@ -147,3 +147,57 @@ class TestClientAddresses:
         assert loggable_address("203.0.113.9") == "203.0.113.9"
         assert loggable_address("forged route=/admin status=200") == "forged?route??admin?status?200"
         assert loggable_address(None) == "-"
+
+
+class TestLogging:
+    @staticmethod
+    def access_lines(caplog) -> list[str]:
+        return [r.getMessage() for r in caplog.records if r.name == "token_generator.access"]
+
+    @pytest.mark.asyncio
+    async def test_aborted_requests_are_not_logged_as_server_errors(self, caplog):
+        from app.access_log import AccessLogMiddleware
+
+        async def client_went_away(scope, receive, send):
+            return None
+
+        caplog.set_level("INFO", logger="token_generator.access")
+        await call_without_response(AccessLogMiddleware(client_went_away), http_scope("/tokens", method="POST"))
+        lines = self.access_lines(caplog)
+        assert len(lines) == 1 and " status=- " in lines[0]
+
+    def test_static_files_get_a_route_label(self, client, caplog):
+        caplog.set_level("INFO", logger="token_generator.access")
+        assert client.get("/static/common.js").status_code == 200
+        assert any("route=/static status=200" in line for line in self.access_lines(caplog))
+
+    def test_native_tracing_and_logs_are_off(self):
+        assert app._telemetry["tracing"] is False and app._telemetry["logs"] is False
+
+    def test_launchers_disable_websockets_and_server_header(self, tmp_path):
+        import subprocess
+        from pathlib import Path
+
+        repo = Path(__file__).resolve().parents[1]
+        executable = tmp_path / "uvicorn"
+        executable.write_text('#!/bin/sh\nprintf "%s\\n" "$@"\n')
+        executable.chmod(0o700)
+        result = subprocess.run(["/bin/sh", str(repo / "app" / "entrypoint.sh")], env={"PATH": str(tmp_path)},
+                                capture_output=True, text=True)
+        arguments = result.stdout.splitlines()
+        assert arguments[arguments.index("--ws") + 1] == "none"
+        assert "--no-server-header" in arguments
+        assert int(arguments[arguments.index("--timeout-keep-alive") + 1]) > 60
+        for line in (repo / "start.sh").read_text().splitlines():
+            if "uvicorn app.main:app" in line:
+                assert "--ws none" in line and "--no-server-header" in line
+
+
+async def call_without_response(middleware, scope: dict) -> None:
+    async def receive():
+        return {"type": "http.disconnect"}
+
+    async def send(message):
+        raise AssertionError("nothing should be sent")
+
+    await middleware(scope, receive, send)

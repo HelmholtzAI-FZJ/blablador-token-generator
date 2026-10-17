@@ -29,6 +29,7 @@ from app.admission import AdmissionMiddleware, enforce_account_login_limit
 from app.security_headers import SecurityHeadersMiddleware, headers_for_path
 from app.error_safety import ErrorSafetyMiddleware
 from app.access_log import AccessLogMiddleware
+from app.clients import loggable_address
 from app.models import User, Token
 from app.tombstones import record_deletion
 from app.auth import (
@@ -68,6 +69,11 @@ app = FastAPI(
     docs_url=None if not config.app.debug else "/docs",
     redoc_url=None if not config.app.debug else "/redoc",
     openapi_url=None if not config.app.debug else "/openapi.json",
+    # FastAPI's own OpenTelemetry spans and logs would record query strings
+    # (OAuth codes) and exception messages as soon as an SDK is present, for
+    # example through cluster auto-instrumentation. Metrics carry only the
+    # route template and status.
+    telemetry={"tracing": False, "logs": False},
 )
 
 # Register rate limiter state and exception handler
@@ -519,8 +525,8 @@ async def login_local(
     await enforce_account_login_limit(email)
     user = await authenticate_local_user(email, password, db)
     if not user:
-        client = request.client.host if request.client else "-"
-        _audit.warning("action=login_failed method=local client=%s", client)
+        _audit.warning("action=login_failed method=local client=%s",
+                       loggable_address(request.client.host if request.client else None))
         return templates.TemplateResponse(request, "login_local.html", {
             "app_name": config.app.name,
             "csrf_token": request.state.csrf_token,
@@ -544,4 +550,4 @@ app.include_router(admin.router)
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host=config.app.host, port=config.app.port, access_log=False)
+    uvicorn.run(app, host=config.app.host, port=config.app.port, access_log=False, ws="none", server_header=False)
