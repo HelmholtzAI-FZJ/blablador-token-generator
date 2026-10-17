@@ -11,12 +11,12 @@ CHART = Path(__file__).resolve().parents[1]
 ROOT = CHART.parents[1]
 
 
-def render(values: dict, valid: bool = True) -> list[dict]:
+def render(values: dict, valid: bool = True, release: str = "security-test") -> list[dict]:
     with tempfile.TemporaryDirectory(prefix="token-generator-chart-test-") as directory:
         value_file = Path(directory) / "values.yaml"
         value_file.write_text(yaml.safe_dump(values))
         result = subprocess.run(
-            ["helm", "template", "security-test", str(CHART), "-f", str(value_file)],
+            ["helm", "template", release, str(CHART), "-f", str(value_file)],
             capture_output=True,
             text=True,
         )
@@ -135,7 +135,8 @@ def test_operations() -> None:
     assert container["lifecycle"]["preStop"]["exec"]["command"] == ["sleep", "5"]
     assert environment["GRACEFUL_SHUTDOWN_SECONDS"] == "20"
 
-    backup = mapped[("CronJob", name + "-postgresql-backup")]
+    backup_name = "security-test-blablador-token-gene-postgresql-backup"
+    backup = mapped[("CronJob", backup_name)]
     assert backup["spec"]["concurrencyPolicy"] == "Forbid"
     job = backup["spec"]["jobTemplate"]["spec"]["template"]["spec"]
     assert job["automountServiceAccountToken"] is False
@@ -148,20 +149,39 @@ def test_operations() -> None:
     assert job_env["PGSSLMODE"]["value"] == "verify-full"
     assert job_env["PGUSER"]["value"] == "tokens", "backups use the runtime role, not the administrator"
     assert job_env["PGPASSWORD"]["valueFrom"]["secretKeyRef"]["key"] == "password"
-    claim = mapped[("PersistentVolumeClaim", name + "-postgresql-backup")]
+    claim = mapped[("PersistentVolumeClaim", backup_name)]
     assert claim["metadata"]["annotations"]["helm.sh/resource-policy"] == "keep"
     database_policy = mapped[("NetworkPolicy", name + "-postgresql")]["spec"]["ingress"][0]["from"]
-    assert {"app.kubernetes.io/name": name + "-postgresql-backup",
-            "app.kubernetes.io/instance": "security-test"} in [peer["podSelector"]["matchLabels"] for peer in database_policy]
-    backup_policy = mapped[("NetworkPolicy", name + "-postgresql-backup")]["spec"]
+    backup_labels = backup["spec"]["jobTemplate"]["spec"]["template"]["metadata"]["labels"]
+    assert backup_labels in [peer["podSelector"]["matchLabels"] for peer in database_policy]
+    backup_policy = mapped[("NetworkPolicy", backup_name)]["spec"]
+    assert backup_policy["podSelector"]["matchLabels"] == backup_labels
     assert backup_policy["ingress"] == []
     assert [rule["ports"][0]["port"] for rule in backup_policy["egress"]] == [53, 5432]
 
     without_backup = copy.deepcopy(values)
     without_backup["postgresql"]["backup"]["enabled"] = False
     resources = index(render(without_backup))
-    assert ("CronJob", name + "-postgresql-backup") not in resources
-    assert ("NetworkPolicy", name + "-postgresql-backup") not in resources
+    assert not any(kind == "CronJob" for kind, _ in resources)
+    assert ("NetworkPolicy", backup_name) not in resources
+    # Backup settings must not restart the database or the application.
+    for key in (("StatefulSet", name + "-postgresql"), ("Deployment", name)):
+        assert resources[key]["spec"]["template"] == mapped[key]["spec"]["template"], key
+    rescheduled = copy.deepcopy(values)
+    rescheduled["postgresql"]["backup"]["schedule"] = "5 4 * * *"
+    after = index(render(rescheduled))
+    assert after[("StatefulSet", name + "-postgresql")]["spec"]["template"] == mapped[("StatefulSet", name + "-postgresql")]["spec"]["template"]
+
+    # Long release names keep CronJob names within Kubernetes' 52 characters.
+    for release in ("blablador", "a-much-longer-release-name-for-tokens"):
+        long_names = render(values, release=release)
+        cronjob = next(r for r in long_names if r["kind"] == "CronJob")
+        assert len(cronjob["metadata"]["name"]) <= 52, cronjob["metadata"]["name"]
+        assert cronjob["metadata"]["name"].endswith("-postgresql-backup")
+        label = cronjob["spec"]["jobTemplate"]["spec"]["template"]["metadata"]["labels"]["app.kubernetes.io/name"]
+        policies = [r for r in long_names if r["kind"] == "NetworkPolicy"]
+        assert any(p["spec"]["podSelector"]["matchLabels"].get("app.kubernetes.io/name") == label for p in policies)
+    assert pod["containers"][0]["startupProbe"]["failureThreshold"] * pod["containers"][0]["startupProbe"]["periodSeconds"] >= 150
     no_delay = copy.deepcopy(values)
     no_delay["shutdownDelaySeconds"] = 0
     assert "lifecycle" not in index(render(no_delay))[("Deployment", name)]["spec"]["template"]["spec"]["containers"][0]

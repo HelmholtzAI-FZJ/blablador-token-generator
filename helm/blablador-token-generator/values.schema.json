@@ -554,6 +554,9 @@
       "type": "integer",
       "minimum": 10,
       "maximum": 600
+    },
+    "startupProbe": {
+      "type": "object"
     }
   }
 }

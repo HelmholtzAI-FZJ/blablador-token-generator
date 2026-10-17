@@ -44,7 +44,7 @@ spec:
     metadata:
       annotations:
         checksum/config: {{ include (print $.Template.BasePath "/config-secret.yaml") . | sha256sum }}
-        checksum/postgresql: {{ .Values.postgresql | toJson | sha256sum }}
+        checksum/postgresql: {{ omit .Values.postgresql "backup" | toJson | sha256sum }}
         checksum/redis: {{ .Values.redis | toJson | sha256sum }}
         secrets/revision: {{ .Values.secretRevision | quote }}
       labels:
@@ -135,11 +135,7 @@ spec:
           readinessProbe:
             {{- toYaml .Values.readinessProbe | nindent 12 }}
           startupProbe:
-            httpGet:
-              path: /healthz
-              port: http
-            failureThreshold: 30
-            periodSeconds: 2
+            {{- toYaml .Values.startupProbe | nindent 12 }}
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
       volumes:
