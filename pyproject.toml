@@ -2,6 +2,8 @@
 name = "token-generator"
 version = "1.0.0"
 description = "API tokens for Blablador, issued after Helmholtz/JSC (Unity-IDM) OAuth sign-in"
+license = "MIT"
+license-files = ["LICENSE"]
 requires-python = ">=3.11"
 dependencies = [
     "fastapi>=0.109.0",
