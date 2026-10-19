@@ -65,3 +65,7 @@ Changes are recorded in [CHANGELOG.md](CHANGELOG.md).
 Report vulnerabilities privately, as described in [SECURITY.md](SECURITY.md).
 The October 2026 security audit, with its threat model, control inventory and
 evidence, is in [`security_audit/`](security_audit/REPORT.md).
+
+## License
+
+MIT, see [LICENSE](LICENSE).
