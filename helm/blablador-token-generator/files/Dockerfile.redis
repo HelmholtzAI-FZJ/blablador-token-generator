@@ -1,6 +1,6 @@
 # Redis 7.4 is built only on Alpine 3.21, which reaches end of support on
 # 2026-11-01; Redis 8 (Alpine 3.23) speaks the same protocol and ACLs.
-FROM redis:8.10.2-alpine@sha256:3811787313eba226a2ef38658c6ccb91cd5e110edc89c37767de373120a0e5a0
+FROM redis:8.10.2-alpine@sha256:9f8d2d789b9a1d1e3f283f979aa9cbf393373806472e1ccd460e2f9c869b833b
 
 # Security updates published for this Alpine release since the base image
 # was built. The rate limiter needs plain Redis: drop the bundled modules
