@@ -18,7 +18,7 @@ from app import migrate
 from app.auth import generate_token, hash_token
 from app.config import get_config
 from app.database import build_engine
-from app.models import Base, Token, User
+from app.models import Base, Token
 from tests.conftest import drop_schema
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -65,21 +65,23 @@ async def migrate_to(engine, revision: str) -> None:
 
 async def create_pre_migration_database(engine) -> str:
     """What create_all built before migrations existed, with one token."""
+    # The baseline revision builds exactly that schema, minus the version record.
+    await migrate_to(engine, "0001")
     async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-        await conn.execute(text("DROP INDEX ix_tokens_user_id"))
+        await conn.execute(text("DROP TABLE alembic_version"))
         await conn.execute(text("DROP INDEX ix_revoked_jwts_expires_at"))
-    async with AsyncSession(engine, expire_on_commit=False) as db:
-        user = User(email="kept@example.com", name="Kept", unity_id="kept-subject")
-        db.add(user)
-        await db.flush()
-        db.add(Token(user_id=user.id, name="Kept token", token_hash=hash_token(generate_token())))
-        await db.commit()
-        return user.id
+        await conn.execute(text(
+            "INSERT INTO users (id, unity_id, email, name, is_admin, created_at, session_epoch) "
+            "VALUES ('kept-user', 'kept-subject', 'kept@example.com', 'Kept', false, CURRENT_TIMESTAMP, 0)"))
+        await conn.execute(text(
+            "INSERT INTO tokens (id, user_id, token_hash, name, created_at) "
+            "VALUES ('kept-token', 'kept-user', :hash, 'Kept token', CURRENT_TIMESTAMP)"),
+            {"hash": hash_token(generate_token())})
+    return "kept-user"
 
 
 def test_single_linear_history():
-    assert migrate.head_revision() == "0002"
+    assert migrate.head_revision() == "0003"
 
 
 @pytest.mark.asyncio
@@ -87,7 +89,7 @@ async def test_fresh_database_matches_the_models(engine, audit_records):
     assert await migrate.upgrade_database(engine) == migrate.head_revision()
     assert await schema_differences(engine) == []
     messages = [record.getMessage() for record in audit_records]
-    assert messages == ["action=schema_migrated from=none to=0002"]
+    assert messages == ["action=schema_migrated from=none to=0003"]
 
 
 @pytest.mark.asyncio
@@ -101,10 +103,10 @@ async def test_upgrade_is_idempotent(engine, audit_records):
 @pytest.mark.asyncio
 async def test_pre_migration_database_is_adopted_and_upgraded(engine, audit_records):
     user_id = await create_pre_migration_database(engine)
-    assert await migrate.upgrade_database(engine) == "0002"
+    assert await migrate.upgrade_database(engine) == "0003"
     assert await schema_differences(engine) == []
     messages = [record.getMessage() for record in audit_records]
-    assert messages == ["action=schema_adopted revision=0001", "action=schema_migrated from=none to=0002"]
+    assert messages == ["action=schema_adopted revision=0001", "action=schema_migrated from=none to=0003"]
     async with AsyncSession(engine) as db:
         assert (await db.execute(select(Token.name).where(Token.user_id == user_id))).scalar_one() == "Kept token"
 
@@ -141,7 +143,7 @@ async def test_check_requires_the_latest_revision(engine):
     with pytest.raises(migrate.SchemaError, match="revision 0001"):
         await migrate.require_current_schema(engine)
     await migrate.upgrade_database(engine)
-    assert await migrate.require_current_schema(engine) == "0002"
+    assert await migrate.require_current_schema(engine) == "0003"
 
 
 @pytest.mark.asyncio
@@ -155,7 +157,7 @@ async def test_startup_migrates_or_refuses_as_configured(engine, monkeypatch):
     if engine.dialect.name == "postgresql":
         monkeypatch.setattr(migrate, "migration_engine", lambda: build_engine(engine.url, migration=True))
     await migrate.prepare_schema(engine)
-    assert await migrate.database_revision(engine) == "0002"
+    assert await migrate.database_revision(engine) == "0003"
 
 
 @pytest.mark.asyncio
@@ -173,7 +175,7 @@ async def test_concurrent_postgres_startups_serialize(engine):
     if engine.dialect.name != "postgresql":
         pytest.skip("The schema lock is a PostgreSQL advisory lock")
     results = await asyncio.gather(*(migrate.upgrade_database(engine) for _ in range(4)))
-    assert results == ["0002"] * 4
+    assert results == ["0003"] * 4
     assert await schema_differences(engine) == []
 
 
@@ -189,9 +191,9 @@ def test_command_line(tmp_path):
     assert check.returncode == 1 and "revision none" in check.stdout
     upgrade = run_cli(database_url=url)
     assert upgrade.returncode == 0, upgrade.stderr
-    assert "revision 0002" in upgrade.stdout
+    assert "revision 0003" in upgrade.stdout
     assert run_cli("check", database_url=url).returncode == 0
-    assert run_cli("current", database_url=url).stdout.strip() == "0002"
+    assert run_cli("current", database_url=url).stdout.strip() == "0003"
 
 
 def test_command_line_hides_connection_errors(tmp_path):
@@ -251,7 +253,7 @@ async def test_current_schema_starts_without_the_lock(engine):
     await migrate.upgrade_database(engine)
     holder = await hold_schema_lock(engine)
     try:
-        assert await asyncio.wait_for(migrate.upgrade_database(engine), 5) == "0002"
+        assert await asyncio.wait_for(migrate.upgrade_database(engine), 5) == "0003"
     finally:
         await holder.close()
 

@@ -86,6 +86,7 @@ class TokenConfig(SecurityConfigModel):
     token_prefix: str = Field("blablador", min_length=1, max_length=64, pattern=r"^[A-Za-z0-9][A-Za-z0-9_-]*$")
     # Tokens a user may hold (active, expired or revoked) before deleting some.
     max_tokens_per_user: int = Field(100, ge=1, le=10000)
+    max_applications_per_user: int = Field(20, ge=1, le=1000)
     last_used_update_seconds: int = Field(60, ge=1, le=3600)
 
 

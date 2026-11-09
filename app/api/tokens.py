@@ -75,6 +75,19 @@ class TokenResponse(BaseModel):
     expires_at: str | None = None
     last_used_at: str | None = None
     revoked: bool = False
+    application_id: str | None = None
+
+    @classmethod
+    def of(cls, token: Token) -> "TokenResponse":
+        return cls(
+            id=token.id,
+            name=token.name,
+            created_at=isoformat_utc(token.created_at),
+            expires_at=isoformat_utc(token.expires_at),
+            last_used_at=isoformat_utc(token.last_used_at),
+            revoked=token.revoked_at is not None,
+            application_id=token.application_id,
+        )
 
 
 class TokenWithValueResponse(BaseModel):
@@ -83,6 +96,7 @@ class TokenWithValueResponse(BaseModel):
     token: str
     created_at: str
     expires_at: str | None = None
+    application_id: str | None = None
 
 
 @router.post("", response_model=TokenWithValueResponse)
@@ -93,8 +107,16 @@ async def create_token(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> TokenWithValueResponse:
-    config = get_config()
     user = await lock_token_owner(request, user, db)
+    return await issue_token(body, user, db)
+
+
+async def issue_token(
+    body: CreateTokenRequest, user: User, db: AsyncSession, application_id: str | None = None,
+) -> TokenWithValueResponse:
+    """Create a token for a locked owner; application tokens count
+    towards the owner's limit."""
+    config = get_config()
 
     token_count = (
         await db.execute(select(func.count()).select_from(Token).where(Token.user_id == user.id))
@@ -123,6 +145,7 @@ async def create_token(
         token_hash=token_hash,
         name=body.name,
         expires_at=expires_at,
+        application_id=application_id,
     )
 
     db.add(token)
@@ -132,8 +155,8 @@ async def create_token(
     except Exception:
         await db.rollback()
         raise HTTPException(status_code=500, detail="Failed to create token")
-    logger.info("user=%s action=create_token token_id=%s expires_at=%s",
-                user.id, token.id, isoformat_utc(token.expires_at))
+    logger.info("user=%s action=create_token token_id=%s application_id=%s expires_at=%s",
+                user.id, token.id, application_id or "none", isoformat_utc(token.expires_at))
 
     return TokenWithValueResponse(
         id=token.id,
@@ -141,6 +164,7 @@ async def create_token(
         token=plain_token,
         created_at=isoformat_utc(token.created_at),
         expires_at=isoformat_utc(token.expires_at),
+        application_id=application_id,
     )
 
 
@@ -182,17 +206,7 @@ async def list_tokens(
     )
     tokens = result.scalars().all()
 
-    return [
-        TokenResponse(
-            id=t.id,
-            name=t.name,
-            created_at=isoformat_utc(t.created_at),
-            expires_at=isoformat_utc(t.expires_at),
-            last_used_at=isoformat_utc(t.last_used_at),
-            revoked=t.revoked_at is not None,
-        )
-        for t in tokens
-    ]
+    return [TokenResponse.of(t) for t in tokens]
 
 
 @router.delete("/{token_id}")
@@ -304,14 +318,7 @@ async def renew_token(
     logger.info("user=%s action=renew_token token_id=%s expires_at=%s",
                 user.id, token.id, isoformat_utc(token.expires_at))
 
-    return TokenResponse(
-        id=token.id,
-        name=token.name,
-        created_at=isoformat_utc(token.created_at),
-        expires_at=isoformat_utc(token.expires_at),
-        last_used_at=isoformat_utc(token.last_used_at),
-        revoked=token.revoked_at is not None,
-    )
+    return TokenResponse.of(token)
 
 
 @router.post("/{token_id}/rotate", response_model=TokenWithValueResponse)
@@ -361,4 +368,5 @@ async def rotate_token(
         token=plain_token,
         created_at=isoformat_utc(token.created_at),
         expires_at=isoformat_utc(token.expires_at),
+        application_id=token.application_id,
     )

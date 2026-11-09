@@ -137,7 +137,8 @@ Password accounts created by administrators (there is no self-registration).
 | `max_expiration_days` | `365` | Longest allowed lifetime, 1–365. |
 | `token_length_bytes` | `32` | Random bytes per token (hex-encoded), 16–127. |
 | `token_prefix` | `blablador` | Text before the `-`; helps secret scanners and people recognise the token. |
-| `max_tokens_per_user` | `100` | Tokens one account may hold, in any state. |
+| `max_tokens_per_user` | `100` | Tokens one account may hold, in any state, application tokens included. |
+| `max_applications_per_user` | `20` | Applications one account may register. |
 | `last_used_update_seconds` | `60` | How often a token's *last used* time is written at most. |
 
 ## `rate_limits`

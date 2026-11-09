@@ -467,7 +467,7 @@ class TestSessionsAndSignIn:
                     yield route
 
         exempt = [route for route in api_routes() if route.path in main.BEARER_PATHS]
-        assert [route.path for route in exempt] == ["/api/v1/auth/validate"]
+        assert sorted(route.path for route in exempt) == ["/api/v1/auth/validate"] * 2 + ["/api/v1/user"]
         for route in exempt:
             assert not {get_current_user, get_current_admin} & set(dependencies(route.dependant))
         oauth_login(client, monkeypatch, "csrf-prefix-user")

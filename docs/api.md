@@ -10,7 +10,8 @@ There are three groups of endpoints:
 | Group | Authentication | Used by |
 | --- | --- | --- |
 | [Validation](#validate-a-token) `/api/v1/auth/validate` | the API token itself (`Authorization: Bearer`) | API gateways and services |
-| [Token management](#token-management) `/tokens…` | browser session cookie **and** CSRF header | the dashboard |
+| [Current user](#current-user) `/api/v1/user` | the API token itself (`Authorization: Bearer`) | clients checking whose token they hold |
+| [Token management](#token-management) `/tokens…`, `/applications…` | browser session cookie **and** CSRF header | the dashboard |
 | [Administration](#administration) `/api/admin/…` | administrator session cookie **and** CSRF header | the admin panel |
 
 An API token cannot be used to manage tokens or accounts.
@@ -22,8 +23,9 @@ POST /api/v1/auth/validate
 Authorization: Bearer blablador-6f1c…
 ```
 
-The scheme name is case-insensitive; no request body is needed and no CSRF
-token is involved.
+`GET /api/v1/auth/validate` behaves the same, for gateways that can only send
+`GET` subrequests (such as nginx `auth_request`). The scheme name is
+case-insensitive; no request body is needed and no CSRF token is involved.
 
 === "Valid token (200)"
 
@@ -32,12 +34,18 @@ token is involved.
       "valid": true,
       "user_id": "0b9a2c1e-5f8d-4c55-9a4e-2c8f0f5b7e11",
       "expires_at": "2027-01-14T21:25:02.399003+00:00",
-      "error": null
+      "error": null,
+      "token_type": "application",
+      "user": {"id": "0b9a2c1e-5f8d-4c55-9a4e-2c8f0f5b7e11", "email": "a.user@example.org", "name": "A. User"},
+      "application": {"id": "7d4e0a52-2b1f-4f3a-8c61-0e9d3b6a2f40", "name": "Nightly evaluation"}
     }
     ```
 
     `user_id` is the account's stable internal identifier. `expires_at` is
     `null` only for tokens created before expiry became mandatory.
+    `token_type` is `personal` or `application`; `user` is the token's owner
+    (for an application token, the application's owner) and `application`
+    is `null` for personal tokens.
 
 === "Invalid token (401)"
 
@@ -87,6 +95,16 @@ def token_owner(token: str) -> str | None:
     return None  # fail closed
 ```
 
+## Current user
+
+```http
+GET /api/v1/user
+Authorization: Bearer blablador-6f1c…
+```
+
+Returns `user` (`id`, `email`, `name`), `token_type` and `application`, as in
+the validation response, or `401` for a missing, revoked or expired token.
+
 ## Token management
 
 These endpoints serve the dashboard. They need the session cookie set at sign-in
@@ -96,7 +114,7 @@ they answer `401`.
 
 | Method and path | Body | Result |
 | --- | --- | --- |
-| `GET /tokens` | | Your tokens: `id`, `name`, `created_at`, `expires_at`, `last_used_at`, `revoked` |
+| `GET /tokens` | | Your tokens, application tokens included: `id`, `name`, `created_at`, `expires_at`, `last_used_at`, `revoked`, `application_id` |
 | `POST /tokens` | `{"name": "...", "expires_in_days": 90}` or `{"name": "...", "expires_at": "<ISO 8601>"}` | The new token **including its value** (`token`), shown only now |
 | `POST /tokens/{id}/renew` | optional `expires_in_days` or `expires_at` | New expiry; the value is unchanged. Without a body the original lifetime is applied again |
 | `POST /tokens/{id}/rotate` | optional `expires_in_days` or `expires_at` | A new value (`token`); the old value stops working. Keeps the expiry unless given |
@@ -105,6 +123,21 @@ they answer `401`.
 | `POST /tokens/revoke-all` | | Revokes all your tokens and ends all your sessions; returns `tokens_revoked` |
 | `POST /account/delete` | | Deletes your account and its tokens; it cannot sign in again until an administrator restores it |
 | `POST /logout` | | Ends the session (`503` if the revocation could not be stored) |
+
+### Applications
+
+An application (a service, a CI job, a bot) has its own tokens, so validation
+reports the application rather than a person. Its tokens count towards your
+[`tokens.max_tokens_per_user`](configuration.md#tokens) and are renewed,
+rotated, revoked and deleted with the `/tokens/{id}` endpoints above.
+
+| Method and path | Body | Result |
+| --- | --- | --- |
+| `GET /applications` | | Your applications: `id`, `name`, `description`, `created_at` |
+| `POST /applications` | `{"name": "...", "description": "..."}` (description optional) | The new application; at most `tokens.max_applications_per_user` |
+| `DELETE /applications/{id}` | | Deletes the application and its tokens; returns `tokens_deleted` |
+| `GET /applications/{id}/tokens` | | The application's tokens |
+| `POST /applications/{id}/tokens` | as `POST /tokens` | The new application token **including its value** |
 
 `expires_in_days` is 1–365 and `expires_at` must lie in the future, within
 [`tokens.max_expiration_days`](configuration.md#tokens). Supplying both is an

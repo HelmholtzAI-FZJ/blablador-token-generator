@@ -38,7 +38,7 @@ from app.auth import (
     hash_token, authenticate_local_user, new_pkce_verifier, pkce_challenge,
     decode_access_token, revoke_jwt,
 )
-from app.api import tokens, validate, admin
+from app.api import applications, tokens, validate, admin
 from app.rate_limit import limiter, RATE_LIMITS, run_storage, user_or_ip
 from app.logging_config import configure_logging
 from app.body_limit import BodySizeLimitMiddleware
@@ -140,7 +140,7 @@ FORM_CSRF_PATHS = {"/login/local", "/admin/tokens/search"}
 # Routes authenticated only by an explicit bearer token, never by cookies:
 # a forged cross-site request gains nothing there. Any route added here
 # must not read the session cookie.
-BEARER_PATHS = {"/api/v1/auth/validate"}
+BEARER_PATHS = {"/api/v1/auth/validate", "/api/v1/user"}
 
 
 @app.middleware("http")
@@ -568,6 +568,8 @@ app.mount("/static", StaticFiles(directory=APP_DIR / "static"), name="static")
 # Register API routers
 app.include_router(tokens.router)
 app.include_router(validate.router)
+app.include_router(validate.user_router)
+app.include_router(applications.router)
 app.include_router(admin.router)
 
 

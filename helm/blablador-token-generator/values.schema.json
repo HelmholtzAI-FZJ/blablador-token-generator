@@ -275,6 +275,11 @@
               "minimum": 1,
               "type": "integer"
             },
+            "max_applications_per_user": {
+              "maximum": 1000,
+              "minimum": 1,
+              "type": "integer"
+            },
             "last_used_update_seconds": {
               "maximum": 3600,
               "minimum": 1,

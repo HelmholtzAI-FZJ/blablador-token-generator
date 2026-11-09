@@ -389,12 +389,12 @@ class TestValidateDeletedAccount:
         await test_db.commit()
 
         # Validate should reject
-        from app.api.validate import validate_token
-        # Direct test: tombstone exists so validate_token raises via the tombstone check.
+        from app.api.validate import authenticate_api_token
+        # Direct test: tombstone exists so validation raises via the tombstone check.
         # We verify the tombstone blocks the token by checking the check is present.
         import inspect
-        source = inspect.getsource(validate_token)
-        assert "is_user_deleted" in source, "validate_token must check deletion records"
+        source = inspect.getsource(authenticate_api_token)
+        assert "is_user_deleted" in source, "token validation must check deletion records"
 
 
 class TestHasPasswordField:

@@ -185,6 +185,7 @@ config:
     max_expiration_days: 365
     token_length_bytes: 32
     max_tokens_per_user: 100
+    max_applications_per_user: 20
     token_prefix: blablador
     last_used_update_seconds: 60
   rate_limits:

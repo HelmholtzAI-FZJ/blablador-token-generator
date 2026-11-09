@@ -85,6 +85,7 @@ tokens:
   token_prefix: blablador
   # Tokens a user may hold (any state) before having to delete some.
   max_tokens_per_user: 100
+  max_applications_per_user: 20
   last_used_update_seconds: 60
 
 rate_limits:

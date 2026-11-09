@@ -46,6 +46,9 @@ BASELINE_SCHEMA = {
 # What a create_all database may lack compared with the models: the indexes
 # revision 0002 builds.
 ADOPTION_TOLERATED = {("add_index", "ix_tokens_user_id"), ("add_index", "ix_revoked_jwts_expires_at")}
+# Tables and columns later revisions create.
+ADDED_TABLES = {"applications"}
+ADDED_COLUMNS = {("tokens", "application_id")}
 LOCK_WAIT_SECONDS = 120
 LOCK_POLL_SECONDS = 0.5
 
@@ -143,9 +146,24 @@ def unversioned_schema_problems(connection: Connection) -> list[str] | None:
     # a unique email index, foreign keys without ON DELETE CASCADE.
     return [
         _describe(difference) for difference in _differences(connection)
-        if isinstance(difference, list)
-        or (difference[0], getattr(difference[1], "name", None)) not in ADOPTION_TOLERATED
+        if isinstance(difference, list) or not _tolerated_on_adoption(difference)
     ]
+
+
+def _tolerated_on_adoption(difference) -> bool:
+    operation = difference[0]
+    if (operation, getattr(difference[1], "name", None)) in ADOPTION_TOLERATED:
+        return True
+    if operation == "add_table":
+        return difference[1].name in ADDED_TABLES
+    if operation == "add_column":
+        return (difference[2], difference[3].name) in ADDED_COLUMNS
+    if operation in ("add_index", "add_fk"):
+        item = difference[1]
+        table = item.table.name
+        columns = [column.name for column in item.columns]
+        return table in ADDED_TABLES or all((table, column) in ADDED_COLUMNS for column in columns)
+    return False
 
 
 def _upgrade(connection: Connection) -> tuple[str | None, str | None]:

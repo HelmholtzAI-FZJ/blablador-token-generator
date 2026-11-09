@@ -4,6 +4,18 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [semantic versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+
+- **Application tokens.** Users register applications (`/applications`) and
+  issue tokens owned by them; validation reports the application. New
+  setting `tokens.max_applications_per_user` (default 20). Migration `0003`.
+- `GET /api/v1/auth/validate`, for gateways limited to `GET` subrequests.
+- `GET /api/v1/user`: the token's owner, token type and application.
+- Validation responses include `token_type`, `user` (`id`, `email`, `name`)
+  and `application`.
+
 ## [1.0.0] - 2026-10-16
 
 First production release. It contains the remediation of the October 2026

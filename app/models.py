@@ -35,6 +35,32 @@ class User(Base):
     session_epoch: Mapped[int] = mapped_column(Integer, default=0)
 
     tokens: Mapped[list["Token"]] = relationship("Token", back_populates="user", cascade="all, delete-orphan")
+    applications: Mapped[list["Application"]] = relationship(
+        "Application", back_populates="user", cascade="all, delete-orphan"
+    )
+
+
+class Application(Base):
+    """A service or program that authenticates with its own tokens.
+
+    The owning user manages the application and its tokens; validation
+    reports the application, not a person, as the caller.
+    """
+
+    __tablename__ = "applications"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    user_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("users.id", ondelete="CASCADE"), index=True
+    )
+    name: Mapped[str] = mapped_column(String(255))
+    description: Mapped[str | None] = mapped_column(String(1000), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+    user: Mapped["User"] = relationship("User", back_populates="applications")
+    tokens: Mapped[list["Token"]] = relationship(
+        "Token", back_populates="application", cascade="all, delete-orphan"
+    )
 
 
 class Token(Base):
@@ -44,6 +70,10 @@ class Token(Base):
     user_id: Mapped[str] = mapped_column(
         String(36), ForeignKey("users.id", ondelete="CASCADE"), index=True
     )
+    # Set for application tokens; personal tokens have none.
+    application_id: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("applications.id", ondelete="CASCADE"), index=True, nullable=True
+    )
     token_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True)
     name: Mapped[str] = mapped_column(String(255))
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
@@ -52,6 +82,7 @@ class Token(Base):
     revoked_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
 
     user: Mapped["User"] = relationship("User", back_populates="tokens")
+    application: Mapped[Optional["Application"]] = relationship("Application", back_populates="tokens")
 
 
 class RevokedJWT(Base):
