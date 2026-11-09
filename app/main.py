@@ -1,4 +1,5 @@
 import asyncio
+from collections import Counter
 from collections.abc import Mapping
 from contextlib import asynccontextmanager
 from http import HTTPStatus
@@ -30,7 +31,7 @@ from app.security_headers import SecurityHeadersMiddleware, headers_for_path
 from app.error_safety import ErrorSafetyMiddleware
 from app.access_log import AccessLogMiddleware
 from app.clients import loggable_address
-from app.models import User, Token
+from app.models import Application, User, Token
 from app.tombstones import identity_reference, record_deletion
 from app.auth import (
     get_current_user, get_current_admin,
@@ -346,16 +347,23 @@ async def dashboard(
 ):
     result = await db.execute(
         select(Token)
+        .options(joinedload(Token.application))
         .where(Token.user_id == user.id)
         .order_by(Token.created_at.desc())
     )
     user_tokens = result.scalars().all()
+    applications = (await db.execute(
+        select(Application).where(Application.user_id == user.id).order_by(Application.name)
+    )).scalars().all()
+    application_tokens = Counter(t.application_id for t in user_tokens if t.application_id)
 
     return templates.TemplateResponse(request, "dashboard.html", {
         "app_name": config.app.name,
             "api_url": config.app.api_url,
             "user": user,
             "tokens": user_tokens,
+            "applications": applications,
+            "application_tokens": application_tokens,
             "token_default_expiration_days": config.tokens.default_expiration_days,
             "token_max_expiration_days": config.tokens.max_expiration_days,
             "login_name": config.login.name
@@ -395,7 +403,7 @@ async def admin_tokens(
     page_size = 100
     result = await db.execute(
         select(Token)
-        .options(joinedload(Token.user))
+        .options(joinedload(Token.user), joinedload(Token.application))
         .order_by(Token.created_at.desc(), Token.id)
         .offset((page - 1) * page_size)
         .limit(page_size + 1)
@@ -421,7 +429,7 @@ async def admin_token_search(
         raise HTTPException(status_code=403, detail="Invalid CSRF token")
     result = await db.execute(
         select(Token)
-        .options(joinedload(Token.user))
+        .options(joinedload(Token.user), joinedload(Token.application))
         .where(Token.token_hash == hash_token(token.strip()))
     )
     found = result.scalar_one_or_none()

@@ -45,7 +45,7 @@
         .card h2 { margin-bottom: 1rem; color: #2c3e50; }
         .form-group { margin-bottom: 1rem; }
         .form-group label { display: block; margin-bottom: 0.5rem; font-weight: 500; }
-        .form-group input {
+        .form-group input, .form-group select {
             width: 100%;
             padding: 0.5rem;
             border: 1px solid #ddd;
@@ -86,6 +86,8 @@
             margin-bottom: 1rem;
         }
         .token-warning strong { color: #856404; }
+        .app-badge { display: inline-block; padding: 0.1rem 0.5rem; border-radius: 4px; background: #eaf2fb; color: #2471a3; font-size: 0.85rem; }
+        .muted { color: #888; }
         .empty { text-align: center; color: #666; padding: 2rem; }
     </style>
 </head>
@@ -111,6 +113,15 @@
                     <label for="tokenName">Token Name</label>
                     <input type="text" id="tokenName" name="name" placeholder="e.g., My Application" required>
                 </div>
+                <div class="form-group">
+                    <label for="tokenOwner">Belongs to</label>
+                    <select id="tokenOwner" name="application_id">
+                        <option value="">Me (personal token)</option>
+                        {% for application in applications %}
+                        <option value="{{ application.id }}">Application: {{ application.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
                     <div class="form-group">
                     <label for="expiresIn">Expires on</label>
                     <input type="text" id="expiresIn" placeholder="DD/MM/YYYY" required autocomplete="off" readonly style="padding: 0.5rem; border: 1px solid #ddd; border-radius: 4px; width: 150px; cursor: pointer;">
@@ -120,7 +131,7 @@
             </form>
         </div>
         
-        <div class="card">
+        <div class="card" id="tokensCard">
             <h2>Your Tokens</h2>
             <button class="btn btn-danger" data-action="revoke-all">Revoke All Tokens and Sessions</button>
             <div id="newTokenDisplay" style="display: none;">
@@ -141,6 +152,7 @@
                 <thead>
                     <tr>
                         <th>Name</th>
+                        <th>Belongs to</th>
                         <th>Created</th>
                         <th>Last Used</th>
                         <th>Expires</th>
@@ -152,6 +164,7 @@
                     {% for token in tokens %}
                     <tr data-token-id="{{ token.id }}" data-created="{{ token.created_at|utc_iso }}" data-expires="{{ token.expires_at|utc_iso }}">
                         <td>{{ token.name }}</td>
+                        <td>{% if token.application %}<span class="app-badge">{{ token.application.name }}</span>{% else %}<span class="muted">Personal</span>{% endif %}</td>
                         <td class="datetime" data-utc="{{ token.created_at|utc_iso }}"></td>
                         <td class="datetime" data-utc="{{ token.last_used_at|utc_iso }}">{{ token.last_used_at.strftime('%Y-%m-%d %H:%M') if token.last_used_at else 'Never' }}</td>
                         <td class="datetime-date" data-utc="{{ token.expires_at|utc_iso }}">{{ token.expires_at.strftime('%Y-%m-%d') if token.expires_at else 'Never' }}</td>
@@ -177,11 +190,57 @@
             {% endif %}
         </div>
         
+        <div class="card" id="applicationsCard">
+            <h2>Applications</h2>
+            <p class="muted">Give a service, CI job or bot its own tokens. Validation then reports the application instead of you. Deleting an application deletes its tokens.</p>
+            <form id="createApplicationForm">
+                <div class="form-group">
+                    <label for="applicationName">Application Name</label>
+                    <input type="text" id="applicationName" name="name" maxlength="255" placeholder="e.g., Nightly evaluation" required>
+                </div>
+                <div class="form-group">
+                    <label for="applicationDescription">Description (optional)</label>
+                    <input type="text" id="applicationDescription" name="description" maxlength="1000">
+                </div>
+                <button type="submit" class="btn">Create Application</button>
+            </form>
+            {% if applications %}
+            <table>
+                <thead>
+                    <tr>
+                        <th>Name</th>
+                        <th>Description</th>
+                        <th>Tokens</th>
+                        <th>Created</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for application in applications %}
+                    <tr data-application-id="{{ application.id }}">
+                        <td>{{ application.name }}</td>
+                        <td>{{ application.description or '' }}</td>
+                        <td>{{ application_tokens.get(application.id, 0) }}</td>
+                        <td class="datetime" data-utc="{{ application.created_at|utc_iso }}"></td>
+                        <td><button class="btn btn-danger" data-action="delete-application" data-id="{{ application.id }}" data-name="{{ application.name }}">Delete</button></td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+            {% else %}
+            <p class="empty">No applications yet.</p>
+            {% endif %}
+        </div>
+
         <div class="card">
             <h2>API Usage</h2>
             <p>To validate tokens from your applications, use Bearer token authentication:</p>
             <pre style="background: #f8f9fa; padding: 1rem; border-radius: 4px; overflow-x: auto;">
 curl -X POST {{ api_url }}/api/v1/auth/validate \
+  -H "Authorization: Bearer YOUR_TOKEN_HERE"
+
+# Who does this token belong to?
+curl {{ api_url }}/api/v1/user \
   -H "Authorization: Bearer YOUR_TOKEN_HERE"</pre>
         </div>
     </div>

@@ -148,3 +148,33 @@ def test_http_routes():
         me = client.get("/api/v1/user", headers=bearer)
         assert me.status_code == 200 and me.json()["user"]["email"] == "apps@example.com"
         assert client.get("/api/v1/user").status_code == 401
+
+
+def test_pages_show_applications():
+    from app import database
+    from app.main import app
+
+    async def seed():
+        async with database.async_session_maker() as db:
+            user = User(email="pages@example.com", name="Pages", unity_id=f"pages-{uuid.uuid4()}",
+                        is_admin=True)
+            db.add(user)
+            await db.commit()
+            await db.refresh(user)
+            return create_session_token(user)
+
+    with TestClient(app) as client:
+        client.cookies.set("access_token", client.portal.call(seed))
+        client.cookies.set("csrf_token", "c")
+        csrf = {"X-CSRF-Token": "c"}
+        application = client.post("/applications", json={"name": "Page Bot"}, headers=csrf).json()
+        client.post(f"/applications/{application['id']}/tokens", json={"name": "page-bot"}, headers=csrf)
+
+        dashboard = client.get("/dashboard").text
+        assert f'<option value="{application["id"]}">Application: Page Bot</option>' in dashboard
+        assert '<span class="app-badge">Page Bot</span>' in dashboard
+        assert f'data-action="delete-application" data-id="{application["id"]}"' in dashboard
+
+        assert "Page Bot" in client.get("/admin/tokens").text
+        listed = client.get("/api/admin/tokens", params={"page_size": 100}).json()
+        assert {"page-bot": "Page Bot"}.items() <= {t["name"]: t["application_name"] for t in listed}.items()

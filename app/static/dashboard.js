@@ -262,8 +262,12 @@ document.getElementById('createTokenForm').addEventListener('submit', async (e) 
         name: formData.get('name'),
         expires_at: expiresAtRaw ? new Date(expiresAtRaw + 'T00:00:00').toISOString() : null
     };
-    
-    const response = await fetch('/tokens', {
+    const ownerSelect = document.getElementById('tokenOwner');
+    const applicationId = ownerSelect.value;
+    const applicationName = applicationId ? ownerSelect.selectedOptions[0].textContent.replace(/^Application: /, '') : '';
+    const url = applicationId ? `/applications/${encodeURIComponent(applicationId)}/tokens` : '/tokens';
+
+    const response = await fetch(url, {
         method: 'POST',
         headers: csrfHeaders({'Content-Type': 'application/json'}),
         body: JSON.stringify(data)
@@ -284,12 +288,13 @@ document.getElementById('createTokenForm').addEventListener('submit', async (e) 
         
         // If no table/tbody, create the table structure
         if (!tbody) {
-            const tableCard = document.querySelector('.card:nth-of-type(2)');
+            const tableCard = document.getElementById('tokensCard');
             const tableHtml = `
                 <table>
                     <thead>
                         <tr>
                             <th>Name</th>
+                            <th>Belongs to</th>
                             <th>Created</th>
                             <th>Last Used</th>
                             <th>Expires</th>
@@ -301,7 +306,7 @@ document.getElementById('createTokenForm').addEventListener('submit', async (e) 
                 </table>
             `;
             tableCard.insertAdjacentHTML('beforeend', tableHtml);
-            tbody = document.querySelector('.card:nth-of-type(2) table tbody');
+            tbody = tableCard.querySelector('table tbody');
             
             if (emptyMsg) emptyMsg.remove();
         }
@@ -316,6 +321,7 @@ document.getElementById('createTokenForm').addEventListener('submit', async (e) 
         newRow.dataset.expires = result.expires_at;
         newRow.innerHTML = `
             <td>${escapeHtml(result.name)}</td>
+            <td>${applicationId ? `<span class="app-badge">${escapeHtml(applicationName)}</span>` : '<span class="muted">Personal</span>'}</td>
             <td class="datetime" data-utc="${now}"></td>
             <td class="datetime">Never</td>
             <td class="datetime-date" data-utc="${expires}">${expiresDisplay}</td>
@@ -341,9 +347,38 @@ document.getElementById('createTokenForm').addEventListener('submit', async (e) 
             newDatetime.textContent = new Date(now).toLocaleString();
         }
     } else {
-        alert('Failed to create token');
+        alert(`Failed to create token: ${await errorMessage(response)}`);
     }
 });
+
+document.getElementById('createApplicationForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const formData = new FormData(e.target);
+    const description = formData.get('description').trim();
+    const response = await fetch('/applications', {
+        method: 'POST',
+        headers: csrfHeaders({'Content-Type': 'application/json'}),
+        body: JSON.stringify({name: formData.get('name'), description: description || null}),
+    });
+    if (response.ok) {
+        location.reload();
+    } else {
+        alert(`Failed to create application: ${await errorMessage(response)}`);
+    }
+});
+
+async function deleteApplication(applicationId, name) {
+    if (!confirm(`Delete the application "${name}" and all its tokens? This cannot be undone.`)) return;
+    const response = await fetch(`/applications/${encodeURIComponent(applicationId)}`, {
+        method: 'DELETE',
+        headers: csrfHeaders(),
+    });
+    if (response.ok) {
+        location.reload();
+    } else {
+        alert(`Failed to delete application: ${await errorMessage(response)}`);
+    }
+}
 
 async function revokeToken(tokenId) {
     if (!confirm('Are you sure you want to revoke this token?')) return;
@@ -602,4 +637,5 @@ registerActions({
     'renew-token': (el) => window.openRenewModal(el.dataset.id),
     'rotate-token': (el) => rotateToken(el.dataset.id),
     'revoke-all': () => revokeAllCredentials(),
+    'delete-application': (el) => deleteApplication(el.dataset.id, el.dataset.name),
 });

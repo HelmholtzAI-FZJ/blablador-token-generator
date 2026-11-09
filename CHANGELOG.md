@@ -11,6 +11,9 @@ All notable changes to this project are documented here. The format follows
 - **Application tokens.** Users register applications (`/applications`) and
   issue tokens owned by them; validation reports the application. New
   setting `tokens.max_applications_per_user` (default 20). Migration `0003`.
+  The dashboard has an Applications section and a "Belongs to" choice when
+  creating a token; token lists in the dashboard and admin panel show the
+  application.
 - `GET /api/v1/auth/validate`, for gateways limited to `GET` subrequests.
 - `GET /api/v1/user`: the token's owner, token type and application.
 - Validation responses include `token_type`, `user` (`id`, `email`, `name`)

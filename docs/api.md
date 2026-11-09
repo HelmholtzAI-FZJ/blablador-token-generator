@@ -127,7 +127,9 @@ they answer `401`.
 ### Applications
 
 An application (a service, a CI job, a bot) has its own tokens, so validation
-reports the application rather than a person. Its tokens count towards your
+reports the application rather than a person. The dashboard's Applications
+section creates and deletes them; choose the application under "Belongs to"
+when creating a token. Its tokens count towards your
 [`tokens.max_tokens_per_user`](configuration.md#tokens) and are renewed,
 rotated, revoked and deleted with the `/tokens/{id}` endpoints above.
 
@@ -150,7 +152,7 @@ Administrator session plus `X-CSRF-Token`, as above. Lists are paged with
 
 | Method and path | Body | Result |
 | --- | --- | --- |
-| `GET /api/admin/tokens` | | All tokens with owner name and email |
+| `GET /api/admin/tokens` | | All tokens with owner name and email, and `application_id`/`application_name` for application tokens |
 | `DELETE /api/admin/tokens/{id}` | | Revokes a token |
 | `DELETE /api/admin/tokens/{id}/permanent` | | Deletes a token |
 | `DELETE /api/admin/tokens/revoked` | | Deletes all revoked tokens |

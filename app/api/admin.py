@@ -89,6 +89,8 @@ class AdminTokenResponse(BaseModel):
     user_id: str
     user_email: str
     user_name: str
+    application_id: str | None = None
+    application_name: str | None = None
     created_at: str
     expires_at: str | None = None
     last_used_at: str | None = None
@@ -146,7 +148,7 @@ async def list_all_tokens(
     offset = (page - 1) * page_size
     result = await db.execute(
         select(Token)
-        .options(joinedload(Token.user))
+        .options(joinedload(Token.user), joinedload(Token.application))
         .order_by(Token.created_at.desc(), Token.id)
         .offset(offset)
         .limit(page_size)
@@ -161,6 +163,8 @@ async def list_all_tokens(
             user_id=t.user_id,
             user_email=t.user.email,
             user_name=t.user.name,
+            application_id=t.application_id,
+            application_name=t.application.name if t.application else None,
             created_at=isoformat_utc(t.created_at),
             expires_at=isoformat_utc(t.expires_at),
             last_used_at=isoformat_utc(t.last_used_at),

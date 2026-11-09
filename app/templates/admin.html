@@ -125,6 +125,7 @@
                     <thead>
                         <tr>
                             <th>Token Name</th>
+                            <th>Application</th>
                             <th>User</th>
                             <th>Email</th>
                             <th>Created</th>
@@ -138,6 +139,7 @@
                         {% for item in tokens_with_users %}
                         <tr>
                             <td>{{ item.token.name }}</td>
+                            <td>{{ item.token.application.name if item.token.application else '—' }}</td>
                             <td>{{ item.user.name if item.user else 'Unknown' }}</td>
                             <td>{{ item.user.email if item.user else 'Unknown' }}</td>
                             <td class="datetime" data-utc="{{ item.token.created_at|utc_iso }}">{{ item.token.created_at.strftime('%Y-%m-%d %H:%M') if item.token.created_at else '' }}</td>
