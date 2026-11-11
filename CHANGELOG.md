@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-11-11
+
 ### Added
 
 - **Application tokens.** Users register applications (`/applications`) and
@@ -18,6 +20,18 @@ All notable changes to this project are documented here. The format follows
 - `GET /api/v1/user`: the token's owner, token type and application.
 - Validation responses include `token_type`, `user` (`id`, `email`, `name`)
   and `application`.
+
+### Changed
+
+- Releases publish the images and the Helm chart only to the JSC registry
+  (`registry.jsc.fz-juelich.de/kaas/rke2-clusters/blablador/`), no longer to
+  GHCR. `JSC_REGISTRY_USER` and `JSC_REGISTRY_TOKEN` are required.
+
+### Security
+
+- certifi 2026.10.23 (PYSEC-2026-4320) and a refreshed `python:3.12-slim`.
+- Container risk assessments renewed to 2026-12-11, with new assessments
+  for `libsqlite3-0` and `zlib1g`.
 
 ## [1.0.0] - 2026-10-16
 
@@ -141,4 +155,5 @@ hardening listed below, and the fixes of a follow-up security audit
     its own dumps; long release names no longer break the database pod.
   - Fuller audit trail, safer restore and upgrade procedures.
 
+[1.1.0]: https://github.com/HelmholtzAI-FZJ/blablador-token-generator/releases/tag/v1.1.0
 [1.0.0]: https://github.com/HelmholtzAI-FZJ/blablador-token-generator/releases/tag/v1.0.0
