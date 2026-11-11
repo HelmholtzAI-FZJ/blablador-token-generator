@@ -22,7 +22,7 @@ The final application has **164 package entries across 71 distinct IDs**: 44 HIG
 
 ## HIGH workload assessments
 
-Exact ID/package/version assessments are in [container-risk-exceptions.json](container-risk-exceptions.json), expiring **2026-11-10**. These assess the inspected non-root/read-only/capability-free/no-privilege-escalation service, not the packages in every possible use. A new version, expired assessment, new HIGH/CRITICAL or changed reachable feature requires review. The application does not invoke mount/nsenter/ACL/terminfo tools or Perl archives. `systemd-homed` and Perl `Archive::Tar` were absent on image inspection.
+Exact ID/package/version assessments are in [container-risk-exceptions.json](container-risk-exceptions.json), expiring **2026-12-11** (renewed 2026-11-11 for `python:3.12-slim@sha256:5e2bdb1b…`; package versions unchanged, plus five new entries below). These assess the inspected non-root/read-only/capability-free/no-privilege-escalation service, not the packages in every possible use. A new version, expired assessment, new HIGH/CRITICAL or changed reachable feature requires review. The application does not invoke mount/nsenter/ACL/terminfo tools or Perl archives. `systemd-homed` and Perl `Archive::Tar` were absent on image inspection.
 
 | CVE | Source feature / precondition | Workload reasoning | Vendor record |
 | --- | --- | --- | --- |
@@ -34,6 +34,11 @@ Exact ID/package/version assessments are in [container-risk-exceptions.json](con
 | CVE-2025-69720 | infocmp parsing overflow | Installed utility never called by headless service; no terminal/terminfo input path. | [Debian](https://security-tracker.debian.org/tracker/CVE-2025-69720) |
 | CVE-2026-16742 | systemd-homed identity handling | Vulnerable feature/binary absent; library/source-package matches retained. | [Debian](https://security-tracker.debian.org/tracker/CVE-2026-16742) |
 | CVE-2026-9538 | Perl Archive::Tar memory exhaustion | Archive::Tar module absent; app does not execute Perl/extract archives. | [Debian](https://security-tracker.debian.org/tracker/CVE-2026-9538) |
+| CVE-2026-119373 | SQLite FTS5 heap overflow | No FTS5 tables or queries; production refuses SQLite (PostgreSQL/asyncpg required). | [Debian](https://security-tracker.debian.org/tracker/CVE-2026-119373) |
+| CVE-2026-119374 | SQLite corrupted FTS5 index | No user-supplied database files, no FTS5; production refuses SQLite. | [Debian](https://security-tracker.debian.org/tracker/CVE-2026-119374) |
+| CVE-2026-119379 | SQLite session changesets | No binary in the image calls the session/changeset API. | [Debian](https://security-tracker.debian.org/tracker/CVE-2026-119379) |
+| CVE-2026-76844 | Mis-attributed (webpack-dev-middleware) | npm package absent; no Node.js in the image. | [Debian](https://security-tracker.debian.org/tracker/CVE-2026-76844) |
+| CVE-2026-85091 | zlib `gz_vacate()` (gzFile API) | Only apt/dpkg-deb use the gzFile API and never run; Python uses the stream API. | [Debian](https://security-tracker.debian.org/tracker/CVE-2026-85091) |
 
 These conditions do not classify every remaining MEDIUM/LOW/UNKNOWN entry as non-affected. Their complete inventory remains below. Existing code/transport/resource controls and current vendor status must be reconsidered on release changes. No blanket waiver is used.
 
