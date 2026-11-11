@@ -108,13 +108,13 @@ the three images once for `linux/amd64` and `linux/arm64` into OCI archives
 (no build cache), scans and gates every architecture of those archives in a
 job without credentials, and pushes exactly the scanned bytes from a job in
 the `release` environment to
-`ghcr.io/helmholtzai-fzj/blablador-token-generator{,-postgresql,-redis}`
+`registry.jsc.fz-juelich.de/kaas/rke2-clusters/blablador/blablador-token-generator{,-postgresql,-redis}`
 (tags `X.Y.Z` and `X.Y`), with SBOM and provenance attestations. It publishes
-the chart to `oci://ghcr.io/helmholtzai-fzj/charts` and creates a GitHub
-release with the changelog section, the image digests, the scan results and
-the command to verify an image's attestation. If the secrets
-`JSC_REGISTRY_USER` and `JSC_REGISTRY_TOKEN` are set, the images are also
-pushed to `registry.jsc.fz-juelich.de/kaas/rke2-clusters/blablador/`.
+the chart to `oci://registry.jsc.fz-juelich.de/kaas/rke2-clusters/blablador/charts`
+and creates a GitHub release with the changelog section, the image digests,
+the scan results and the command to verify an image's attestation. Publishing
+needs the secrets `JSC_REGISTRY_USER` and `JSC_REGISTRY_TOKEN` (a GitLab deploy
+token with `read_registry` and `write_registry`) in the `release` environment.
 
 Protect the release path in the repository settings: require reviewers for
 the `release` environment and keep the registry secrets there, protect

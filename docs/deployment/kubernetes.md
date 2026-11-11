@@ -27,7 +27,7 @@ Every image must be pinned to a release tag or, preferably, a digest; `latest`
 is refused. Tagging a release (`vX.Y.Z`) runs the
 [release workflow](../development.md#releases), which builds all three images
 for amd64 and arm64, scans them, attaches SBOM and provenance and publishes
-them to `ghcr.io/helmholtzai-fzj/`. To build them yourself:
+them to the JSC registry. To build them yourself:
 
 ```bash
 VERSION=1.0.0

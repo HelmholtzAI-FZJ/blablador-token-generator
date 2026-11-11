@@ -43,10 +43,9 @@ network policies and optional nightly backups. Docker Compose is supported for
 single hosts. Start with the
 [production checklist](https://helmholtzai-fzj.github.io/blablador-token-generator/deployment/checklist/).
 
-Images for the production cluster live in the JSC registry
+Images and the Helm chart live in the JSC registry
 (`registry.jsc.fz-juelich.de/kaas/rke2-clusters/blablador/`). Tagged releases
-are built, scanned and published by CI to `ghcr.io/helmholtzai-fzj/`, and to
-the JSC registry when its credentials are configured.
+are built, scanned and published there by CI.
 
 ## Development
 
