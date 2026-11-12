@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-11-12
+
 ### Added
 
 - **Shared applications.** Applications have owners and members instead of a
@@ -184,5 +186,6 @@ hardening listed below, and the fixes of a follow-up security audit
     its own dumps; long release names no longer break the database pod.
   - Fuller audit trail, safer restore and upgrade procedures.
 
+[1.2.0]: https://github.com/HelmholtzAI-FZJ/blablador-token-generator/releases/tag/v1.2.0
 [1.1.0]: https://github.com/HelmholtzAI-FZJ/blablador-token-generator/releases/tag/v1.1.0
 [1.0.0]: https://github.com/HelmholtzAI-FZJ/blablador-token-generator/releases/tag/v1.0.0
