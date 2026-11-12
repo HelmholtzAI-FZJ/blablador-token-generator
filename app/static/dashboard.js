@@ -380,6 +380,125 @@ async function deleteApplication(applicationId, name) {
     }
 }
 
+function membersUrl(applicationId, memberId) {
+    const base = `/applications/${encodeURIComponent(applicationId)}/members`;
+    return memberId ? `${base}/${encodeURIComponent(memberId)}` : base;
+}
+
+async function fetchMembers(applicationId) {
+    const response = await fetch(membersUrl(applicationId));
+    if (!response.ok) throw new Error(await errorMessage(response));
+    return response.json();
+}
+
+// The people of an application. Owners see controls to add people by
+// email, change roles and remove people; members see the list only.
+async function renderMembers(applicationId, isOwner) {
+    const panel = document.querySelector(`#members-${CSS.escape(applicationId)} .members-panel`);
+    let members;
+    try {
+        members = await fetchMembers(applicationId);
+    } catch (error) {
+        panel.innerHTML = `<p class="muted">Could not load people: ${escapeHtml(error.message)}</p>`;
+        return;
+    }
+    const rows = members.map(member => {
+        const id = escapeHtml(member.id);
+        const label = escapeHtml(member.email) + (member.you ? ' <span class="muted">(you)</span>' : '');
+        if (!isOwner) {
+            return `<tr><td>${label}</td><td>${member.role === 'owner' ? 'Owner' : 'Member'}</td><td></td></tr>`;
+        }
+        const options = ['owner', 'member'].map(role =>
+            `<option value="${role}"${member.role === role ? ' selected' : ''}>${role === 'owner' ? 'Owner' : 'Member'}</option>`
+        ).join('');
+        const remove = member.you ? '' :
+            `<button class="btn btn-danger btn-small" data-action="remove-member" data-application="${escapeHtml(applicationId)}" data-id="${id}" data-email="${escapeHtml(member.email)}">Remove</button>`;
+        return `<tr><td>${label}</td>
+            <td><select class="member-role" data-application="${escapeHtml(applicationId)}" data-id="${id}" aria-label="Role of ${escapeHtml(member.email)}">${options}</select></td>
+            <td>${remove}</td></tr>`;
+    }).join('');
+    const form = isOwner ? `
+        <form class="member-form" data-application="${escapeHtml(applicationId)}">
+            <input type="email" name="email" maxlength="255" placeholder="name@example.org" required aria-label="Email address">
+            <select name="role" aria-label="Role">
+                <option value="member">Member</option>
+                <option value="owner">Owner</option>
+            </select>
+            <button type="submit" class="btn">Add person</button>
+        </form>
+        <p class="muted">People who have not signed in yet join when they first sign in with a verified email address.</p>` : '';
+    panel.innerHTML = `<table><thead><tr><th>Email</th><th>Role</th><th></th></tr></thead><tbody>${rows}</tbody></table>${form}`;
+}
+
+function toggleMembers(element) {
+    const row = document.getElementById(`members-${element.dataset.id}`);
+    row.hidden = !row.hidden;
+    if (!row.hidden) renderMembers(element.dataset.id, element.dataset.role === 'owner');
+}
+
+document.addEventListener('submit', async (event) => {
+    const form = event.target.closest('.member-form');
+    if (!form) return;
+    event.preventDefault();
+    const applicationId = form.dataset.application;
+    const data = new FormData(form);
+    const response = await fetch(membersUrl(applicationId), {
+        method: 'POST',
+        headers: csrfHeaders({'Content-Type': 'application/json'}),
+        body: JSON.stringify({email: data.get('email'), role: data.get('role')}),
+    });
+    if (!response.ok) {
+        alert(`Failed to add person: ${await errorMessage(response)}`);
+        return;
+    }
+    renderMembers(applicationId, true);
+});
+
+document.addEventListener('change', async (event) => {
+    const select = event.target.closest('.member-role');
+    if (!select) return;
+    const applicationId = select.dataset.application;
+    const response = await fetch(membersUrl(applicationId, select.dataset.id), {
+        method: 'PATCH',
+        headers: csrfHeaders({'Content-Type': 'application/json'}),
+        body: JSON.stringify({role: select.value}),
+    });
+    if (!response.ok) alert(`Failed to change role: ${await errorMessage(response)}`);
+    renderMembers(applicationId, true);
+});
+
+async function removeMember(applicationId, memberId, email) {
+    if (!confirm(`Remove ${email} from this application?`)) return;
+    const response = await fetch(membersUrl(applicationId, memberId), {method: 'DELETE', headers: csrfHeaders()});
+    if (!response.ok) {
+        alert(`Failed to remove person: ${await errorMessage(response)}`);
+        return;
+    }
+    renderMembers(applicationId, true);
+}
+
+async function leaveApplication(applicationId, name, role) {
+    let members;
+    try {
+        members = await fetchMembers(applicationId);
+    } catch (error) {
+        alert(`Failed to leave application: ${error.message}`);
+        return;
+    }
+    const me = members.find(member => member.you);
+    const otherOwners = members.some(member => !member.you && member.role === 'owner');
+    const warning = role === 'owner' && !otherOwners
+        ? `You are the last owner of "${name}". If you leave, it passes to the administrators; its tokens keep working. Leave?`
+        : `Leave "${name}"? Its tokens keep working, but you can no longer manage them.`;
+    if (!me || !confirm(warning)) return;
+    const response = await fetch(membersUrl(applicationId, me.id), {method: 'DELETE', headers: csrfHeaders()});
+    if (response.ok) {
+        location.reload();
+    } else {
+        alert(`Failed to leave application: ${await errorMessage(response)}`);
+    }
+}
+
 async function revokeToken(tokenId) {
     if (!confirm('Are you sure you want to revoke this token?')) return;
     
@@ -638,4 +757,7 @@ registerActions({
     'rotate-token': (el) => rotateToken(el.dataset.id),
     'revoke-all': () => revokeAllCredentials(),
     'delete-application': (el) => deleteApplication(el.dataset.id, el.dataset.name),
+    'toggle-members': (el) => toggleMembers(el),
+    'leave-application': (el) => leaveApplication(el.dataset.id, el.dataset.name, el.dataset.role),
+    'remove-member': (el) => removeMember(el.dataset.application, el.dataset.id, el.dataset.email),
 });

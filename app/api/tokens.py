@@ -3,10 +3,10 @@ from datetime import datetime, timedelta, timezone
 from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import func, select, update
+from sqlalchemy import func, or_, select, update
 from pydantic import BaseModel, Field, field_validator, model_validator
 from app.database import get_db, lock_user_for_update
-from app.models import User, Token
+from app.models import ApplicationMember, User, Token
 from app.auth import get_current_user, generate_token, hash_token, invalidate_sessions
 from app.config import get_config
 from app.cookies import SESSION_COOKIE
@@ -29,6 +29,22 @@ async def lock_token_owner(request: Request, user: User, db: AsyncSession) -> Us
     if request.cookies.get(SESSION_COOKIE):
         await get_current_user(request, db)
     return locked
+
+
+def manageable_by(user: User):
+    """Tokens the user may manage: their own, and those of their applications."""
+    applications = select(ApplicationMember.application_id).where(ApplicationMember.user_id == user.id)
+    return or_(Token.user_id == user.id, Token.application_id.in_(applications))
+
+
+async def manageable_token(token_id: str, user: User, db: AsyncSession, lock: bool = False) -> Token:
+    query = select(Token).where(Token.id == token_id, manageable_by(user))
+    if lock:
+        query = query.with_for_update()
+    token = (await db.execute(query)).scalar_one_or_none()
+    if token is None:
+        raise HTTPException(status_code=404, detail="Token not found")
+    return token
 
 
 class TokenExpirationRequest(BaseModel):
@@ -114,13 +130,12 @@ async def create_token(
 async def issue_token(
     body: CreateTokenRequest, user: User, db: AsyncSession, application_id: str | None = None,
 ) -> TokenWithValueResponse:
-    """Create a token for a locked owner; application tokens count
-    towards the owner's limit."""
+    """Create a personal token for a locked user, or a token of a locked
+    application they belong to. Each has its own max_tokens_per_user."""
     config = get_config()
 
-    token_count = (
-        await db.execute(select(func.count()).select_from(Token).where(Token.user_id == user.id))
-    ).scalar_one()
+    owner = Token.application_id == application_id if application_id else Token.user_id == user.id
+    token_count = (await db.execute(select(func.count()).select_from(Token).where(owner))).scalar_one()
     if token_count >= config.tokens.max_tokens_per_user:
         raise HTTPException(
             status_code=400,
@@ -141,7 +156,8 @@ async def issue_token(
     check_expiration(expires_at)
 
     token = Token(
-        user_id=user.id,
+        user_id=None if application_id else user.id,
+        created_by_id=user.id if application_id else None,
         token_hash=token_hash,
         name=body.name,
         expires_at=expires_at,
@@ -201,7 +217,7 @@ async def list_tokens(
 ):
     result = await db.execute(
         select(Token)
-        .where(Token.user_id == user.id)
+        .where(manageable_by(user))
         .order_by(Token.created_at.desc())
     )
     tokens = result.scalars().all()
@@ -218,13 +234,7 @@ async def revoke_token(
     db: AsyncSession = Depends(get_db),
 ):
     user = await lock_token_owner(request, user, db)
-    result = await db.execute(
-        select(Token).where(Token.id == token_id, Token.user_id == user.id)
-    )
-    token = result.scalar_one_or_none()
-
-    if not token:
-        raise HTTPException(status_code=404, detail="Token not found")
+    token = await manageable_token(token_id, user, db)
 
     # The first revocation time is the one that matters in an investigation.
     if token.revoked_at is None:
@@ -248,13 +258,7 @@ async def delete_token(
     db: AsyncSession = Depends(get_db),
 ):
     user = await lock_token_owner(request, user, db)
-    result = await db.execute(
-        select(Token).where(Token.id == token_id, Token.user_id == user.id)
-    )
-    token = result.scalar_one_or_none()
-
-    if not token:
-        raise HTTPException(status_code=404, detail="Token not found")
+    token = await manageable_token(token_id, user, db)
 
     last_used_at = token.last_used_at
     await db.delete(token)
@@ -283,12 +287,7 @@ async def renew_token(
     db: AsyncSession = Depends(get_db),
 ):
     user = await lock_token_owner(request, user, db)
-    result = await db.execute(
-        select(Token).where(Token.id == token_id, Token.user_id == user.id)
-    )
-    token = result.scalar_one_or_none()
-    if not token:
-        raise HTTPException(status_code=404, detail="Token not found")
+    token = await manageable_token(token_id, user, db)
 
     config = get_config()
 
@@ -331,12 +330,7 @@ async def rotate_token(
     db: AsyncSession = Depends(get_db),
 ) -> TokenWithValueResponse:
     user = await lock_token_owner(request, user, db)
-    result = await db.execute(
-        select(Token).where(Token.id == token_id, Token.user_id == user.id).with_for_update()
-    )
-    token = result.scalar_one_or_none()
-    if token is None:
-        raise HTTPException(status_code=404, detail="Token not found")
+    token = await manageable_token(token_id, user, db, lock=True)
     if token.revoked_at is not None:
         raise HTTPException(status_code=400, detail="Create a new token to replace a revoked token")
     expires_at = token.expires_at

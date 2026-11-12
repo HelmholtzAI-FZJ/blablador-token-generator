@@ -47,8 +47,10 @@ BASELINE_SCHEMA = {
 # revision 0002 builds.
 ADOPTION_TOLERATED = {("add_index", "ix_tokens_user_id"), ("add_index", "ix_revoked_jwts_expires_at")}
 # Tables and columns later revisions create.
-ADDED_TABLES = {"applications"}
-ADDED_COLUMNS = {("tokens", "application_id")}
+ADDED_TABLES = {"applications", "application_members"}
+ADDED_COLUMNS = {("tokens", "application_id"), ("tokens", "created_by_id"), ("users", "email_verified")}
+# Columns later revisions made nullable.
+RELAXED_COLUMNS = {("tokens", "user_id")}
 LOCK_WAIT_SECONDS = 120
 LOCK_POLL_SECONDS = 0.5
 
@@ -146,11 +148,16 @@ def unversioned_schema_problems(connection: Connection) -> list[str] | None:
     # a unique email index, foreign keys without ON DELETE CASCADE.
     return [
         _describe(difference) for difference in _differences(connection)
-        if isinstance(difference, list) or not _tolerated_on_adoption(difference)
+        if not _tolerated_on_adoption(difference)
     ]
 
 
 def _tolerated_on_adoption(difference) -> bool:
+    if isinstance(difference, list):
+        return all(
+            change[0] == "modify_nullable" and change[6] and (change[2], change[3]) in RELAXED_COLUMNS
+            for change in difference
+        )
     operation = difference[0]
     if (operation, getattr(difference[1], "name", None)) in ADOPTION_TOLERATED:
         return True

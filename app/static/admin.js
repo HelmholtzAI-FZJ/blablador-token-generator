@@ -288,8 +288,34 @@ async function deleteRevokedTokens() {
     }
 }
 
+async function takeOverApplication(applicationId, name) {
+    if (!confirm(`Become an owner of "${name}"? You can then add owners from your dashboard.`)) return;
+    const response = await fetch(`/api/admin/applications/${encodeURIComponent(applicationId)}/take-over`, {
+        method: 'POST', headers: csrfHeaders(),
+    });
+    if (response.ok) {
+        location.reload();
+    } else {
+        alert(`Failed to take over application: ${await errorMessage(response)}`);
+    }
+}
+
+async function deleteOrphanedApplication(applicationId, name) {
+    if (!confirm(`Delete "${name}" and all its tokens? Services using them stop working. This cannot be undone.`)) return;
+    const response = await fetch(`/api/admin/applications/${encodeURIComponent(applicationId)}`, {
+        method: 'DELETE', headers: csrfHeaders(),
+    });
+    if (response.ok) {
+        location.reload();
+    } else {
+        alert(`Failed to delete application: ${await errorMessage(response)}`);
+    }
+}
+
 registerActions({
     'switch-tab': (el) => switchTab(el),
+    'take-over-application': (el) => takeOverApplication(el.dataset.id, el.dataset.name),
+    'delete-orphaned-application': (el) => deleteOrphanedApplication(el.dataset.id, el.dataset.name),
     'delete-revoked': () => deleteRevokedTokens(),
     'revoke-token': (el) => revokeToken(el.dataset.id),
     'delete-token': (el) => deleteToken(el.dataset.id),

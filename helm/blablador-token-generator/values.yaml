@@ -205,6 +205,16 @@ config:
   admin:
     admin_subjects: []
     admin_emails: []
+  smtp:
+    enabled: false
+    host: ''
+    port: 587
+    username: ''
+    password: ''
+    from_address: ''
+    starttls: true
+    use_tls: false
+    timeout_seconds: 10.0
   local:
     enabled: false
     allow_registration: false

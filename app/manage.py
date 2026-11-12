@@ -64,7 +64,8 @@ async def create_local_admin(email: str, name: str, password: str) -> str:
         if existing.scalar_one_or_none() is not None:
             raise CommandError("A local account with this email already exists")
         await lift_deletions_for_email(db, email)
-        user = User(email=email, name=name, password_hash=password_hash, is_admin=True, unity_id=None)
+        user = User(email=email, name=name, password_hash=password_hash, is_admin=True, unity_id=None,
+                    email_verified=True)
         db.add(user)
         await db.commit()
         logger.info("actor=cli action=create_local_admin user_id=%s", user.id)

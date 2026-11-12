@@ -159,6 +159,28 @@ class AdminConfig(SecurityConfigModel):
     admin_subjects: List[str] = []
 
 
+class SmtpConfig(SecurityConfigModel):
+    """Outgoing mail, used to tell admins about applications without owners."""
+    enabled: bool = False
+    host: str = ""
+    port: int = Field(587, ge=1, le=65535)
+    username: str = ""
+    password: str = ""
+    from_address: str = ""
+    # STARTTLS on a plain connection (port 587), or TLS from the start (465).
+    starttls: bool = True
+    use_tls: bool = False
+    timeout_seconds: float = Field(10.0, gt=0, le=60)
+
+    @model_validator(mode="after")
+    def check_smtp(self) -> "SmtpConfig":
+        if self.starttls and self.use_tls:
+            raise ValueError("smtp.starttls and smtp.use_tls are mutually exclusive")
+        if self.enabled and not (self.host and self.from_address):
+            raise ValueError("smtp.enabled requires smtp.host and smtp.from_address")
+        return self
+
+
 class ModelConfig(SecurityConfigModel):
     id: str
     object: str = "model"
@@ -181,6 +203,7 @@ class Config(SecurityConfigModel):
     tokens: TokenConfig = TokenConfig()
     rate_limits: RateLimitConfig = RateLimitConfig()
     admin: AdminConfig = AdminConfig()
+    smtp: SmtpConfig = SmtpConfig()
     blablador: BlabladorConfig = BlabladorConfig()
 
     # Known weak/default secret values that must never be used in production.
@@ -250,6 +273,8 @@ class Config(SecurityConfigModel):
             redis_options = query_options(self.rate_limits.storage_uri, "rate_limits.storage_uri")
             if redis_options.get("ssl_cert_reqs", "required").lower() != "required" or redis_options.get("ssl_check_hostname", "true").lower() not in {"true", "1"}:
                 raise ValueError("Production Redis TLS must verify certificates and hostnames")
+            if self.smtp.enabled and self.smtp.username and not (self.smtp.starttls or self.smtp.use_tls):
+                raise ValueError("Production SMTP credentials require STARTTLS or TLS")
             if not self.database.url.startswith("postgresql+asyncpg://"):
                 raise ValueError("Production requires PostgreSQL with the asyncpg driver")
             database_options = query_options(self.database.url, "database.url")
@@ -338,6 +363,10 @@ def get_config() -> Config:
     oauth_client_secret = os.environ.get("OAUTH_CLIENT_SECRET")
     if oauth_client_secret:
         config.oauth.client_secret = oauth_client_secret
+
+    smtp_password = os.environ.get("SMTP_PASSWORD")
+    if smtp_password:
+        config.smtp.password = smtp_password
 
     environment = os.environ.get("APP_ENVIRONMENT")
     if environment:

@@ -41,7 +41,8 @@ class ValidateResponse(BaseModel):
 
 
 class CurrentUserResponse(BaseModel):
-    user: UserInfo
+    # None for an application token whose creator's account was deleted.
+    user: UserInfo | None = None
     token_type: str
     application: ApplicationInfo | None = None
 
@@ -76,7 +77,7 @@ async def authenticate_api_token(
 
     result = await db.execute(
         select(Token)
-        .options(joinedload(Token.user), joinedload(Token.application))
+        .options(joinedload(Token.user), joinedload(Token.application), joinedload(Token.created_by))
         .where(
             Token.token_hash == token_hash,
             Token.revoked_at.is_(None)
@@ -84,11 +85,11 @@ async def authenticate_api_token(
     )
     token = result.scalar_one_or_none()
 
-    if token is None or token.user is None:
+    if token is None or (token.user is None and token.application is None):
         raise invalid_token("Token not found or revoked")
 
     # Check if the account was deleted after this token was created
-    if await is_user_deleted(db, token.user):
+    if token.user is not None and await is_user_deleted(db, token.user):
         _audit.warning(
             "user=%s action=revoked_token_used_by_deleted_account token_id=%s",
             token.user_id,
@@ -139,7 +140,9 @@ async def record_token_use(token: Token, token_hash: str, now: datetime, db: Asy
         )
 
 
-def user_info(user: User) -> UserInfo:
+def user_info(user: User | None) -> UserInfo | None:
+    if user is None:
+        return None
     return UserInfo(id=user.id, email=user.email, name=user.name)
 
 
@@ -166,10 +169,10 @@ async def validate_token(
 def validation_response(token: Token) -> ValidateResponse:
     return ValidateResponse(
         valid=True,
-        user_id=token.user_id,
+        user_id=token.reported_user.id if token.reported_user else None,
         expires_at=isoformat_utc(token.expires_at),
         token_type=token_type(token),
-        user=user_info(token.user),
+        user=user_info(token.reported_user),
         application=application_info(token),
     )
 
@@ -200,7 +203,7 @@ async def current_user(
 
 def current_user_response(token: Token) -> CurrentUserResponse:
     return CurrentUserResponse(
-        user=user_info(token.user),
+        user=user_info(token.reported_user),
         token_type=token_type(token),
         application=application_info(token),
     )

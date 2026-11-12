@@ -457,7 +457,8 @@ async def get_or_create_user(userinfo: dict, db: AsyncSession) -> User:
         in_admin_config = unity_id in config.admin.admin_subjects or (
             email_trusted and normalize_email(email) in admin_emails
         )
-        user = User(unity_id=unity_id, email=email, name=name, is_admin=in_admin_config)
+        user = User(unity_id=unity_id, email=email, name=name, is_admin=in_admin_config,
+                    email_verified=email_trusted)
         db.add(user)
         try:
             await db.commit()
@@ -483,6 +484,11 @@ async def get_or_create_user(userinfo: dict, db: AsyncSession) -> User:
         changed = True
     if email_trusted and user.email != email:
         user.email = email
+        changed = True
+    # Whether the stored email is verified, as of this sign-in.
+    verified = email_trusted or (user.email != email and user.email_verified)
+    if user.email_verified != verified:
+        user.email_verified = verified
         changed = True
     if changed:
         try:

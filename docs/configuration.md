@@ -18,6 +18,7 @@ of the file; the environment wins.
 | `JWT_SECRET_KEY` | `app.secret_key` |
 | `TOKEN_HASH_KEY` | `app.token_hash_key` |
 | `OAUTH_CLIENT_SECRET` | `oauth.client_secret` |
+| `SMTP_PASSWORD` | `smtp.password` |
 | `DATABASE_URL` | `database.url` |
 | `DATABASE_SSL_CA_FILE` | `database.ssl_ca_file` |
 | `RATE_LIMIT_STORAGE_URI` | `rate_limits.storage_uri` |
@@ -173,6 +174,26 @@ in the admin panel. See [Administration](operations/administration.md).
 | --- | --- | --- |
 | `admin_subjects` | `[]` | OAuth subjects. Preferred: a subject cannot be chosen by the user. |
 | `admin_emails` | `[]` | Emails, honoured only when the provider marks the email verified (or `oauth.trust_provider_emails`). |
+
+## `smtp`
+
+Outgoing mail. The service emails the administrators (accounts with the admin
+role, plus `admin.admin_emails`) when an application loses its last owner;
+the admin panel shows a warning either way. Mail is sent in the background
+and a failure is only logged. With the Helm chart's network policy, allow
+egress to the mail server in `networkPolicy.app.egress.extraRules`.
+
+| Key | Default | Description |
+| --- | --- | --- |
+| `enabled` | `false` | Send mail. Requires `host` and `from_address`. |
+| `host` | `""` | Mail server. |
+| `port` | `587` | Mail server port: usually 587 with `starttls`, 465 with `use_tls`. |
+| `username` | `""` | Login; empty for none. In production a login requires `starttls` or `use_tls`. |
+| `password` | `""` | Password; prefer the `SMTP_PASSWORD` environment variable. |
+| `from_address` | `""` | Sender address. |
+| `starttls` | `true` | Upgrade the connection with STARTTLS. |
+| `use_tls` | `false` | Use TLS from the start (port 465). Exclusive with `starttls`. |
+| `timeout_seconds` | `10.0` | Connection and command timeout. |
 
 ## `blablador`
 

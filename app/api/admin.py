@@ -4,10 +4,10 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, Request, Query, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import and_, delete, or_, select, update
-from sqlalchemy.orm import joinedload
+from sqlalchemy.orm import joinedload, selectinload
 from pydantic import BaseModel, Field, StrictBool, field_validator
 from app.database import get_db, lock_user_for_update
-from app.models import User, Token
+from app.models import Application, ApplicationMember, ROLE_OWNER, User, Token
 from app.config import get_config
 from app.tombstones import (
     identity_reference, is_user_deleted, lift_deletions_for_email, lift_deletions_for_subject,
@@ -17,6 +17,8 @@ from app.auth import (
     get_current_admin, get_current_user, hash_password_async, invalidate_sessions, normalize_email,
     validate_password_strength,
 )
+from app.api.applications import delete_application_and_tokens
+from app.memberships import notify_orphaned, orphan_applications_left_by, orphaned_query
 from app.rate_limit import limiter, RATE_LIMITS, user_or_ip
 from app.cookies import SESSION_COOKIE
 from app.timeutil import isoformat_utc, utcnow
@@ -84,11 +86,13 @@ async def is_last_admin(db: AsyncSession, user_id: str) -> bool:
 
 
 class AdminTokenResponse(BaseModel):
+    """user_* name the owner, or an application token's creator (None
+    once their account is deleted)."""
     id: str
     name: str
-    user_id: str
-    user_email: str
-    user_name: str
+    user_id: str | None = None
+    user_email: str | None = None
+    user_name: str | None = None
     application_id: str | None = None
     application_name: str | None = None
     created_at: str
@@ -148,7 +152,7 @@ async def list_all_tokens(
     offset = (page - 1) * page_size
     result = await db.execute(
         select(Token)
-        .options(joinedload(Token.user), joinedload(Token.application))
+        .options(joinedload(Token.user), joinedload(Token.application), joinedload(Token.created_by))
         .order_by(Token.created_at.desc(), Token.id)
         .offset(offset)
         .limit(page_size)
@@ -160,9 +164,9 @@ async def list_all_tokens(
         AdminTokenResponse(
             id=t.id,
             name=t.name,
-            user_id=t.user_id,
-            user_email=t.user.email,
-            user_name=t.user.name,
+            user_id=t.reported_user.id if t.reported_user else None,
+            user_email=t.reported_user.email if t.reported_user else None,
+            user_name=t.reported_user.name if t.reported_user else None,
             application_id=t.application_id,
             application_name=t.application.name if t.application else None,
             created_at=isoformat_utc(t.created_at),
@@ -329,6 +333,8 @@ async def create_user(
         password_hash=password_hash,
         is_admin=body.is_admin,
         unity_id=None,
+        # Set by an admin, so as trustworthy as a verified provider email.
+        email_verified=True,
     )
     db.add(user)
     try:
@@ -454,6 +460,7 @@ async def delete_user(
 
     # Tombstone so the account isn't resurrected by logging in again
     record_deletion(db, user)
+    orphaned = await orphan_applications_left_by(db, user)
     identity = identity_reference(user=user)
     await db.delete(user)
     try:
@@ -463,6 +470,7 @@ async def delete_user(
         raise HTTPException(status_code=500, detail="Failed to delete user")
     logger.info("admin=%s action=delete_user user_id=%s identity=%s was_admin=%s",
                 admin.id, user.id, identity, user.is_admin)
+    await notify_orphaned(db, orphaned)
     return {"message": "User deleted successfully"}
 
 
@@ -518,3 +526,91 @@ async def restore_oauth_identity(
     logger.info("admin=%s action=restore_oauth_identity identity=%s count=%d",
                 admin.id, identity_reference(subject=body.subject), count)
     return {"message": "OAuth identity may sign in again", "deletions_lifted": count}
+
+
+class OrphanedApplicationResponse(BaseModel):
+    id: str
+    name: str
+    description: str | None = None
+    orphaned_at: str
+    members: int
+    tokens: int
+
+
+async def orphaned_application(db: AsyncSession, application_id: str) -> Application:
+    application = (await db.execute(
+        select(Application).where(Application.id == application_id, Application.orphaned_at.isnot(None))
+        .with_for_update()
+    )).scalar_one_or_none()
+    if application is None:
+        raise HTTPException(status_code=404, detail="No orphaned application with this id")
+    return application
+
+
+@router.get("/applications/orphaned", response_model=list[OrphanedApplicationResponse])
+@limiter.limit(ADMIN_RATE_LIMIT, key_func=user_or_ip)
+async def list_orphaned_applications(
+    request: Request,
+    admin: User = Depends(get_current_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    applications = (await db.execute(
+        orphaned_query().options(selectinload(Application.members), selectinload(Application.tokens))
+    )).scalars().all()
+    return [
+        OrphanedApplicationResponse(
+            id=a.id, name=a.name, description=a.description, orphaned_at=isoformat_utc(a.orphaned_at),
+            members=len(a.members), tokens=len(a.tokens),
+        )
+        for a in applications
+    ]
+
+
+@router.post("/applications/{application_id}/take-over")
+@limiter.limit(ADMIN_RATE_LIMIT, key_func=user_or_ip)
+async def take_over_application(
+    request: Request,
+    application_id: ResourceId,
+    admin: User = Depends(get_current_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    """Make the admin an owner, who can then add other owners."""
+    admin = await lock_admin_actor(db, admin.id, request)
+    application = await orphaned_application(db, application_id)
+    email = normalize_email(admin.email)
+    member = (await db.execute(
+        select(ApplicationMember).where(
+            ApplicationMember.application_id == application.id,
+            or_(ApplicationMember.user_id == admin.id,
+                and_(ApplicationMember.email == email, ApplicationMember.user_id.is_(None))),
+        ).order_by(ApplicationMember.user_id.is_(None))
+    )).scalars().first()
+    if member is None:
+        db.add(ApplicationMember(application_id=application.id, user_id=admin.id, email=email, role=ROLE_OWNER))
+    else:
+        member.user_id = admin.id
+        member.role = ROLE_OWNER
+    application.orphaned_at = None
+    try:
+        await db.commit()
+    except Exception:
+        await db.rollback()
+        raise HTTPException(status_code=500, detail="Failed to take over application")
+    logger.info("admin=%s action=take_over_application application_id=%s", admin.id, application.id)
+    return {"message": "You are now an owner of this application"}
+
+
+@router.delete("/applications/{application_id}")
+@limiter.limit(ADMIN_RATE_LIMIT, key_func=user_or_ip)
+async def delete_orphaned_application(
+    request: Request,
+    application_id: ResourceId,
+    admin: User = Depends(get_current_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    admin = await lock_admin_actor(db, admin.id, request)
+    application = await orphaned_application(db, application_id)
+    deleted = await delete_application_and_tokens(application, db)
+    logger.info("admin=%s action=delete_application application_id=%s tokens_deleted=%d",
+                admin.id, application_id, deleted)
+    return {"message": "Application and its tokens deleted", "tokens_deleted": deleted}

@@ -359,6 +359,43 @@
           },
           "type": "object"
         },
+        "smtp": {
+          "additionalProperties": false,
+          "type": "object",
+          "properties": {
+            "enabled": {
+              "type": "boolean"
+            },
+            "host": {
+              "type": "string"
+            },
+            "port": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 65535
+            },
+            "username": {
+              "type": "string"
+            },
+            "password": {
+              "type": "string"
+            },
+            "from_address": {
+              "type": "string"
+            },
+            "starttls": {
+              "type": "boolean"
+            },
+            "use_tls": {
+              "type": "boolean"
+            },
+            "timeout_seconds": {
+              "type": "number",
+              "exclusiveMinimum": 0,
+              "maximum": 60
+            }
+          }
+        },
         "blablador": {
           "additionalProperties": false,
           "properties": {

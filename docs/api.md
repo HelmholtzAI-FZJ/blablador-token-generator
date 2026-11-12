@@ -44,8 +44,9 @@ case-insensitive; no request body is needed and no CSRF token is involved.
     `user_id` is the account's stable internal identifier. `expires_at` is
     `null` only for tokens created before expiry became mandatory.
     `token_type` is `personal` or `application`; `user` is the token's owner
-    (for an application token, the application's owner) and `application`
-    is `null` for personal tokens.
+    (for an application token, the member who created it, or `null` with
+    `user_id` once their account is deleted) and `application` is `null` for
+    personal tokens.
 
 === "Invalid token (401)"
 
@@ -114,32 +115,58 @@ they answer `401`.
 
 | Method and path | Body | Result |
 | --- | --- | --- |
-| `GET /tokens` | | Your tokens, application tokens included: `id`, `name`, `created_at`, `expires_at`, `last_used_at`, `revoked`, `application_id` |
+| `GET /tokens` | | Your tokens and those of your applications: `id`, `name`, `created_at`, `expires_at`, `last_used_at`, `revoked`, `application_id` |
 | `POST /tokens` | `{"name": "...", "expires_in_days": 90}` or `{"name": "...", "expires_at": "<ISO 8601>"}` | The new token **including its value** (`token`), shown only now |
 | `POST /tokens/{id}/renew` | optional `expires_in_days` or `expires_at` | New expiry; the value is unchanged. Without a body the original lifetime is applied again |
 | `POST /tokens/{id}/rotate` | optional `expires_in_days` or `expires_at` | A new value (`token`); the old value stops working. Keeps the expiry unless given |
 | `DELETE /tokens/{id}` | | Revokes the token |
 | `DELETE /tokens/{id}/permanent` | | Deletes the token |
-| `POST /tokens/revoke-all` | | Revokes all your tokens and ends all your sessions; returns `tokens_revoked` |
+| `POST /tokens/revoke-all` | | Revokes all your personal tokens and ends all your sessions; returns `tokens_revoked` |
 | `POST /account/delete` | | Deletes your account and its tokens; it cannot sign in again until an administrator restores it |
 | `POST /logout` | | Ends the session (`503` if the revocation could not be stored) |
 
 ### Applications
 
-An application (a service, a CI job, a bot) has its own tokens, so validation
-reports the application rather than a person. The dashboard's Applications
-section creates and deletes them; choose the application under "Belongs to"
-when creating a token. Its tokens count towards your
-[`tokens.max_tokens_per_user`](configuration.md#tokens) and are renewed,
-rotated, revoked and deleted with the `/tokens/{id}` endpoints above.
+An application (a service, a CI job, a bot) has its own tokens, shared by the
+people who run it, so validation reports the application rather than only a
+person. The dashboard's Applications section manages them; choose the
+application under "Belongs to" when creating a token.
+
+People have one of two roles:
+
+- **Owners** add and remove people, change roles and may delete the
+  application. Whoever creates an application is its first owner.
+- **Members** create, renew, rotate, revoke and delete its tokens, with the
+  `/tokens/{id}` endpoints above, and may leave.
+
+Owners add people by email. The answer is the same whether or not the
+address has an account, and the list of people shows only the addresses and
+roles the owners entered: owners do not learn who has an account. An address
+without a verified account (yet) joins when someone signs in with it
+verified (`email_verified` from the identity provider, or a local account).
+
+An application token belongs to the application: it keeps working when its
+creator leaves the application or their account is deleted. Each application
+holds at most [`tokens.max_tokens_per_user`](configuration.md#tokens) tokens.
+
+The last owner cannot step down to member, but may leave. The application
+then passes to the administrators: the admin panel shows a warning, and they
+are emailed if [`smtp`](configuration.md#smtp) is configured. The same happens
+when the last owner's account is deleted.
 
 | Method and path | Body | Result |
 | --- | --- | --- |
-| `GET /applications` | | Your applications: `id`, `name`, `description`, `created_at` |
-| `POST /applications` | `{"name": "...", "description": "..."}` (description optional) | The new application; at most `tokens.max_applications_per_user` |
-| `DELETE /applications/{id}` | | Deletes the application and its tokens; returns `tokens_deleted` |
+| `GET /applications` | | Your applications: `id`, `name`, `description`, `created_at`, `role` |
+| `POST /applications` | `{"name": "...", "description": "..."}` (description optional) | The new application; you may own at most `tokens.max_applications_per_user` |
+| `DELETE /applications/{id}` | | Owners: deletes the application and its tokens; returns `tokens_deleted` |
 | `GET /applications/{id}/tokens` | | The application's tokens |
 | `POST /applications/{id}/tokens` | as `POST /tokens` | The new application token **including its value** |
+| `GET /applications/{id}/members` | | People: `id`, `email`, `role`, `you` |
+| `POST /applications/{id}/members` | `{"email": "...", "role": "member"}` | Owners: adds an address, or changes the role of one already added |
+| `PATCH /applications/{id}/members/{member_id}` | `{"role": "owner"}` | Owners: changes a role |
+| `DELETE /applications/{id}/members/{member_id}` | | Owners remove anyone; anyone may remove themselves (leave). `orphaned` tells whether the last owner left |
+
+Non-members get `404`; members attempting an owner's action get `403`.
 
 `expires_in_days` is 1–365 and `expires_at` must lie in the future, within
 [`tokens.max_expiration_days`](configuration.md#tokens). Supplying both is an
@@ -152,7 +179,10 @@ Administrator session plus `X-CSRF-Token`, as above. Lists are paged with
 
 | Method and path | Body | Result |
 | --- | --- | --- |
-| `GET /api/admin/tokens` | | All tokens with owner name and email, and `application_id`/`application_name` for application tokens |
+| `GET /api/admin/tokens` | | All tokens with owner (or application token creator) name and email, and `application_id`/`application_name` for application tokens |
+| `GET /api/admin/applications/orphaned` | | Applications whose last owner left: `id`, `name`, `description`, `orphaned_at`, `members`, `tokens` |
+| `POST /api/admin/applications/{id}/take-over` | | Makes you an owner of an orphaned application |
+| `DELETE /api/admin/applications/{id}` | | Deletes an orphaned application and its tokens |
 | `DELETE /api/admin/tokens/{id}` | | Revokes a token |
 | `DELETE /api/admin/tokens/{id}/permanent` | | Deletes a token |
 | `DELETE /api/admin/tokens/revoked` | | Deletes all revoked tokens |

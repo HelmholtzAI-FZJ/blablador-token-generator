@@ -6,6 +6,35 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- **Shared applications.** Applications have owners and members instead of a
+  single owner. Owners add people by email (an address without an account
+  joins when someone signs in with it verified; responses never reveal
+  whether an account exists), change roles and delete the application;
+  members manage its tokens. Endpoints under
+  `/applications/{id}/members`; a People panel on the dashboard.
+- **Orphaned applications.** When the last owner leaves or their account is
+  deleted, the application passes to the administrators: a warning in the
+  admin panel, with take-over and delete
+  (`/api/admin/applications/...`), and an email if configured.
+- `smtp` settings (and `SMTP_PASSWORD`) for those emails; disabled by
+  default.
+
+### Changed
+
+- Application tokens belong to the application, not their creator: they
+  survive the creator leaving or being deleted. Validation reports the
+  creator as `user` while their account exists, else `null`. Each
+  application has its own `tokens.max_tokens_per_user` budget.
+- `POST /tokens/revoke-all` and an administrator's revoke-credentials revoke
+  personal tokens only.
+- Migration `0004` replaces `applications.user_id` with memberships. It is
+  not compatible with 1.1.0 instances during a rolling upgrade: stop them
+  first if applications are in use.
+- SQLite migrations run with foreign keys switched off, so rebuilding a table
+  no longer cascade-deletes the rows referencing it.
+
 ## [1.1.0] - 2026-11-11
 
 ### Added

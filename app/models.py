@@ -1,6 +1,6 @@
 import uuid
 from datetime import datetime
-from sqlalchemy import String, DateTime, Boolean, ForeignKey, Index, Integer, text
+from sqlalchemy import String, DateTime, Boolean, CheckConstraint, ForeignKey, Index, Integer, UniqueConstraint, text
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 from typing import Optional
 
@@ -30,49 +30,97 @@ class User(Base):
     name: Mapped[str] = mapped_column(String(255))
     password_hash: Mapped[str | None] = mapped_column(String(255), nullable=True)
     is_admin: Mapped[bool] = mapped_column(Boolean, default=False)
+    # Whether the email was verified when last signing in; only then may it
+    # claim application invitations sent to that address.
+    email_verified: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("false"))
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
     # Embedded in session JWTs; bumping it invalidates all existing sessions.
     session_epoch: Mapped[int] = mapped_column(Integer, default=0)
 
-    tokens: Mapped[list["Token"]] = relationship("Token", back_populates="user", cascade="all, delete-orphan")
-    applications: Mapped[list["Application"]] = relationship(
-        "Application", back_populates="user", cascade="all, delete-orphan"
+    tokens: Mapped[list["Token"]] = relationship(
+        "Token", back_populates="user", cascade="all, delete-orphan", foreign_keys="Token.user_id"
+    )
+    memberships: Mapped[list["ApplicationMember"]] = relationship(
+        "ApplicationMember", back_populates="user", passive_deletes=True
     )
 
 
 class Application(Base):
     """A service or program that authenticates with its own tokens.
 
-    The owning user manages the application and its tokens; validation
-    reports the application, not a person, as the caller.
+    Owners manage its people and may delete it; members manage its tokens.
+    An application whose last owner left is orphaned until an admin takes
+    it over.
     """
 
     __tablename__ = "applications"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
-    user_id: Mapped[str] = mapped_column(
-        String(36), ForeignKey("users.id", ondelete="CASCADE"), index=True
-    )
     name: Mapped[str] = mapped_column(String(255))
     description: Mapped[str | None] = mapped_column(String(1000), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    orphaned_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True, index=True)
 
-    user: Mapped["User"] = relationship("User", back_populates="applications")
+    members: Mapped[list["ApplicationMember"]] = relationship(
+        "ApplicationMember", back_populates="application", cascade="all, delete-orphan"
+    )
     tokens: Mapped[list["Token"]] = relationship(
         "Token", back_populates="application", cascade="all, delete-orphan"
     )
 
 
-class Token(Base):
-    __tablename__ = "tokens"
+ROLE_OWNER = "owner"
+ROLE_MEMBER = "member"
+
+
+class ApplicationMember(Base):
+    """A person's role in an application.
+
+    Added by email; user_id stays empty (an invitation) until someone with
+    that verified email signs in.
+    """
+
+    __tablename__ = "application_members"
+    __table_args__ = (
+        UniqueConstraint("application_id", "email", name="uq_application_members_email"),
+        UniqueConstraint("application_id", "user_id", name="uq_application_members_user"),
+        CheckConstraint("role IN ('owner', 'member')", name="ck_application_members_role"),
+    )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
-    user_id: Mapped[str] = mapped_column(
-        String(36), ForeignKey("users.id", ondelete="CASCADE"), index=True
+    application_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("applications.id", ondelete="CASCADE"), index=True
     )
-    # Set for application tokens; personal tokens have none.
+    user_id: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("users.id", ondelete="CASCADE"), index=True, nullable=True
+    )
+    email: Mapped[str] = mapped_column(String(255), index=True)
+    role: Mapped[str] = mapped_column(String(16))
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+    application: Mapped["Application"] = relationship("Application", back_populates="members")
+    user: Mapped[Optional["User"]] = relationship("User", back_populates="memberships")
+
+
+class Token(Base):
+    """A personal token (user_id) or an application token (application_id)."""
+
+    __tablename__ = "tokens"
+    __table_args__ = (
+        CheckConstraint("(user_id IS NULL) <> (application_id IS NULL)", name="ck_tokens_owner"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    user_id: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("users.id", ondelete="CASCADE"), index=True, nullable=True
+    )
     application_id: Mapped[str | None] = mapped_column(
         String(36), ForeignKey("applications.id", ondelete="CASCADE"), index=True, nullable=True
+    )
+    # Who created an application token; it outlives their membership.
+    created_by_id: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("users.id", ondelete="SET NULL", name="fk_tokens_created_by_id"),
+        index=True, nullable=True
     )
     token_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True)
     name: Mapped[str] = mapped_column(String(255))
@@ -81,8 +129,15 @@ class Token(Base):
     last_used_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     revoked_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
 
-    user: Mapped["User"] = relationship("User", back_populates="tokens")
+    user: Mapped[Optional["User"]] = relationship("User", back_populates="tokens", foreign_keys=[user_id])
     application: Mapped[Optional["Application"]] = relationship("Application", back_populates="tokens")
+    created_by: Mapped[Optional["User"]] = relationship("User", foreign_keys=[created_by_id])
+
+    @property
+    def reported_user(self) -> Optional["User"]:
+        """The person validation reports: the owner, or an application
+        token's creator while their account exists."""
+        return self.user or self.created_by
 
 
 class RevokedJWT(Base):

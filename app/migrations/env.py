@@ -14,6 +14,29 @@ target_metadata = Base.metadata
 
 
 def run_migrations(connection) -> None:
+    if connection.dialect.name != "sqlite":
+        _run(connection)
+        return
+    # SQLite alters a table by rebuilding it, and dropping the old copy
+    # would cascade-delete the rows referencing it. The pragma only takes
+    # effect outside a transaction.
+    connection.commit()
+    connection.exec_driver_sql("PRAGMA foreign_keys=OFF")
+    try:
+        _run(connection)
+        dangling = connection.exec_driver_sql("PRAGMA foreign_key_check").fetchall()
+        if dangling:
+            raise RuntimeError(f"Migration left {len(dangling)} rows with dangling references")
+        connection.commit()
+    except BaseException:
+        connection.rollback()
+        raise
+    finally:
+        connection.exec_driver_sql("PRAGMA foreign_keys=ON")
+        connection.commit()
+
+
+def _run(connection) -> None:
     context.configure(
         connection=connection,
         target_metadata=target_metadata,

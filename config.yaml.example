@@ -120,3 +120,16 @@ admin:
   # Emails granted admin ONLY at first account creation, when the provider marks the email
   # verified (email_verified: true) or oauth.trust_provider_emails is true.
   admin_emails: []
+
+smtp:
+  # Email the administrators when an application loses its last owner.
+  enabled: false
+  host: ""
+  port: 587
+  username: ""
+  # Prefer the SMTP_PASSWORD environment variable.
+  password: ""
+  from_address: ""
+  starttls: true
+  use_tls: false
+  timeout_seconds: 10.0

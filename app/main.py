@@ -33,6 +33,9 @@ from app.access_log import AccessLogMiddleware
 from app.clients import loggable_address
 from app.models import Application, User, Token
 from app.tombstones import identity_reference, record_deletion
+from app.memberships import (
+    application_query_for, claim_invitations, notify_orphaned, orphan_applications_left_by, orphaned_query,
+)
 from app.auth import (
     get_current_user, get_current_admin,
     get_or_create_user, get_unity_userinfo, create_session_token,
@@ -40,6 +43,7 @@ from app.auth import (
     decode_access_token, revoke_jwt,
 )
 from app.api import applications, tokens, validate, admin
+from app.api.tokens import manageable_by
 from app.rate_limit import limiter, RATE_LIMITS, run_storage, user_or_ip
 from app.logging_config import configure_logging
 from app.body_limit import BodySizeLimitMiddleware
@@ -329,6 +333,7 @@ async def openid_callback(request: Request, code: str | None = None, state: str 
         message = exc.detail if exc.status_code in (403, 503) else "Sign-in could not be completed. Please try again."
         return oauth_failure(request, exc.status_code, message)
     _audit.info("user=%s action=login method=oauth", user.id)
+    await claim_invitations(db, user)
 
     response = RedirectResponse(url="/dashboard", status_code=303)
     set_cookie(response, SESSION_COOKIE, create_session_token(user),
@@ -348,13 +353,13 @@ async def dashboard(
     result = await db.execute(
         select(Token)
         .options(joinedload(Token.application))
-        .where(Token.user_id == user.id)
+        .where(manageable_by(user))
         .order_by(Token.created_at.desc())
     )
     user_tokens = result.scalars().all()
-    applications = (await db.execute(
-        select(Application).where(Application.user_id == user.id).order_by(Application.name)
-    )).scalars().all()
+    memberships = (await db.execute(application_query_for(user).order_by(Application.name))).all()
+    applications = [application for application, _ in memberships]
+    application_roles = {application.id: membership.role for application, membership in memberships}
     application_tokens = Counter(t.application_id for t in user_tokens if t.application_id)
 
     return templates.TemplateResponse(request, "dashboard.html", {
@@ -363,6 +368,7 @@ async def dashboard(
             "user": user,
             "tokens": user_tokens,
             "applications": applications,
+            "application_roles": application_roles,
             "application_tokens": application_tokens,
             "token_default_expiration_days": config.tokens.default_expiration_days,
             "token_max_expiration_days": config.tokens.max_expiration_days,
@@ -377,12 +383,14 @@ def form_csrf_valid(request: Request, submitted: str) -> bool:
     return bool(cookie_token) and secure_equals(submitted, cookie_token)
 
 
-def render_admin_tokens(request: Request, admin: User, tokens: list[Token], searched: bool,
-                        page: int = 1, has_next: bool = False):
+async def render_admin_tokens(request: Request, admin: User, db: AsyncSession, tokens: list[Token],
+                              searched: bool, page: int = 1, has_next: bool = False):
+    orphaned = (await db.execute(orphaned_query())).scalars().all()
     return templates.TemplateResponse(request, "admin.html", {
         "app_name": config.app.name,
         "user": admin,
-        "tokens_with_users": [{"token": t, "user": t.user} for t in tokens],
+        "orphaned_applications": orphaned,
+        "tokens_with_users": [{"token": t, "user": t.reported_user} for t in tokens],
         "searched": searched,
         "page": page,
         "has_next": has_next,
@@ -403,14 +411,14 @@ async def admin_tokens(
     page_size = 100
     result = await db.execute(
         select(Token)
-        .options(joinedload(Token.user), joinedload(Token.application))
+        .options(joinedload(Token.user), joinedload(Token.application), joinedload(Token.created_by))
         .order_by(Token.created_at.desc(), Token.id)
         .offset((page - 1) * page_size)
         .limit(page_size + 1)
     )
     found = list(result.scalars().all())
     _audit.info("admin=%s action=list_tokens page=%d", admin.id, page)
-    return render_admin_tokens(request, admin, found[:page_size], searched=False,
+    return await render_admin_tokens(request, admin, db, found[:page_size], searched=False,
                                page=page, has_next=len(found) > page_size)
 
 
@@ -429,12 +437,12 @@ async def admin_token_search(
         raise HTTPException(status_code=403, detail="Invalid CSRF token")
     result = await db.execute(
         select(Token)
-        .options(joinedload(Token.user), joinedload(Token.application))
+        .options(joinedload(Token.user), joinedload(Token.application), joinedload(Token.created_by))
         .where(Token.token_hash == hash_token(token.strip()))
     )
     found = result.scalar_one_or_none()
     _audit.info("admin=%s action=search_token found=%s", admin.id, found is not None)
-    return render_admin_tokens(request, admin, [found] if found else [], searched=True)
+    return await render_admin_tokens(request, admin, db, [found] if found else [], searched=True)
 
 
 @app.post("/logout")
@@ -485,6 +493,7 @@ async def delete_my_account(
     tokens = result.scalars().all()
     # 2. Write tombstone (blocks OAuth resurrection)
     record_deletion(db, user)
+    orphaned = await orphan_applications_left_by(db, user)
 
     # 3. Delete the user row (tokens via ORM cascade, revoked_jwts via FK)
     await db.delete(user)
@@ -503,6 +512,7 @@ async def delete_my_account(
         identity,
         len(tokens),
     )
+    await notify_orphaned(db, orphaned)
 
     # 5. Sessions of a deleted user are rejected because the user lookup
     # fails; just clear the cookie.
@@ -565,6 +575,11 @@ async def login_local(
         return login_page(request, "Invalid email or password", 401)
 
     _audit.info("user=%s action=login method=local", user.id)
+    if not user.email_verified:
+        # Local accounts' emails are set by an admin.
+        user.email_verified = True
+        await db.commit()
+    await claim_invitations(db, user)
     response = RedirectResponse(url="/dashboard", status_code=303)
     set_cookie(response, SESSION_COOKIE, create_session_token(user),
                max_age=config.app.jwt_expiration_hours * 3600)

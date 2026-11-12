@@ -33,7 +33,7 @@
             cursor: pointer;
             font-size: 1rem;
         }
-        .container { max-width: 1200px; margin: 2rem auto; padding: 0 1rem; }
+        .container { margin: clamp(1rem, 3vw, 2rem) auto; padding: 0 clamp(0.5rem, 3vw, 2rem); }
         .card {
             background: white;
             border-radius: 8px;
@@ -45,6 +45,8 @@
         table { width: 100%; border-collapse: collapse; }
         th, td { padding: 0.75rem; text-align: left; border-bottom: 1px solid #eee; }
         th { background: #f8f9fa; font-weight: 600; }
+        th, td.datetime, td.datetime-date, td.token-status, td:last-child { white-space: nowrap; }
+        .card:has(> table) { overflow-x: auto; }
         .status-active { color: #27ae60; font-weight: 500; }
         .status-revoked { color: #e74c3c; font-weight: 500; }
         .btn { 
@@ -83,6 +85,8 @@
         .subject { display: block; font-size: 0.75rem; color: #666; word-break: break-all; }
         .pagination { display: flex; gap: 0.5rem; align-items: center; margin-top: 1rem; }
         a.btn { text-decoration: none; display: inline-block; }
+        .orphan-warning { background: #fff3cd; border: 1px solid #ffc107; }
+        .orphan-warning h2 { color: #856404; }
     </style>
 </head>
 <body>
@@ -98,6 +102,28 @@
     </header>
     
     <div class="container">
+        {% if orphaned_applications %}
+        <div class="card orphan-warning" role="alert">
+            <h2>&#9888; {{ orphaned_applications|length }} application{{ '' if orphaned_applications|length == 1 else 's' }} without an owner</h2>
+            <p style="margin-bottom: 1rem;">The last owner left. Their tokens keep working, but nobody can add people or delete them. Take one over to become its owner (then add new owners from your dashboard), or delete it with its tokens.</p>
+            <table>
+                <thead><tr><th>Application</th><th>Description</th><th>Without owner since</th><th>Actions</th></tr></thead>
+                <tbody>
+                    {% for application in orphaned_applications %}
+                    <tr>
+                        <td>{{ application.name }}</td>
+                        <td>{{ application.description or '' }}</td>
+                        <td class="datetime" data-utc="{{ application.orphaned_at|utc_iso }}">{{ application.orphaned_at.strftime('%Y-%m-%d %H:%M') }}</td>
+                        <td>
+                            <button class="btn btn-success" data-action="take-over-application" data-id="{{ application.id }}" data-name="{{ application.name }}">Take over</button>
+                            <button class="btn btn-danger" data-action="delete-orphaned-application" data-id="{{ application.id }}" data-name="{{ application.name }}">Delete</button>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% endif %}
         <div class="tabs">
             <div class="tab active" data-action="switch-tab" data-tab="tokens">Tokens</div>
             <div class="tab" data-action="switch-tab" data-tab="users">Users</div>

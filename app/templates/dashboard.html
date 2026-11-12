@@ -34,7 +34,7 @@
             cursor: pointer;
             font-size: 1rem;
         }
-        .container { max-width: 900px; margin: 2rem auto; padding: 0 1rem; }
+        .container { margin: clamp(1rem, 3vw, 2rem) auto; padding: 0 clamp(0.5rem, 3vw, 2rem); }
         .card {
             background: white;
             border-radius: 8px;
@@ -71,6 +71,8 @@
         table { width: 100%; border-collapse: collapse; }
         th, td { padding: 0.75rem; text-align: left; border-bottom: 1px solid #eee; }
         th { background: #f8f9fa; font-weight: 600; }
+        th, td.datetime, td.datetime-date, td.token-status, td:last-child { white-space: nowrap; }
+        .card:has(> table) { overflow-x: auto; }
         .token-value {
             font-family: monospace;
             background: #f8f9fa;
@@ -88,6 +90,11 @@
         .token-warning strong { color: #856404; }
         .app-badge { display: inline-block; padding: 0.1rem 0.5rem; border-radius: 4px; background: #eaf2fb; color: #2471a3; font-size: 0.85rem; }
         .muted { color: #888; }
+        tr.members-row > td { white-space: normal; background: #fafbfc; }
+        .members-panel table { margin-bottom: 1rem; }
+        .member-form { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; }
+        .member-form input[type=email] { flex: 1 1 16rem; padding: 0.5rem; border: 1px solid #ddd; border-radius: 4px; font-size: 1rem; }
+        .member-form select, .member-role { padding: 0.4rem; border: 1px solid #ddd; border-radius: 4px; font-size: 0.95rem; }
         .empty { text-align: center; color: #666; padding: 2rem; }
     </style>
 </head>
@@ -192,7 +199,7 @@
         
         <div class="card" id="applicationsCard">
             <h2>Applications</h2>
-            <p class="muted">Give a service, CI job or bot its own tokens. Validation then reports the application instead of you. Deleting an application deletes its tokens.</p>
+            <p class="muted">Give a service, CI job or bot its own tokens, shared with the people who run it. Validation reports the application and the person who created the token. Owners add people by email and may delete the application, which deletes its tokens; members manage its tokens. If the last owner leaves, the application passes to the administrators.</p>
             <form id="createApplicationForm">
                 <div class="form-group">
                     <label for="applicationName">Application Name</label>
@@ -210,6 +217,7 @@
                     <tr>
                         <th>Name</th>
                         <th>Description</th>
+                        <th>Your role</th>
                         <th>Tokens</th>
                         <th>Created</th>
                         <th>Actions</th>
@@ -217,12 +225,23 @@
                 </thead>
                 <tbody>
                     {% for application in applications %}
+                    {% set role = application_roles[application.id] %}
                     <tr data-application-id="{{ application.id }}">
                         <td>{{ application.name }}</td>
                         <td>{{ application.description or '' }}</td>
+                        <td>{{ 'Owner' if role == 'owner' else 'Member' }}</td>
                         <td>{{ application_tokens.get(application.id, 0) }}</td>
                         <td class="datetime" data-utc="{{ application.created_at|utc_iso }}"></td>
-                        <td><button class="btn btn-danger" data-action="delete-application" data-id="{{ application.id }}" data-name="{{ application.name }}">Delete</button></td>
+                        <td>
+                            <button class="btn" data-action="toggle-members" data-id="{{ application.id }}" data-role="{{ role }}">People</button>
+                            <button class="btn" data-action="leave-application" data-id="{{ application.id }}" data-name="{{ application.name }}" data-role="{{ role }}">Leave</button>
+                            {% if role == 'owner' %}
+                            <button class="btn btn-danger" data-action="delete-application" data-id="{{ application.id }}" data-name="{{ application.name }}">Delete</button>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    <tr class="members-row" id="members-{{ application.id }}" hidden>
+                        <td colspan="6"><div class="members-panel"></div></td>
                     </tr>
                     {% endfor %}
                 </tbody>

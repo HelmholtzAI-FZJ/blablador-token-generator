@@ -376,3 +376,36 @@ class TestExpiredSessions:
         response = client.get("/tokens")
         assert response.status_code == 401
         assert response.json() == {"detail": "Authentication required"}
+
+
+def test_smtp_settings_are_checked():
+    from pydantic import ValidationError
+
+    from app.config import SmtpConfig
+
+    with pytest.raises(ValidationError):
+        SmtpConfig(enabled=True, host="")
+    with pytest.raises(ValidationError):
+        SmtpConfig(starttls=True, use_tls=True)
+    assert SmtpConfig(enabled=True, host="mail.example.org", from_address="tokens@example.org").port == 587
+
+
+@pytest.mark.asyncio
+async def test_mail_is_not_sent_while_disabled(monkeypatch):
+    from app import mailer
+
+    monkeypatch.setattr(mailer, "_send", lambda *args: pytest.fail("mail sent while disabled"))
+    assert await mailer.send_mail(["admin@example.org"], "subject", "body") is False
+
+
+@pytest.mark.asyncio
+async def test_mail_failures_are_logged_not_raised(monkeypatch):
+    from app import mailer
+    from app.config import get_config
+
+    def refuse(*args):
+        raise OSError("connection refused")
+
+    monkeypatch.setattr(get_config().smtp, "enabled", True)
+    monkeypatch.setattr(mailer, "_send", refuse)
+    assert await mailer.send_mail(["admin@example.org"], "subject", "body") is False
