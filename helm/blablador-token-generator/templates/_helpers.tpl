@@ -97,6 +97,30 @@ Call with (dict "root" $ "component" "postgresql").
 {{- end -}}
 
 {{/*
+Image pull secrets for one workload: the global list followed by the
+component's own list, deduplicated by name. Empty string when neither is set,
+so `{{- if $secrets }}` skips the field entirely.
+
+Usage: {{- $s := include "blablador-token-generator.imagePullSecrets" (dict "root" . "component" "postgresql") }}
+*/}}
+{{- define "blablador-token-generator.imagePullSecrets" -}}
+{{- $component := index .root.Values .component | default dict -}}
+{{- $all := concat (.root.Values.imagePullSecrets | default (list)) ($component.imagePullSecrets | default (list)) -}}
+{{- $seen := dict -}}
+{{- $out := list -}}
+{{- range $all -}}
+{{- $name := .name -}}
+{{- if not (hasKey $seen $name) -}}
+{{- $_ := set $seen $name true -}}
+{{- $out = append $out . -}}
+{{- end -}}
+{{- end -}}
+{{- if $out -}}
+{{- toYaml $out -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
 Backup CronJob, volume and pod label. CronJob names may have at most 52
 characters (Job names get a suffix).
 */}}

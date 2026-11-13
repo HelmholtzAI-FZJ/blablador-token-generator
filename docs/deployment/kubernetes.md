@@ -45,6 +45,12 @@ vulnerable components these builds remove or update. After pushing, use the
 registry's manifest digests (`docker buildx imagetools inspect <image>`), not
 local image IDs.
 
+On a private registry, create the pull Secret in the namespace and list it in
+`imagePullSecrets`. All four workloads use it — the application, PostgreSQL,
+Redis and the backup Job — so the namespace's ServiceAccount needs no patch.
+`postgresql.imagePullSecrets` and `redis.imagePullSecrets` add
+component-specific entries, deduplicated by name.
+
 ## 2. Secrets
 
 Create these in the target namespace. The examples use release name `tokens`,

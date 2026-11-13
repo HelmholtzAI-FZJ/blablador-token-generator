@@ -41,6 +41,11 @@ spec:
             app.kubernetes.io/name: {{ $backup }}
             app.kubernetes.io/instance: {{ .Release.Name }}
         spec:
+          {{- $pullSecrets := include "blablador-token-generator.imagePullSecrets" (dict "root" . "component" "postgresql") }}
+          {{- if $pullSecrets }}
+          imagePullSecrets:
+            {{- $pullSecrets | nindent 12 }}
+          {{- end }}
           restartPolicy: Never
           automountServiceAccountToken: false
           securityContext:

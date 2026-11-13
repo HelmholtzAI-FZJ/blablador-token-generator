@@ -81,6 +81,26 @@ def test_chart() -> None:
     assert "noeviction" in redis["spec"]["template"]["spec"]["containers"][0]["args"]
     assert "NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION" in mapped[("ConfigMap", name + "-postgresql-init")]["data"]["10-runtime-role.sh"]
     assert mapped[("Secret", name + "-redis")]["stringData"]["storage-uri"].startswith("rediss://")
+    pull = copy.deepcopy(values)
+    pull.update(imagePullSecrets=[{"name": "global"}])
+    pull["postgresql"].update(imagePullSecrets=[{"name": "pg"}, {"name": "global"}], backup={"enabled": True})
+    pull["redis"].update(imagePullSecrets=[{"name": "redis"}])
+    pulled = index(render(pull))
+
+    def pull_secrets(resource: dict, path: tuple) -> list:
+        spec = resource
+        for step in path:
+            spec = spec[step]
+        return [entry["name"] for entry in spec.get("imagePullSecrets", [])]
+
+    pod_path = ("spec", "template", "spec")
+    assert pull_secrets(pulled[("Deployment", name)], pod_path) == ["global"]
+    assert pull_secrets(pulled[("StatefulSet", name + "-postgresql")], pod_path) == ["global", "pg"]
+    assert pull_secrets(pulled[("Deployment", name + "-redis")], pod_path) == ["global", "redis"]
+    assert pull_secrets(
+        next(resource for resource in pulled.values() if resource["kind"] == "CronJob"),
+        ("spec", "jobTemplate", "spec", "template", "spec"),
+    ) == ["global", "pg"]
     rotated = copy.deepcopy(values)
     rotated["postgresql"]["password"] = "P" * 64
     rotated["redis"]["password"] = "R" * 64
