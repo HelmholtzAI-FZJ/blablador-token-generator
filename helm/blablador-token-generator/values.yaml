@@ -4,6 +4,8 @@ image:
   pullPolicy: IfNotPresent
   tag: ''
   digest: ''
+# Pull secrets used by every workload: the app, PostgreSQL, Redis and the
+# backup Job. Components also accept their own imagePullSecrets list.
 imagePullSecrets: []
 nameOverride: ''
 fullnameOverride: ''
@@ -78,6 +80,9 @@ redis:
     repository: registry.jsc.fz-juelich.de/kaas/rke2-clusters/blablador/blablador-token-generator-redis
     tag: ''
     digest: ''
+  # Extra pull secrets for this component, on top of the global
+  # imagePullSecrets; entries are deduplicated by name.
+  imagePullSecrets: []
   resources:
     limits:
       cpu: 200m
@@ -99,6 +104,9 @@ postgresql:
     repository: registry.jsc.fz-juelich.de/kaas/rke2-clusters/blablador/blablador-token-generator-postgresql
     tag: ''
     digest: ''
+  # Extra pull secrets for this component (and its backup Job), on top of the
+  # global imagePullSecrets; entries are deduplicated by name.
+  imagePullSecrets: []
   storageClass: ''
   size: 5Gi
   resources:

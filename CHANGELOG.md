@@ -6,6 +6,14 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- **Helm chart: `imagePullSecrets` reached only the application.** PostgreSQL,
+  Redis and the backup Job ignored it and were pulled anonymously, so the
+  chart could not run against a private registry. Every workload now uses the
+  global list, and `postgresql.imagePullSecrets` / `redis.imagePullSecrets`
+  add per-component entries, deduplicated by name.
+
 ## [1.2.0] - 2026-11-12
 
 ### Added

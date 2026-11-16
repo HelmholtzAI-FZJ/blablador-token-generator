@@ -53,9 +53,10 @@ spec:
       labels:
         {{- include "blablador-token-generator.selectorLabels" . | nindent 8 }}
     spec:
-      {{- with .Values.imagePullSecrets }}
+      {{- $pullSecrets := include "blablador-token-generator.imagePullSecrets" (dict "root" . "component" "app") }}
+      {{- if $pullSecrets }}
       imagePullSecrets:
-        {{- toYaml . | nindent 8 }}
+        {{- $pullSecrets | nindent 8 }}
       {{- end }}
       automountServiceAccountToken: false
       terminationGracePeriodSeconds: {{ .Values.terminationGracePeriodSeconds }}
