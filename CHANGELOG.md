@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [1.2.1] - 2026-11-16
+
 ### Fixed
 
 - **Helm chart: `imagePullSecrets` reached only the application.** PostgreSQL,
@@ -13,6 +15,11 @@ All notable changes to this project are documented here. The format follows
   chart could not run against a private registry. Every workload now uses the
   global list, and `postgresql.imagePullSecrets` / `redis.imagePullSecrets`
   add per-component entries, deduplicated by name.
+
+### Security
+
+- `opentelemetry-api` 1.45.1 → 1.45.2 (CVE-2026-126360), pulled in
+  transitively by FastAPI.
 
 ## [1.2.0] - 2026-11-12
 
@@ -194,6 +201,7 @@ hardening listed below, and the fixes of a follow-up security audit
     its own dumps; long release names no longer break the database pod.
   - Fuller audit trail, safer restore and upgrade procedures.
 
+[1.2.1]: https://github.com/HelmholtzAI-FZJ/blablador-token-generator/releases/tag/v1.2.1
 [1.2.0]: https://github.com/HelmholtzAI-FZJ/blablador-token-generator/releases/tag/v1.2.0
 [1.1.0]: https://github.com/HelmholtzAI-FZJ/blablador-token-generator/releases/tag/v1.1.0
 [1.0.0]: https://github.com/HelmholtzAI-FZJ/blablador-token-generator/releases/tag/v1.0.0
