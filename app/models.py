@@ -128,6 +128,10 @@ class Token(Base):
     expires_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     last_used_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     revoked_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    # The tightest expiry warning already mailed (threshold in days) and when,
+    # so a daily run warns once per threshold instead of every day.
+    expiry_notified_days: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    expiry_notified_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
 
     user: Mapped[Optional["User"]] = relationship("User", back_populates="tokens", foreign_keys=[user_id])
     application: Mapped[Optional["Application"]] = relationship("Application", back_populates="tokens")

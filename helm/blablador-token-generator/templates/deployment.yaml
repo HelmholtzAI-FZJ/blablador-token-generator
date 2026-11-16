@@ -107,6 +107,13 @@ spec:
                   name: {{ include "blablador-token-generator.redisSecret" . }}
                   key: storage-uri
             {{- end }}
+            {{- if .Values.smtpPasswordSecret }}
+            - name: SMTP_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.smtpPasswordSecret | quote }}
+                  key: {{ .Values.smtpPasswordSecretKey | quote }}
+            {{- end }}
           ports:
             - name: http
               containerPort: 8080

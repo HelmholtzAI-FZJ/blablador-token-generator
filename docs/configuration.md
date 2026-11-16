@@ -195,6 +195,26 @@ egress to the mail server in `networkPolicy.app.egress.extraRules`.
 | `use_tls` | `false` | Use TLS from the start (port 465). Exclusive with `starttls`. |
 | `timeout_seconds` | `10.0` | Connection and command timeout. |
 
+## `notifications`
+
+Mail about tokens that expire soon. Sent by the daily `notify-expiring-tokens`
+CronJob (`expiryReminders` in the chart), which runs
+`python -m app.manage notify-expiring-tokens`; the web process schedules
+nothing. Requires `smtp.enabled`, otherwise the command refuses to run.
+
+| Key | Default | Description |
+| --- | --- | --- |
+| `expiry_reminders` | `false` | Send expiry warnings. Nothing is sent while this is false. |
+| `warning_days` | `[30, 7, 1]` | Days before expiry. One mail per threshold, tightest reached last; a token 20 days out reports 30, one 12 hours out reports 1. |
+| `batch_size` | `200` | Tokens handled per run. The remainder wait for the next run, so a backlog never delays the Job past its deadline. |
+
+Application tokens are mailed to the application's owners who have signed in,
+plus their creator while that account exists. A token with no reachable
+recipient is skipped and logged; it is not sent to the administrators instead.
+The tightest warning already sent is stored on the token
+(`expiry_notified_days`), which is what keeps a daily run from mailing the same
+token every day.
+
 ## `blablador`
 
 | Key | Default | Description |

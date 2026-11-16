@@ -181,6 +181,28 @@ class SmtpConfig(SecurityConfigModel):
         return self
 
 
+class NotificationsConfig(SecurityConfigModel):
+    """Mail about tokens that are about to expire. Sent by
+    `python -m app.manage notify-expiring-tokens`, which the chart runs as a
+    CronJob; nothing runs in the web process. Requires `smtp.enabled`."""
+    expiry_reminders: bool = False
+    # Days before expiry; one mail per threshold, tightest last.
+    warning_days: List[int] = [30, 7, 1]
+    # Tokens handled per run before the job stops and continues the next day.
+    batch_size: int = Field(200, ge=1, le=1000)
+
+    @field_validator("warning_days")
+    @classmethod
+    def check_warning_days(cls, value: List[int]) -> List[int]:
+        if not value:
+            raise ValueError("notifications.warning_days must not be empty")
+        if any(day < 1 or day > 365 for day in value):
+            raise ValueError("notifications.warning_days must be between 1 and 365")
+        if len(set(value)) != len(value):
+            raise ValueError("notifications.warning_days must not repeat")
+        return sorted(value, reverse=True)
+
+
 class ModelConfig(SecurityConfigModel):
     id: str
     object: str = "model"
@@ -204,6 +226,7 @@ class Config(SecurityConfigModel):
     rate_limits: RateLimitConfig = RateLimitConfig()
     admin: AdminConfig = AdminConfig()
     smtp: SmtpConfig = SmtpConfig()
+    notifications: NotificationsConfig = NotificationsConfig()
     blablador: BlabladorConfig = BlabladorConfig()
 
     # Known weak/default secret values that must never be used in production.

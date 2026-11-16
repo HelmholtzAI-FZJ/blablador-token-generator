@@ -6,6 +6,19 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- **Expiry warnings by mail.** `notifications.expiry_reminders` (off by
+  default) and the chart's `expiryReminders` CronJob send one message per token
+  and threshold (`notifications.warning_days`, default 30/7/1 days) through
+  `python -m app.manage notify-expiring-tokens`, which also accepts
+  `--dry-run`. Application tokens go to their owners who have signed in and to
+  their creator while that account exists; the tightest warning sent is stored
+  on the token, so a daily run does not repeat itself. Requires
+  `smtp.enabled`.
+- The chart injects `SMTP_PASSWORD` from `smtpPasswordSecret` into the
+  application and the reminder Job, so the password stays out of values.
+
 ## [1.2.1] - 2026-11-16
 
 ### Fixed

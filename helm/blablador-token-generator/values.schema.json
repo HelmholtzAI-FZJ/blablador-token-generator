@@ -396,6 +396,29 @@
             }
           }
         },
+        "notifications": {
+          "additionalProperties": false,
+          "type": "object",
+          "properties": {
+            "expiry_reminders": {
+              "type": "boolean"
+            },
+            "warning_days": {
+              "type": "array",
+              "items": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 365
+              },
+              "minItems": 1
+            },
+            "batch_size": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 1000
+            }
+          }
+        },
         "blablador": {
           "additionalProperties": false,
           "properties": {
@@ -632,6 +655,29 @@
     },
     "networkPolicy": {
       "type": "object"
+    },
+    "expiryReminders": {
+      "additionalProperties": false,
+      "type": "object",
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "schedule": {
+          "type": "string",
+          "minLength": 1
+        },
+        "resources": {
+          "type": "object"
+        }
+      }
+    },
+    "smtpPasswordSecret": {
+      "type": "string"
+    },
+    "smtpPasswordSecretKey": {
+      "type": "string",
+      "minLength": 1
     },
     "persistence": {
       "type": "object"

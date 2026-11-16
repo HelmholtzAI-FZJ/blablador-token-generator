@@ -97,10 +97,38 @@ def test_chart() -> None:
     assert pull_secrets(pulled[("Deployment", name)], pod_path) == ["global"]
     assert pull_secrets(pulled[("StatefulSet", name + "-postgresql")], pod_path) == ["global", "pg"]
     assert pull_secrets(pulled[("Deployment", name + "-redis")], pod_path) == ["global", "redis"]
+    backup_job = next(
+        resource for resource in pulled.values()
+        if resource["kind"] == "CronJob" and resource["metadata"]["name"].endswith("-postgresql-backup")
+    )
     assert pull_secrets(
-        next(resource for resource in pulled.values() if resource["kind"] == "CronJob"),
-        ("spec", "jobTemplate", "spec", "template", "spec"),
+        backup_job, ("spec", "jobTemplate", "spec", "template", "spec"),
     ) == ["global", "pg"]
+
+    reminders = copy.deepcopy(values)
+    reminders["imagePullSecrets"] = [{"name": "global"}]
+    reminders["expiryReminders"] = {"enabled": True}
+    reminders["smtpPasswordSecret"] = "smtp-credentials"
+    reminded = index(render(reminders))
+    reminder_job = next(
+        resource for resource in reminded.values()
+        if resource["kind"] == "CronJob" and resource["metadata"]["name"].endswith("-expiry-reminders")
+    )
+    reminder_template = reminder_job["spec"]["jobTemplate"]["spec"]["template"]
+    reminder_pod = reminder_template["spec"]
+    reminder_container = reminder_pod["containers"][0]
+    assert reminder_container["command"] == ["python", "-m", "app.manage", "notify-expiring-tokens"]
+    assert reminder_container["securityContext"]["readOnlyRootFilesystem"] is True
+    assert [entry["name"] for entry in reminder_pod["imagePullSecrets"]] == ["global"]
+    # It carries the application labels to satisfy the NetworkPolicy, so the
+    # readiness gate must keep it out of the Service endpoints.
+    assert reminder_pod["readinessGates"], "reminder pod would receive user traffic"
+    assert reminder_template["metadata"]["labels"]["app.kubernetes.io/name"] == "blablador-token-generator"
+    smtp_env = next(entry for entry in reminder_container["env"] if entry["name"] == "SMTP_PASSWORD")
+    assert smtp_env["valueFrom"]["secretKeyRef"] == {"name": "smtp-credentials", "key": "password"}
+    reminded_app = reminded[("Deployment", name)]["spec"]["template"]["spec"]["containers"][0]
+    assert "SMTP_PASSWORD" in [entry["name"] for entry in reminded_app["env"]]
+
     rotated = copy.deepcopy(values)
     rotated["postgresql"]["password"] = "P" * 64
     rotated["redis"]["password"] = "R" * 64

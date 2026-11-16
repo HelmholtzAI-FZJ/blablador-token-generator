@@ -48,7 +48,8 @@ BASELINE_SCHEMA = {
 ADOPTION_TOLERATED = {("add_index", "ix_tokens_user_id"), ("add_index", "ix_revoked_jwts_expires_at")}
 # Tables and columns later revisions create.
 ADDED_TABLES = {"applications", "application_members"}
-ADDED_COLUMNS = {("tokens", "application_id"), ("tokens", "created_by_id"), ("users", "email_verified")}
+ADDED_COLUMNS = {("tokens", "application_id"), ("tokens", "created_by_id"), ("users", "email_verified"),
+                 ("tokens", "expiry_notified_days"), ("tokens", "expiry_notified_at")}
 # Columns later revisions made nullable.
 RELAXED_COLUMNS = {("tokens", "user_id")}
 LOCK_WAIT_SECONDS = 120
