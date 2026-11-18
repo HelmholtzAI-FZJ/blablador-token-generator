@@ -22,7 +22,7 @@ from app.auth import normalize_email
 from app.config import get_config
 from app.mailer import send_mail
 from app.models import Application, ApplicationMember, ROLE_OWNER, Token, User
-from app.timeutil import isoformat_utc, utcnow
+from app.timeutil import utcnow
 
 logger = logging.getLogger("token_generator.audit")
 
@@ -106,17 +106,19 @@ async def _message(db: AsyncSession, token: Token, days_left: float) -> tuple[st
     application = (
         await db.get(Application, token.application_id) if token.application_id else None
     )
-    subject = (f"{app_config.app.name}: token \"{token.name}\" expires in "
-               f"{remaining} day{'s' if remaining != 1 else ''}")
-    owner = (f"Application \"{application.name}\": the token \"{token.name}\"\n"
-             if application is not None else f"Your token \"{token.name}\"\n")
+    plural = "s" if remaining != 1 else ""
+    subject = f"{app_config.app.name}: token \"{token.name}\" expires in {remaining} day{plural}"
+    described = (f'The Blablador token "{token.name}" of application "{application.name}"'
+                 if application is not None else f'The Blablador token "{token.name}"')
+    expires_at = token.expires_at
+    date = f"{expires_at.day} {expires_at.strftime('%B %Y')} at {expires_at.strftime('%H:%M')} UTC"
     body = (
-        f"{owner}"
-        f"expires on {isoformat_utc(token.expires_at)} "
-        f"(in {remaining} day{'s' if remaining != 1 else ''}).\n\n"
-        "Requests using it stop being accepted once it expires. Create a\n"
-        "replacement token in the dashboard and update your client until it is\n"
-        "in use there; tokens cannot be extended after the fact.\n"
+        "Dear user,\n\n"
+        f"{described} will expire in {remaining} day{plural}, on {date}.\n\n"
+        "To keep using it, renew it here:\n"
+        f"{app_config.app.api_url.rstrip('/')}/dashboard\n\n"
+        "Kind regards,\n"
+        "Blablador Team\n"
     )
     return subject, body
 

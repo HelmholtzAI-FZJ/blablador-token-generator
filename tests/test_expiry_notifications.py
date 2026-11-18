@@ -102,6 +102,11 @@ def test_personal_token_is_mailed_once_per_threshold(monkeypatch):
             assert token.expiry_notified_days == 30
             assert token.expiry_notified_at is not None
             assert sent[0]["recipients"] == ["a.owner@example.org"]
+            body = sent[0]["body"]
+            assert body.startswith("Dear user,")
+            assert 'The Blablador token "deploy" will expire in 20 days, on ' in body
+            assert "http://testserver/dashboard" in body
+            assert body.rstrip().endswith("Blablador Team")
 
             again = await send_expiry_reminders(db)
             assert again.sent == 0
@@ -217,6 +222,7 @@ def test_application_token_mails_signed_in_owners_and_creator(monkeypatch):
             assert result.sent == 1
             assert sent[0]["recipients"] == ["creator@example.org", "owner@example.org"]
             assert "Pipeline" in sent[0]["body"]
+            assert 'of application "Pipeline"' in sent[0]["body"]
 
     run(scenario)
 
