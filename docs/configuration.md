@@ -213,7 +213,10 @@ plus their creator while that account exists. A token with no reachable
 recipient is skipped and logged; it is not sent to the administrators instead.
 The tightest warning already sent is stored on the token
 (`expiry_notified_days`), which is what keeps a daily run from mailing the same
-token every day.
+token every day. Renewing a token — or rotating it with a new expiry — starts a
+new warning cycle: the stored threshold is cleared, so the reminders are sent
+again as the new expiry approaches. Rotating a token without changing its
+expiry keeps the state and sends nothing.
 
 ## `blablador`
 

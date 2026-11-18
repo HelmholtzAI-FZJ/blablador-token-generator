@@ -308,6 +308,10 @@ async def renew_token(
     check_expiration(new_expires_at)
 
     token.expires_at = new_expires_at
+    # A new expiry starts a new warning cycle; without this the stored
+    # threshold would suppress every later reminder for the token.
+    token.expiry_notified_days = None
+    token.expiry_notified_at = None
     try:
         await db.commit()
         await db.refresh(token)
@@ -346,6 +350,11 @@ async def rotate_token(
     # stays in the audit log while the token's record starts afresh.
     previous_use = token.last_used_at
     token.token_hash = hash_token(plain_token)
+    if expires_at != token.expires_at:
+        # Rotation may set a later expiry; that is a new warning cycle, so the
+        # threshold stored for the old expiry must not suppress the reminders.
+        token.expiry_notified_days = None
+        token.expiry_notified_at = None
     token.expires_at = expires_at
     token.last_used_at = None
     try:

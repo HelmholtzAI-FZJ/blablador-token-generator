@@ -19,6 +19,12 @@ All notable changes to this project are documented here. The format follows
 - The chart injects `SMTP_PASSWORD` from `smtpPasswordSecret` into the
   application and the reminder Job, so the password stays out of values.
 
+### Fixed
+
+- Renewing a token — or rotating it with a new expiry — starts a new expiry
+  warning cycle. The stored threshold used to survive the new expiry and could
+  suppress every later reminder for that token, including the 1-day warning.
+
 ## [1.2.1] - 2026-11-16
 
 ### Fixed

@@ -4,14 +4,21 @@ from datetime import timedelta
 from uuid import uuid4
 
 import pytest
+from starlette.requests import Request
 
 from app import database, notifications
+from app.api.tokens import RenewTokenRequest, renew_token, rotate_token
 from app.auth import hash_token
 from app.config import get_config
 from app.models import Application, ApplicationMember, ROLE_MEMBER, ROLE_OWNER, Token, User
 from app.notifications import NotificationError, send_expiry_reminders, threshold_for
 from app.timeutil import utcnow
 from tests.conftest import drop_schema
+
+
+def request() -> Request:
+    return Request({"type": "http", "method": "POST", "path": "/", "headers": [],
+                    "query_string": b"", "client": ("127.0.0.11", 0)})
 
 
 def run(scenario):
@@ -119,6 +126,68 @@ def test_personal_token_is_mailed_once_per_threshold(monkeypatch):
     run(scenario)
     assert len(sent) == 3
     assert "in 1 day" in sent[-1]["subject"]
+
+
+def test_renew_starts_a_new_warning_cycle(monkeypatch):
+    enable(monkeypatch)
+    sent = []
+    monkeypatch.setattr(notifications, "send_mail", recorder(sent))
+
+    async def scenario():
+        async with database.async_session_maker() as db:
+            user = await add_user(db, "renew@example.org")
+            token = await add_token(db, user=user, days=1)
+
+            first = await send_expiry_reminders(db)
+            assert first.sent == 1
+            await db.refresh(token)
+            assert token.expiry_notified_days == 1
+
+            await renew_token.__wrapped__(request(), token.id, None, user, db)
+            await db.refresh(token)
+            assert token.expiry_notified_days is None
+            assert token.expiry_notified_at is None
+
+            again = await send_expiry_reminders(db)
+            assert again.sent == 1
+            await db.refresh(token)
+            assert token.expiry_notified_days == 1
+
+    run(scenario)
+    assert len(sent) == 2
+
+
+def test_rotate_keeps_the_warning_state_unless_the_expiry_changes(monkeypatch):
+    enable(monkeypatch)
+    sent = []
+    monkeypatch.setattr(notifications, "send_mail", recorder(sent))
+
+    async def scenario():
+        async with database.async_session_maker() as db:
+            user = await add_user(db, "rotate@example.org")
+            token = await add_token(db, user=user, days=1)
+
+            assert (await send_expiry_reminders(db)).sent == 1
+            await db.refresh(token)
+            assert token.expiry_notified_days == 1
+
+            await rotate_token.__wrapped__(request(), token.id, None, user, db)
+            await db.refresh(token)
+            assert token.expiry_notified_days == 1
+            assert (await send_expiry_reminders(db)).sent == 0
+
+            await rotate_token.__wrapped__(
+                request(), token.id, RenewTokenRequest(expires_in_days=20), user, db)
+            await db.refresh(token)
+            assert token.expiry_notified_days is None
+
+            again = await send_expiry_reminders(db)
+            assert again.sent == 1
+            await db.refresh(token)
+            assert token.expiry_notified_days == 30
+
+    run(scenario)
+    assert len(sent) == 2
 
 
 def test_application_token_mails_signed_in_owners_and_creator(monkeypatch):
