@@ -27,6 +27,14 @@ All notable changes to this project are documented here. The format follows
   warning cycle. The stored threshold used to survive the new expiry and could
   suppress every later reminder for that token, including the 1-day warning.
 
+### Security
+
+- **PostgreSQL datastore image rebuilt on `postgres:16-alpine` 16.16.** The
+  pinned base carried 30 HIGH findings (CVE-2026-116304 … CVE-2026-14661) that
+  the container risk gate now blocks. A minor-version bump inside 16 keeps the
+  on-disk format compatible. Trivy and Grype both report no unreviewed HIGH or
+  CRITICAL finding on the rebuilt image.
+
 ## [1.2.1] - 2026-11-16
 
 ### Fixed
