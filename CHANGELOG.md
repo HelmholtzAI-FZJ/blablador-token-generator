@@ -6,6 +6,35 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-11-19
+
+### Added
+
+- **Expiry warnings by mail.** `notifications.expiry_reminders` (off by
+  default) and the chart's `expiryReminders` CronJob send one message per token
+  and threshold (`notifications.warning_days`, default 30/7/1 days) through
+  `python -m app.manage notify-expiring-tokens`, which also accepts
+  `--dry-run`. Application tokens go to their owners who have signed in and to
+  their creator while that account exists; the tightest warning sent is stored
+  on the token, so a daily run does not repeat itself. Requires
+  `smtp.enabled`.
+- The chart injects `SMTP_PASSWORD` from `smtpPasswordSecret` into the
+  application and the reminder Job, so the password stays out of values.
+
+### Fixed
+
+- Renewing a token — or rotating it with a new expiry — starts a new expiry
+  warning cycle. The stored threshold used to survive the new expiry and could
+  suppress every later reminder for that token, including the 1-day warning.
+
+### Security
+
+- **PostgreSQL datastore image rebuilt on `postgres:16-alpine` 16.16.** The
+  pinned base carried 30 HIGH findings (CVE-2026-116304 … CVE-2026-14661) that
+  the container risk gate now blocks. A minor-version bump inside 16 keeps the
+  on-disk format compatible. Trivy and Grype both report no unreviewed HIGH or
+  CRITICAL finding on the rebuilt image.
+
 ## [1.2.1] - 2026-11-16
 
 ### Fixed

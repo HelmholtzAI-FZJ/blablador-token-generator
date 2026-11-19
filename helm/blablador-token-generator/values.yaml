@@ -73,6 +73,23 @@ networkPolicy:
     egress:
       enabled: true
       extraRules: []
+# Daily `notify-expiring-tokens` CronJob. It needs
+# config.notifications.expiry_reminders and config.smtp.enabled too; without
+# them the Job exits non-zero and says why.
+expiryReminders:
+  enabled: false
+  schedule: '0 3 * * *'
+  resources:
+    limits:
+      cpu: 300m
+      memory: 256Mi
+    requests:
+      cpu: 25m
+      memory: 96Mi
+# Secret holding the SMTP password, injected as SMTP_PASSWORD into the
+# application and the expiry-reminder Job. Never put the password in values.
+smtpPasswordSecret: ''
+smtpPasswordSecretKey: password
 redis:
   enabled: true
   password: ''
@@ -223,6 +240,13 @@ config:
     starttls: true
     use_tls: false
     timeout_seconds: 10.0
+  notifications:
+    expiry_reminders: false
+    warning_days:
+    - 30
+    - 7
+    - 1
+    batch_size: 200
   local:
     enabled: false
     allow_registration: false

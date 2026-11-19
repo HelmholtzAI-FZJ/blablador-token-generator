@@ -4,11 +4,16 @@
     python -m app.manage create-local-admin --email admin@example.org --name "Admin"
     python -m app.manage grant-admin --subject <OAuth subject>
     python -m app.manage grant-admin --user-id <user id>
+    python -m app.manage notify-expiring-tokens [--dry-run]
 
 create-local-admin reads the password from the terminal, or from standard
 input with --password-stdin. Both commands write an audit event; inside the
 service's container it also goes to the container log, where exec'd
 commands' own output does not.
+
+notify-expiring-tokens mails the owners of tokens that have reached a
+configured `notifications.warning_days` threshold; the chart runs it daily as
+a CronJob. It needs `smtp.enabled` and `notifications.expiry_reminders`.
 """
 import argparse
 import asyncio
@@ -29,6 +34,7 @@ from app.auth import hash_password_async, invalidate_sessions, validate_password
 from app.config import get_config
 from app.logging_config import APP_LOGGER, configure_logging
 from app.models import User
+from app.notifications import NotificationError, send_expiry_reminders
 from app.tombstones import is_user_deleted, lift_deletions_for_email
 from app.validation import has_unsafe_characters
 
@@ -138,6 +144,13 @@ async def run(args: argparse.Namespace) -> str:
             require_local_sign_in()
             user_id = await create_local_admin(args.email, args.name, read_password(args.password_stdin))
             return f"Created local administrator {user_id}"
+        if args.command == "notify-expiring-tokens":
+            async with database.async_session_maker() as db:
+                try:
+                    result = await send_expiry_reminders(db, dry_run=args.dry_run)
+                except NotificationError as error:
+                    raise CommandError(str(error)) from error
+            return f"Expiry reminders: {result.summary()}"
         user_id = await grant_admin(user_id=args.user_id, subject=args.subject)
         return f"Account {user_id} is an administrator"
     finally:
@@ -163,6 +176,10 @@ def main() -> None:
     target = grant.add_mutually_exclusive_group(required=True)
     target.add_argument("--user-id", type=non_empty)
     target.add_argument("--subject", type=non_empty, help="OAuth subject of an account that has signed in")
+    notify = commands.add_parser("notify-expiring-tokens",
+                                 help="mail warnings for tokens that are about to expire")
+    notify.add_argument("--dry-run", action="store_true",
+                        help="report what would be sent, without sending or recording")
     args = parser.parse_args()
     configure_logging(get_config().app.log_level)
     copy_events_to_container_log()
