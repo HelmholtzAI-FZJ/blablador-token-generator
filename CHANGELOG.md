@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-11-19
+
 ### Added
 
 - **Expiry warnings by mail.** `notifications.expiry_reminders` (off by
