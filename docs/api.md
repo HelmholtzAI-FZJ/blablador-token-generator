@@ -33,7 +33,7 @@ case-insensitive; no request body is needed and no CSRF token is involved.
     {
       "valid": true,
       "user_id": "0b9a2c1e-5f8d-4c55-9a4e-2c8f0f5b7e11",
-      "email": "a.user@example.org",
+      "email": null,
       "expires_at": "2027-01-14T21:25:02.399003+00:00",
       "error": null,
       "token_type": "application",
@@ -42,9 +42,10 @@ case-insensitive; no request body is needed and no CSRF token is involved.
     }
     ```
 
-    `user_id` is the account's stable internal identifier, `email` its address
-    at the top level (the same value as `user.email`, so the response matches
-    the shape gateways already parse from other identity providers). `expires_at`
+    `user_id` is the account's stable internal identifier. `email` repeats
+    `user.email` at the top level so the response matches the shape gateways
+    already parse from other identity providers; it is `null` for application
+    tokens, which authenticate an application rather than a person. `expires_at`
     is `null` only for tokens created before expiry became mandatory.
     `token_type` is `personal` or `application`; `user` is the token's owner
     (for an application token, the member who created it, or `null` with

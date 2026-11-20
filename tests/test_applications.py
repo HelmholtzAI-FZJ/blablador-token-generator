@@ -56,6 +56,8 @@ async def test_application_token_validation_reports_application(test_db, test_us
     assert response.token_type == "application"
     assert response.application.id == application.id and response.application.name == "Gateway"
     assert response.user_id == test_user.id
+    assert response.email is None
+    assert response.user.email == test_user.email
 
     me = await current_user.__wrapped__(request("GET"), issued.token, test_db)
     assert me.token_type == "application" and me.user.id == test_user.id
