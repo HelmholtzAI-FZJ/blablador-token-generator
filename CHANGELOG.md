@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [1.3.1] - 2026-11-20
+
 ### Added
 
 - `/api/v1/auth/validate` reports the user's `email` at the top level of the
