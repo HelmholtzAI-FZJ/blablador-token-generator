@@ -33,6 +33,9 @@ class ApplicationInfo(BaseModel):
 class ValidateResponse(BaseModel):
     valid: bool
     user_id: str | None = None
+    # Also reported at the top level, so the shape matches what other
+    # identity providers return to the gateways.
+    email: str | None = None
     expires_at: str | None = None
     error: str | None = None
     token_type: str | None = None
@@ -167,9 +170,13 @@ async def validate_token(
 
 
 def validation_response(token: Token) -> ValidateResponse:
+    reported = token.reported_user
     return ValidateResponse(
         valid=True,
-        user_id=token.reported_user.id if token.reported_user else None,
+        user_id=reported.id if reported else None,
+        # An application token authenticates an application, not a person, so
+        # the flat field stays empty; the nested user still names the owner.
+        email=reported.email if reported and token.application_id is None else None,
         expires_at=isoformat_utc(token.expires_at),
         token_type=token_type(token),
         user=user_info(token.reported_user),

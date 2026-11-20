@@ -6,6 +6,16 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [1.3.1] - 2026-11-20
+
+### Added
+
+- `/api/v1/auth/validate` reports the user's `email` at the top level of the
+  response, next to `valid` and `user_id`, so gateways that already parse other
+  identity providers' replies find it without descending into `user`. It is
+  `null` for application tokens, which authenticate an application rather than a
+  person; the nested `user.email` is unchanged.
+
 ## [1.3.0] - 2026-11-19
 
 ### Added
