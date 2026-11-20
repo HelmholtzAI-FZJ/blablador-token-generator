@@ -33,6 +33,9 @@ class ApplicationInfo(BaseModel):
 class ValidateResponse(BaseModel):
     valid: bool
     user_id: str | None = None
+    # Also reported at the top level, so the shape matches what other
+    # identity providers return to the gateways.
+    email: str | None = None
     expires_at: str | None = None
     error: str | None = None
     token_type: str | None = None
@@ -170,6 +173,7 @@ def validation_response(token: Token) -> ValidateResponse:
     return ValidateResponse(
         valid=True,
         user_id=token.reported_user.id if token.reported_user else None,
+        email=token.reported_user.email if token.reported_user else None,
         expires_at=isoformat_utc(token.expires_at),
         token_type=token_type(token),
         user=user_info(token.reported_user),
