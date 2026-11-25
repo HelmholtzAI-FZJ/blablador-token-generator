@@ -27,7 +27,11 @@ def without_unsafe_characters(value: str) -> str:
     return "".join(character for character in value if not is_unsafe_character(character))
 
 
-def _display_text(value: str) -> str:
+def _display_text(value: str | None) -> str | None:
+    # Optional fields attach this validator to the whole "str | None" union,
+    # so the absent case reaches it too.
+    if value is None:
+        return None
     if has_unsafe_characters(value):
         raise ValueError("must not contain control or invisible formatting characters")
     return value

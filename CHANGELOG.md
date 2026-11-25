@@ -6,6 +6,15 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [1.3.2] - 2026-11-25
+
+### Fixed
+
+- Creating an application with an empty description fails with a 500. The
+  dashboard sends `"description": null`, and the display-text validator ran on
+  the optional union and iterated `None`. Optional fields now pass `None`
+  through instead of raising.
+
 ## [1.3.1] - 2026-11-20
 
 ### Added
