@@ -45,7 +45,7 @@
         .card h2 { margin-bottom: 1rem; color: #2c3e50; }
         .form-group { margin-bottom: 1rem; }
         .form-group label { display: block; margin-bottom: 0.5rem; font-weight: 500; }
-        .form-group input, .form-group select {
+        .form-group input, .form-group select, .form-group textarea {
             width: 100%;
             padding: 0.5rem;
             border: 1px solid #ddd;
@@ -254,7 +254,7 @@
         </div>
 
         {% if courses.enabled and user.is_teacher %}
-        <div class="card" id="coursesCard" data-max-days="{{ courses.max_days }}" data-max-seats="{{ courses.max_seats }}">
+        <div class="card" id="coursesCard" data-max-days="{{ courses.max_days }}" data-max-seats="{{ courses.max_seats }}" data-mail="{{ 'true' if course_mail else 'false' }}">
             <h2>Courses</h2>
             <p class="muted">Students who sign in and open your course's join link get one token each, valid from the first day of the course until the end of its last day (UTC). A course lasts at most {{ courses.max_days }} days and has at most {{ courses.max_seats }} seats; you can run {{ courses.max_active_per_teacher }} at a time. A seat stays used once claimed, so the link stops working when the course is full.</p>
             <form id="createCourseForm">
@@ -285,6 +285,27 @@
                 <button class="btn btn-small btn-copy" data-action="copy-course-link">Copy</button>
             </div>
             <div id="coursesList"><p class="empty">Loading...</p></div>
+            {% if course_mail %}
+            <form id="inviteForm" hidden>
+                <h3>Invite students by email</h3>
+                <p class="muted">Each address gets its own link, which works once and holds a seat until it is used or you cancel it. Students may sign in with any account. The link, the course dates and a line saying you sent it are added below your text; replies go to you.</p>
+                <input type="hidden" id="inviteCourse">
+                <div class="form-group">
+                    <label for="inviteEmails">Email addresses (one per line, or separated by commas)</label>
+                    <textarea id="inviteEmails" rows="5" required></textarea>
+                </div>
+                <div class="form-group">
+                    <label for="inviteSubject">Subject</label>
+                    <input type="text" id="inviteSubject" maxlength="200" value="{{ courses.invitation_subject }}" required>
+                </div>
+                <div class="form-group">
+                    <label for="inviteBody">Message</label>
+                    <textarea id="inviteBody" rows="8" maxlength="{{ courses.invitation_max_body_chars }}" required>{{ courses.invitation_body }}</textarea>
+                </div>
+                <button type="submit" class="btn">Send invitations</button>
+                <button type="button" class="btn" data-action="close-invite">Cancel</button>
+            </form>
+            {% endif %}
         </div>
         {% endif %}
 

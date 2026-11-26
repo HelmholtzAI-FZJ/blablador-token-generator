@@ -8,8 +8,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth import hash_token
 from app.config import get_config
-from app.models import Course, Token, User
+from app.models import Course, CourseInvitation, Token, User
 from app.timeutil import utcnow
+from app.validation import is_unsafe_character
 
 logger = logging.getLogger("token_generator.audit")
 
@@ -27,6 +28,27 @@ def new_join_code() -> tuple[str, str]:
 
 def join_code_hash(code: str) -> str:
     return hash_token(f"course-join:{code}")
+
+
+def new_invite_code() -> tuple[str, str]:
+    """A single-use invitation code and the hash stored for it."""
+    code = secrets.token_hex(get_config().courses.join_code_bytes)
+    return code, invite_code_hash(code)
+
+
+def invite_code_hash(code: str) -> str:
+    return hash_token(f"course-invite:{code}")
+
+
+def open_invitations():
+    return CourseInvitation.claimed_at.is_(None) & CourseInvitation.cancelled_at.is_(None)
+
+
+async def open_invitation_count(db: AsyncSession, course_id: str) -> int:
+    return (await db.execute(
+        select(func.count()).select_from(CourseInvitation)
+        .where(CourseInvitation.course_id == course_id, open_invitations())
+    )).scalar_one()
 
 
 def is_join_code(code: str) -> bool:
@@ -56,6 +78,12 @@ async def close_course(db: AsyncSession, course: Course, reason: str) -> int:
         course.suspended_at = now
         course.suspended_reason = reason
     course.join_code_hash = None
+    await db.execute(
+        update(CourseInvitation)
+        .where(CourseInvitation.course_id == course.id, open_invitations())
+        .values(cancelled_at=now, code_hash=None)
+        .execution_options(synchronize_session=False)
+    )
     result = await db.execute(
         update(Token)
         .where(Token.course_id == course.id, Token.revoked_at.is_(None))
@@ -83,7 +111,52 @@ async def purge_ended_courses(db: AsyncSession) -> int:
     cutoff = utcnow() - timedelta(days=get_config().courses.retention_days)
     ended = select(Course.id).where(Course.ends_at <= cutoff)
     result = await db.execute(delete(Token).where(Token.course_id.in_(ended)))
+    # Invited addresses are personal data with no further use.
+    await db.execute(delete(CourseInvitation).where(CourseInvitation.course_id.in_(ended)))
     await db.execute(update(Course).where(Course.ends_at <= cutoff).values(join_code_hash=None))
     await db.commit()
     logger.info("action=purge_course_tokens count=%d", result.rowcount)
     return result.rowcount
+
+
+def invitation_text(value: str, *, multiline: bool) -> str:
+    """Teacher-written mail text: no control or invisible characters, and
+    for the subject no line breaks (which would forge headers)."""
+    value = value.replace("\r\n", "\n").strip()
+    allowed = {"\n", "\t"} if multiline else set()
+    if any(character not in allowed and is_unsafe_character(character) for character in value):
+        raise ValueError("must not contain control or invisible formatting characters")
+    return value
+
+
+def invitation_message(course: Course, teacher: User, body: str, link: str) -> str:
+    """The teacher's text, then what the service always adds."""
+    app_name = get_config().app.name
+    last_day = (course.ends_at - timedelta(days=1)).date().isoformat()
+    return (
+        f"{body}\n\n"
+        f"Your personal link to join \"{course.name}\" "
+        f"({course.starts_at.date().isoformat()} to {last_day}):\n\n"
+        f"    {link}\n\n"
+        "Sign in with your account, open the link and press \"Join\" to get your API token. "
+        "The link works once, for one person; do not forward it.\n\n"
+        "-- \n"
+        f"Sent by {app_name} on behalf of {teacher.name} <{teacher.email}>. "
+        "Reply to this message to reach them. If you did not expect it, ignore it.\n"
+    )
+
+
+async def deliver_invitation(invitation_id: str, email: str, subject: str, text: str, reply_to: str) -> None:
+    """Send one invitation; record a failure so the teacher sees it."""
+    from app import database
+    from app.mailer import send_mail
+
+    if await send_mail([email], subject, text, reply_to=reply_to):
+        return
+    async with database.async_session_maker() as db:
+        await db.execute(
+            update(CourseInvitation).where(CourseInvitation.id == invitation_id)
+            .values(delivery_failed_at=utcnow())
+        )
+        await db.commit()
+    logger.warning("action=course_invitation_undelivered invitation_id=%s", invitation_id)

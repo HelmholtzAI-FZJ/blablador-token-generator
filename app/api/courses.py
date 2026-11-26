@@ -6,16 +6,19 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, update
 from sqlalchemy.orm import joinedload
-from pydantic import BaseModel, Field, StrictBool
+from pydantic import BaseModel, Field, StrictBool, field_validator
 from app.database import get_db
-from app.models import Course, CourseSeat, Token, User
+from app.models import Course, CourseInvitation, CourseSeat, Token, User
 from app.auth import generate_token, get_current_user, hash_token
+from app.api.applications import email_address
 from app.api.tokens import TOKEN_READ_LIMIT, TOKEN_WRITE_LIMIT, lock_token_owner
 from app.config import get_config
 from app.courses import (
-    SUSPENDED_BY_TEACHER, active_course_count, close_course, is_active, is_join_code, join_code_hash,
-    new_join_code,
+    SUSPENDED_BY_TEACHER, active_course_count, close_course, deliver_invitation, invitation_message,
+    invitation_text, invite_code_hash, is_active, is_join_code, join_code_hash, new_invite_code, new_join_code,
+    open_invitation_count, open_invitations,
 )
+from app.mailer import run_later
 from app.rate_limit import limiter, RATE_LIMITS, user_or_ip
 from app.timeutil import isoformat_utc, utcnow
 from app.validation import DisplayText, ResourceId
@@ -313,30 +316,38 @@ async def course_for_code(db: AsyncSession, code: str, lock: bool = False) -> Co
     return (await db.execute(query)).scalar_one_or_none()
 
 
-def join_problem(course: Course | None) -> str | None:
-    """Why the join link cannot be used now, or None."""
+async def invitation_for_code(
+    db: AsyncSession, code: str, lock: bool = False,
+) -> tuple[CourseInvitation | None, Course | None]:
+    if not is_join_code(code):
+        return None, None
+    invitation = (await db.execute(
+        select(CourseInvitation).where(CourseInvitation.code_hash == invite_code_hash(code), open_invitations())
+    )).scalar_one_or_none()
+    if invitation is None:
+        return None, None
+    query = select(Course).where(Course.id == invitation.course_id)
+    if lock:
+        query = query.with_for_update()
+    return invitation, (await db.execute(query)).scalar_one()
+
+
+def join_problem(course: Course | None, reserved: int = 0) -> str | None:
+    """Why a link cannot be used now, or None. reserved: seats held by
+    open invitations, which a shared link must leave free."""
     if course is None:
-        return "This join link is not valid. Ask your teacher for the current one."
+        return "This link is not valid or was already used. Ask your teacher."
     if not is_active(course) or course.teacher_id is None:
         return "This course has ended or was closed."
-    if course.seats_claimed >= course.max_seats:
+    if course.seats_claimed + reserved >= course.max_seats:
         return "This course is full. Ask your teacher."
     return None
 
 
-@router.post("/join/{code}", response_model=JoinedCourseResponse, dependencies=[Depends(require_courses_enabled)])
-@limiter.limit(RATE_LIMITS.course_join, key_func=user_or_ip)
-async def join_course(
-    request: Request,
-    code: Annotated[str, Path(max_length=128)],
-    user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
+async def claim_seat(
+    db: AsyncSession, course: Course, user: User, invitation: CourseInvitation | None = None,
 ) -> JoinedCourseResponse:
-    user = await lock_token_owner(request, user, db)
-    course = await course_for_code(db, code, lock=True)
-    problem = join_problem(course)
-    if problem:
-        raise HTTPException(status_code=404 if course is None else 410, detail=problem)
+    """Give a locked user a seat on a locked course, with its token."""
     if await db.scalar(select(CourseSeat.id).where(
         CourseSeat.course_id == course.id, CourseSeat.user_id == user.id
     )):
@@ -350,6 +361,10 @@ async def join_course(
         name=f"Course: {course.name}", expires_at=course.ends_at,
     )
     course.seats_claimed += 1
+    if invitation is not None:
+        invitation.claimed_at = utcnow()
+        invitation.claimed_by_id = user.id
+        invitation.code_hash = None
     db.add_all([CourseSeat(course_id=course.id, user_id=user.id), token])
     try:
         await db.commit()
@@ -359,9 +374,263 @@ async def join_course(
     except Exception:
         await db.rollback()
         raise HTTPException(status_code=500, detail="Failed to join course")
-    logger.info("user=%s action=join_course course_id=%s token_id=%s seat=%d/%d",
-                user.id, course.id, token.id, course.seats_claimed, course.max_seats)
+    logger.info("user=%s action=join_course course_id=%s token_id=%s invitation_id=%s seat=%d/%d",
+                user.id, course.id, token.id, invitation.id if invitation else "none",
+                course.seats_claimed, course.max_seats)
     return JoinedCourseResponse(
         token_id=token.id, token=plain_token, expires_at=isoformat_utc(token.expires_at),
         course=CourseResponse.of(course),
     )
+
+
+@router.post("/join/{code}", response_model=JoinedCourseResponse, dependencies=[Depends(require_courses_enabled)])
+@limiter.limit(RATE_LIMITS.course_join, key_func=user_or_ip)
+async def join_course(
+    request: Request,
+    code: Annotated[str, Path(max_length=128)],
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> JoinedCourseResponse:
+    """Join through the course's shared link."""
+    user = await lock_token_owner(request, user, db)
+    course = await course_for_code(db, code, lock=True)
+    reserved = await open_invitation_count(db, course.id) if course else 0
+    problem = join_problem(course, reserved)
+    if problem:
+        raise HTTPException(status_code=404 if course is None else 410, detail=problem)
+    return await claim_seat(db, course, user)
+
+
+@router.post("/invite/{code}", response_model=JoinedCourseResponse,
+             dependencies=[Depends(require_courses_enabled)])
+@limiter.limit(RATE_LIMITS.course_join, key_func=user_or_ip)
+async def accept_invitation(
+    request: Request,
+    code: Annotated[str, Path(max_length=128)],
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> JoinedCourseResponse:
+    """Join through a personal invitation, which holds its own seat. Any
+    signed-in account may use it: students sign in with other addresses."""
+    user = await lock_token_owner(request, user, db)
+    invitation, course = await invitation_for_code(db, code, lock=True)
+    problem = join_problem(course, -1 if course else 0)
+    if problem:
+        raise HTTPException(status_code=404 if course is None else 410, detail=problem)
+    return await claim_seat(db, course, user, invitation)
+
+
+# Invitations mailed by the service.
+
+
+def require_mail() -> None:
+    if not get_config().smtp.enabled:
+        raise HTTPException(status_code=400, detail="Mail is not configured on this service; share the course link instead")
+
+
+class InvitationRequest(BaseModel):
+    emails: list[str] = Field(..., min_length=1, max_length=1000)
+    subject: str = Field(..., min_length=1, max_length=200)
+    body: str = Field(..., min_length=1, max_length=20000)
+
+    @field_validator("emails")
+    @classmethod
+    def valid_emails(cls, value: list[str]) -> list[str]:
+        addresses = []
+        for entry in value:
+            try:
+                address = email_address(entry)
+            except ValueError:
+                raise ValueError(f"Not an email address: {entry[:100]}") from None
+            if address not in addresses:
+                addresses.append(address)
+        return addresses
+
+    @field_validator("subject")
+    @classmethod
+    def valid_subject(cls, value: str) -> str:
+        return invitation_text(value, multiline=False)
+
+    @field_validator("body")
+    @classmethod
+    def valid_body(cls, value: str) -> str:
+        value = invitation_text(value, multiline=True)
+        if len(value) > get_config().courses.invitation_max_body_chars:
+            raise ValueError(f"must be at most {get_config().courses.invitation_max_body_chars} characters")
+        return value
+
+
+class ResendRequest(BaseModel):
+    subject: str = Field(..., min_length=1, max_length=200)
+    body: str = Field(..., min_length=1, max_length=20000)
+
+    _subject = field_validator("subject")(InvitationRequest.valid_subject.__func__)
+    _body = field_validator("body")(InvitationRequest.valid_body.__func__)
+
+
+class InvitationResponse(BaseModel):
+    id: str
+    email: str
+    # open, claimed or cancelled
+    status: str
+    sent_at: str
+    send_count: int
+    delivery_failed: bool
+    claimed_at: str | None = None
+    claimed_by_name: str | None = None
+
+    @classmethod
+    def of(cls, invitation: CourseInvitation) -> "InvitationResponse":
+        status = "claimed" if invitation.claimed_at else ("cancelled" if invitation.cancelled_at else "open")
+        return cls(
+            id=invitation.id, email=invitation.email, status=status,
+            sent_at=isoformat_utc(invitation.sent_at), send_count=invitation.send_count,
+            delivery_failed=invitation.delivery_failed_at is not None,
+            claimed_at=isoformat_utc(invitation.claimed_at),
+            claimed_by_name=invitation.claimed_by.name if invitation.claimed_by else None,
+        )
+
+
+class InvitationResult(BaseModel):
+    invited: list[InvitationResponse]
+    # Addresses with an open or claimed invitation already.
+    skipped: list[str]
+
+
+def invite_url(code: str) -> str:
+    return f"{get_config().app.api_url.rstrip('/')}/courses/invite/{code}"
+
+
+def send_invitation(course: Course, teacher: User, invitation: CourseInvitation, code: str,
+                    subject: str, body: str) -> None:
+    text = invitation_message(course, teacher, body, invite_url(code))
+    run_later(deliver_invitation(invitation.id, invitation.email, subject, text, teacher.email))
+
+
+async def active_teacher_course(request: Request, course_id: str, user: User, db: AsyncSession):
+    user = await lock_token_owner(request, user, db)
+    if not user.is_teacher:
+        raise HTTPException(status_code=403, detail="Only teachers can send invitations")
+    course = await teacher_course(course_id, user, db, lock=True)
+    if not is_active(course):
+        raise HTTPException(status_code=400, detail="The course has ended or was closed")
+    return user, course
+
+
+@router.post("/{course_id}/invitations", response_model=InvitationResult,
+             dependencies=[Depends(require_courses_enabled), Depends(require_mail)])
+@limiter.limit(RATE_LIMITS.course_invite, key_func=user_or_ip)
+async def invite_students(
+    request: Request,
+    course_id: ResourceId,
+    body: InvitationRequest,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> InvitationResult:
+    """Mail each address its own single-use link. Each open invitation
+    holds a seat, so a course never has more invitations than seats."""
+    user, course = await active_teacher_course(request, course_id, user, db)
+    known = set((await db.execute(
+        select(CourseInvitation.email).where(
+            CourseInvitation.course_id == course.id, CourseInvitation.cancelled_at.is_(None)
+        )
+    )).scalars())
+    new = [address for address in body.emails if address not in known]
+    free = course.max_seats - course.seats_claimed - await open_invitation_count(db, course.id)
+    if len(new) > free:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Only {max(free, 0)} seat(s) left; invite fewer people or cancel open invitations",
+        )
+    created = []
+    for address in new:
+        code, code_hash = new_invite_code()
+        invitation = CourseInvitation(course_id=course.id, email=address, code_hash=code_hash)
+        db.add(invitation)
+        created.append((invitation, code))
+    await commit(db, "Failed to create invitations")
+    for invitation, code in created:
+        send_invitation(course, user, invitation, code, body.subject, body.body)
+    logger.info("user=%s action=invite_course_students course_id=%s invited=%d skipped=%d",
+                user.id, course.id, len(created), len(body.emails) - len(created))
+    return InvitationResult(
+        invited=[InvitationResponse.of(invitation) for invitation, _ in created],
+        skipped=[address for address in body.emails if address in known],
+    )
+
+
+@router.get("/{course_id}/invitations", response_model=list[InvitationResponse],
+            dependencies=[Depends(require_courses_enabled)])
+@limiter.limit(TOKEN_READ_LIMIT, key_func=user_or_ip)
+async def list_invitations(
+    request: Request,
+    course_id: ResourceId,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    course = await teacher_course(course_id, user, db)
+    invitations = (await db.execute(
+        select(CourseInvitation).options(joinedload(CourseInvitation.claimed_by))
+        .where(CourseInvitation.course_id == course.id).order_by(CourseInvitation.created_at)
+    )).scalars().all()
+    return [InvitationResponse.of(invitation) for invitation in invitations]
+
+
+async def open_invitation(db: AsyncSession, course: Course, invitation_id: str) -> CourseInvitation:
+    invitation = (await db.execute(
+        select(CourseInvitation).where(
+            CourseInvitation.id == invitation_id, CourseInvitation.course_id == course.id, open_invitations()
+        ).with_for_update()
+    )).scalar_one_or_none()
+    if invitation is None:
+        raise HTTPException(status_code=404, detail="No open invitation with this id")
+    return invitation
+
+
+@router.post("/{course_id}/invitations/{invitation_id}/resend", response_model=InvitationResponse,
+             dependencies=[Depends(require_courses_enabled), Depends(require_mail)])
+@limiter.limit(RATE_LIMITS.course_invite, key_func=user_or_ip)
+async def resend_invitation(
+    request: Request,
+    course_id: ResourceId,
+    invitation_id: ResourceId,
+    body: ResendRequest,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> InvitationResponse:
+    """Mail a new link; the previous one stops working."""
+    user, course = await active_teacher_course(request, course_id, user, db)
+    invitation = await open_invitation(db, course, invitation_id)
+    limit = get_config().courses.max_invitation_sends
+    if invitation.send_count >= limit:
+        raise HTTPException(status_code=400, detail=f"An invitation is sent at most {limit} times")
+    code, invitation.code_hash = new_invite_code()
+    invitation.send_count += 1
+    invitation.sent_at = utcnow()
+    invitation.delivery_failed_at = None
+    await commit(db, "Failed to resend invitation")
+    send_invitation(course, user, invitation, code, body.subject, body.body)
+    logger.info("user=%s action=resend_course_invitation course_id=%s invitation_id=%s",
+                user.id, course.id, invitation.id)
+    return InvitationResponse.of(invitation)
+
+
+@router.delete("/{course_id}/invitations/{invitation_id}", dependencies=[Depends(require_courses_enabled)])
+@limiter.limit(TOKEN_WRITE_LIMIT, key_func=user_or_ip)
+async def cancel_invitation(
+    request: Request,
+    course_id: ResourceId,
+    invitation_id: ResourceId,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Disable an unclaimed invitation; its seat becomes free again."""
+    user = await lock_token_owner(request, user, db)
+    course = await teacher_course(course_id, user, db, lock=True)
+    invitation = await open_invitation(db, course, invitation_id)
+    invitation.cancelled_at = utcnow()
+    invitation.code_hash = None
+    await commit(db, "Failed to cancel invitation")
+    logger.info("user=%s action=cancel_course_invitation course_id=%s invitation_id=%s",
+                user.id, course.id, invitation.id)
+    return {"message": "Invitation cancelled; its seat is free again"}

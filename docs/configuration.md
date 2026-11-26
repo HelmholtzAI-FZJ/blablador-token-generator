@@ -162,6 +162,7 @@ Limits use the [limits](https://limits.readthedocs.io/) syntax, such as
 | `account_delete` | `5/minute` | Account deletion, per user. |
 | `admin` | `120/minute` | Administration, per user. |
 | `course_join` | `10/minute` | Joining a course through its link, per user. |
+| `course_invite` | `10/minute` | Sending or resending course invitations, per teacher. |
 | `token_validation` | `600/minute` | Validation API, per address; also its admission budget. |
 | `token_validation_exempt` | `[]` | Addresses or networks (for example the API gateway) exempt from validation limits. |
 
@@ -237,8 +238,17 @@ end of the last day. See the [user guide](user-guide.md#courses).
 | `max_days_ahead` | `180` | How far ahead a course may start. |
 | `join_code_bytes` | `24` | Random bytes in a join link's code. |
 | `retention_days` | `30` | Days after a course ends before `purge-course-tokens` deletes its tokens. Courses and seats are kept as a record. |
+| `invitation_subject` | (built-in text) | Default subject of mailed invitations; teachers may edit it. |
+| `invitation_body` | (built-in text) | Default message of mailed invitations; teachers may edit it. The personal link, the course dates and a footer naming the teacher are always appended, and replies go to the teacher. |
+| `invitation_max_body_chars` | `4000` | Longest message a teacher may write. |
+| `max_invitation_sends` | `3` | How often one invitation may be sent, the first time included. |
 | `terms_version` | `"1"` | Version of the teacher terms, stored with each course. Change it together with `terms_text`. |
 | `terms_text` | (built-in text) | Terms a teacher must accept to create a course. |
+
+Teachers can also have the service mail invitations (requires `smtp.enabled`).
+Each address gets its own single-use link that holds a seat until it is used or
+cancelled, so a course never has more invitations than seats. The link is not
+tied to the address: students may sign in with any account.
 
 Course tokens do not count towards `tokens.max_tokens_per_user`, cannot be
 renewed, and keep the course's end when rotated. Closing a course (by its

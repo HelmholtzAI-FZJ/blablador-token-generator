@@ -24,17 +24,25 @@ All notable changes to this project are documented here. The format follows
   one student's token, replace the join link, or revoke everything and close
   the course. Administrators list and suspend courses. Removing the teacher
   role or deleting the teacher's account closes their active course.
+- Teachers can have the service mail invitations (with `smtp.enabled`): one
+  single-use link per address, each holding a seat until claimed or
+  cancelled, from an editable template (`courses.invitation_subject`,
+  `courses.invitation_body`). The link, the dates and a footer naming the
+  teacher are always added; replies go to the teacher. Invitations can be
+  resent (`courses.max_invitation_sends`) or cancelled, and failed deliveries
+  are shown. Links are not tied to the address.
 - `python -m app.manage purge-course-tokens` and the chart's `coursePurge`
   CronJob delete the tokens of courses that ended more than
   `courses.retention_days` ago.
-- Configuration: `courses.*` and `rate_limits.course_join`. Courses are off
+- Configuration: `courses.*`, `rate_limits.course_join` and
+  `rate_limits.course_invite`. Courses are off
   until `courses.enabled` is set.
 
 ### Changed
 
 - Course tokens do not count towards `tokens.max_tokens_per_user`, cannot be
   renewed, keep their course's end when rotated, and get no expiry reminders.
-- Migration 0006 adds `users.is_teacher`, the `courses` and `course_seats`
+- Migration 0006 adds `users.is_teacher`, the `courses`, `course_seats` and `course_invitations`
   tables, and `tokens.course_id` and `tokens.use_count`. It is safe during a
   rolling upgrade: 1.3.x instances reject course tokens as malformed.
 

@@ -134,6 +134,8 @@ class RateLimitConfig(SecurityConfigModel):
     admin: str = "120/minute"
     # Claiming a course seat, per signed-in user.
     course_join: str = "10/minute"
+    # Sending or resending course invitations, per teacher.
+    course_invite: str = "10/minute"
     # Token validation, per client IP. Addresses or CIDRs listed in
     # token_validation_exempt (e.g. the API gateway) are not limited.
     token_validation: str = "600/minute"
@@ -141,7 +143,7 @@ class RateLimitConfig(SecurityConfigModel):
 
     @field_validator("pages", "oauth_callback", "local_login", "local_login_account",
                      "preauth", "tokens_read", "tokens_write", "session", "account_delete",
-                     "admin", "course_join", "token_validation")
+                     "admin", "course_join", "course_invite", "token_validation")
     @classmethod
     def check_limit(cls, value: str) -> str:
         if parse(value).amount < 1:
@@ -212,6 +214,14 @@ DEFAULT_COURSE_TERMS = (
 )
 
 
+DEFAULT_INVITATION_SUBJECT = "Your access to Blablador for the course"
+DEFAULT_INVITATION_BODY = (
+    "Hello,\n\n"
+    "for this course you will use Blablador, an LLM service. Use the personal link "
+    "below to get your API token. Do not forward it: it works only once."
+)
+
+
 class CourseConfig(SecurityConfigModel):
     """Courses: a teacher (set by an admin) shares a join link; each student
     who signs in and opens it gets one token that ends with the course."""
@@ -226,6 +236,13 @@ class CourseConfig(SecurityConfigModel):
     join_code_bytes: int = Field(24, ge=16, le=64)
     # Days after a course ends before its tokens are purged.
     retention_days: int = Field(30, ge=0, le=3650)
+    # Mailed invitations (need smtp.enabled): the default text teachers
+    # edit; the link, dates and a footer naming the teacher are always added.
+    invitation_subject: str = Field(DEFAULT_INVITATION_SUBJECT, min_length=1, max_length=200)
+    invitation_body: str = Field(DEFAULT_INVITATION_BODY, min_length=1, max_length=4000)
+    invitation_max_body_chars: int = Field(4000, ge=100, le=20000)
+    # Sends per invitation, the first included, so resending cannot spam.
+    max_invitation_sends: int = Field(3, ge=1, le=20)
     terms_version: str = Field("1", min_length=1, max_length=32)
     terms_text: str = Field(DEFAULT_COURSE_TERMS, min_length=1, max_length=4000)
 

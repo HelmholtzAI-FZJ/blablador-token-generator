@@ -110,6 +110,8 @@ rate_limits:
   admin: "120/minute"
   # Joining a course through its link, per signed-in user.
   course_join: "10/minute"
+  # Sending or resending course invitations, per teacher.
+  course_invite: "10/minute"
   # POST /api/v1/auth/validate, per client IP. List the API gateway's
   # addresses or CIDRs in token_validation_exempt so its traffic is never limited.
   token_validation: "600/minute"
@@ -126,6 +128,13 @@ courses:
   join_code_bytes: 24
   # Days after a course ends before purge-course-tokens deletes its tokens.
   retention_days: 30
+  # Mailed invitations (need smtp.enabled). Teachers start from this text and
+  # may edit it; the link, the dates and a footer naming the teacher are added.
+  # invitation_subject: "..."
+  # invitation_body: "..."
+  invitation_max_body_chars: 4000
+  # Sends per invitation, the first included.
+  max_invitation_sends: 3
   # Bump terms_version when terms_text changes; courses record the version accepted.
   terms_version: "1"
   # terms_text: "..."

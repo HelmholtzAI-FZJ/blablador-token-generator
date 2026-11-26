@@ -340,6 +340,9 @@
             },
             "course_join": {
               "type": "string"
+            },
+            "course_invite": {
+              "type": "string"
             }
           },
           "type": "object"
@@ -468,6 +471,26 @@
               "type": "string",
               "minLength": 1,
               "maxLength": 4000
+            },
+            "invitation_subject": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            },
+            "invitation_body": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 4000
+            },
+            "invitation_max_body_chars": {
+              "type": "integer",
+              "minimum": 100,
+              "maximum": 20000
+            },
+            "max_invitation_sends": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 20
             }
           }
         },

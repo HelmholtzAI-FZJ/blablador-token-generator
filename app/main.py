@@ -44,7 +44,7 @@ from app.auth import (
     decode_access_token, revoke_jwt,
 )
 from app.api import applications, courses, tokens, validate, admin
-from app.courses import TEACHER_DELETED, close_courses_of, is_join_code
+from app.courses import TEACHER_DELETED, close_courses_of, is_join_code, open_invitation_count
 from app.api.tokens import manageable_by
 from app.rate_limit import limiter, RATE_LIMITS, run_storage, user_or_ip
 from app.logging_config import configure_logging
@@ -280,9 +280,9 @@ async def home(request: Request):
 
 def after_sign_in(request: Request) -> str:
     """The join page of a course link opened before signing in, else the dashboard."""
-    code = request.cookies.get(COURSE_JOIN_COOKIE) or ""
-    if config.courses.enabled and is_join_code(code):
-        return f"/courses/join/{code}"
+    kind, _, code = (request.cookies.get(COURSE_JOIN_COOKIE) or "").rpartition("-")
+    if config.courses.enabled and kind in ("join", "invite") and is_join_code(code):
+        return f"/courses/{kind}/{code}"
     return "/dashboard"
 
 
@@ -384,6 +384,7 @@ async def dashboard(
             "token_default_expiration_days": config.tokens.default_expiration_days,
             "token_max_expiration_days": config.tokens.max_expiration_days,
             "courses": config.courses,
+            "course_mail": config.courses.enabled and config.smtp.enabled,
             "login_name": config.login.name
         }
     )
@@ -610,8 +611,25 @@ async def course_join_page(
     code: str = FastAPIPath(..., max_length=128),
     db: AsyncSession = Depends(get_db),
 ):
+    """The course's shared link."""
+    return await course_page(request, "join", code, db)
+
+
+@app.get("/courses/invite/{code}", response_class=HTMLResponse)
+@limiter.limit(RATE_LIMITS.pages, key_func=user_or_ip)
+async def course_invitation_page(
+    request: Request,
+    code: str = FastAPIPath(..., max_length=128),
+    db: AsyncSession = Depends(get_db),
+):
+    """A student's personal, single-use invitation link."""
+    return await course_page(request, "invite", code, db)
+
+
+async def course_page(request: Request, kind: str, code: str, db: AsyncSession):
     """Shows the course; joining is a separate POST so that link previews
-    and prefetching never claim a seat."""
+    and prefetching never claim a seat. Signed-out visitors sign in first
+    and come back here."""
     if not config.courses.enabled:
         raise HTTPException(status_code=404, detail="Courses are not enabled")
     try:
@@ -621,17 +639,24 @@ async def course_join_page(
             raise
         response = RedirectResponse(url="/", status_code=303)
         if is_join_code(code):
-            set_cookie(response, COURSE_JOIN_COOKIE, code, max_age=COURSE_JOIN_COOKIE_SECONDS)
+            set_cookie(response, COURSE_JOIN_COOKIE, f"{kind}-{code}", max_age=COURSE_JOIN_COOKIE_SECONDS)
         return response
-    course = await courses.course_for_code(db, code)
-    problem = courses.join_problem(course)
-    return templates.TemplateResponse(request, "course_join.html", {
+    if kind == "invite":
+        _, course = await courses.invitation_for_code(db, code)
+        problem = courses.join_problem(course, -1 if course else 0)
+    else:
+        course = await courses.course_for_code(db, code)
+        reserved = await open_invitation_count(db, course.id) if course else 0
+        problem = courses.join_problem(course, reserved)
+    response = templates.TemplateResponse(request, "course_join.html", {
         "app_name": config.app.name,
         "user": user,
         "course": course,
         "problem": problem,
-        "code": code if problem is None else "",
+        "join_path": f"/courses/{kind}/{code}" if problem is None else "",
     }, status_code=200 if problem is None else (404 if course is None else 410))
+    delete_cookie(response, COURSE_JOIN_COOKIE)
+    return response
 
 
 app.mount("/static", StaticFiles(directory=APP_DIR / "static"), name="static")

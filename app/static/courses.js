@@ -38,6 +38,8 @@ async function loadCourses() {
                 <td>${courseState(course)}</td>
                 <td>
                     <button class="btn btn-small" data-action="toggle-seats" data-id="${escapeHtml(course.id)}">Students</button>
+                    ${course.active && mailEnabled ? `
+                    <button class="btn btn-small" data-action="open-invite" data-id="${escapeHtml(course.id)}" data-name="${escapeHtml(course.name)}">Invite by email</button>` : ''}
                     ${course.active ? `
                     <button class="btn btn-small" data-action="new-course-link" data-id="${escapeHtml(course.id)}">New join link</button>
                     <button class="btn btn-small btn-danger" data-action="close-course" data-id="${escapeHtml(course.id)}" data-name="${escapeHtml(course.name)}">Revoke all and close</button>` : ''}
@@ -50,16 +52,39 @@ async function loadCourses() {
     }
 }
 
+const mailEnabled = document.getElementById('coursesCard').dataset.mail === 'true';
+
+function invitationRows(courseId, invitations) {
+    if (invitations.length === 0) return '';
+    return `<h4>Invitations</h4>
+        <table><thead><tr><th>Address</th><th>State</th><th>Sent</th><th>Claimed by</th><th></th></tr></thead><tbody>
+        ${invitations.map(invitation => `
+            <tr>
+                <td>${escapeHtml(invitation.email)}</td>
+                <td>${escapeHtml(invitation.status)}${invitation.delivery_failed ? ' <strong>(not delivered)</strong>' : ''}</td>
+                <td>${courseDateTime(invitation.sent_at)} (${invitation.send_count}×)</td>
+                <td>${invitation.claimed_by_name ? escapeHtml(invitation.claimed_by_name) : ''}</td>
+                <td>${invitation.status === 'open' ? `
+                    <button class="btn btn-small" data-action="resend-invitation" data-course="${escapeHtml(courseId)}" data-id="${escapeHtml(invitation.id)}" data-email="${escapeHtml(invitation.email)}">Resend</button>
+                    <button class="btn btn-small btn-danger" data-action="cancel-invitation" data-course="${escapeHtml(courseId)}" data-id="${escapeHtml(invitation.id)}" data-email="${escapeHtml(invitation.email)}">Cancel</button>` : ''}</td>
+            </tr>`).join('')}
+        </tbody></table>`;
+}
+
 async function loadSeats(courseId) {
     const row = document.getElementById(`seats-${courseId}`);
     const panel = row.querySelector('.members-panel');
-    const response = await fetch(`/courses/${encodeURIComponent(courseId)}/seats`);
-    if (!response.ok) {
-        panel.textContent = `Failed to load students: ${await errorMessage(response)}`;
+    const [response, invitationsResponse] = await Promise.all([
+        fetch(`/courses/${encodeURIComponent(courseId)}/seats`),
+        fetch(`/courses/${encodeURIComponent(courseId)}/invitations`),
+    ]);
+    if (!response.ok || !invitationsResponse.ok) {
+        panel.textContent = `Failed to load students: ${await errorMessage(response.ok ? invitationsResponse : response)}`;
         return;
     }
     const seats = await response.json();
-    panel.innerHTML = seats.length === 0 ? '<p class="muted">Nobody has joined yet.</p>' : `
+    const invitations = await invitationsResponse.json();
+    panel.innerHTML = (seats.length === 0 ? '<p class="muted">Nobody has joined yet.</p>' : `
         <table><thead><tr><th>Student</th><th>Joined</th><th>Token</th><th>Last used</th><th>Uses</th><th></th></tr></thead><tbody>
         ${seats.map(seat => `
             <tr>
@@ -72,8 +97,37 @@ async function loadSeats(courseId) {
                     ? `<button class="btn btn-small btn-danger" data-action="revoke-seat" data-course="${escapeHtml(courseId)}" data-id="${escapeHtml(seat.id)}" data-name="${escapeHtml(seat.student_name)}">Revoke</button>`
                     : ''}</td>
             </tr>`).join('')}
-        </tbody></table>`;
+        </tbody></table>`) + invitationRows(courseId, invitations);
 }
+
+function inviteText() {
+    return {
+        subject: document.getElementById('inviteSubject').value,
+        body: document.getElementById('inviteBody').value,
+    };
+}
+
+document.getElementById('inviteForm')?.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const courseId = document.getElementById('inviteCourse').value;
+    const emails = document.getElementById('inviteEmails').value.split(/[\s,;]+/).filter(Boolean);
+    const response = await fetch(`/courses/${encodeURIComponent(courseId)}/invitations`, {
+        method: 'POST',
+        headers: csrfHeaders({'Content-Type': 'application/json'}),
+        body: JSON.stringify({emails, ...inviteText()}),
+    });
+    if (!response.ok) {
+        alert(`Invitations not sent: ${await errorMessage(response)}`);
+        return;
+    }
+    const result = await response.json();
+    let message = `${result.invited.length} invitation(s) sent.`;
+    if (result.skipped.length) message += ` Already invited: ${result.skipped.join(', ')}`;
+    alert(message);
+    document.getElementById('inviteEmails').value = '';
+    event.target.hidden = true;
+    loadCourses();
+});
 
 document.getElementById('createCourseForm').addEventListener('submit', async (event) => {
     event.preventDefault();
@@ -100,6 +154,32 @@ document.getElementById('createCourseForm').addEventListener('submit', async (ev
 });
 
 registerActions({
+    'open-invite': (el) => {
+        const form = document.getElementById('inviteForm');
+        document.getElementById('inviteCourse').value = el.dataset.id;
+        form.querySelector('h3').textContent = `Invite students to "${el.dataset.name}" by email`;
+        form.hidden = false;
+        form.scrollIntoView({behavior: 'smooth'});
+    },
+    'close-invite': () => { document.getElementById('inviteForm').hidden = true; },
+    'resend-invitation': async (el) => {
+        if (!confirm(`Send ${el.dataset.email} a new link (with the message in the invitation form)? The previous link stops working.`)) return;
+        const response = await fetch(
+            `/courses/${encodeURIComponent(el.dataset.course)}/invitations/${encodeURIComponent(el.dataset.id)}/resend`,
+            {method: 'POST', headers: csrfHeaders({'Content-Type': 'application/json'}), body: JSON.stringify(inviteText())},
+        );
+        if (!response.ok) alert(`Failed: ${await errorMessage(response)}`);
+        loadSeats(el.dataset.course);
+    },
+    'cancel-invitation': async (el) => {
+        if (!confirm(`Cancel the invitation of ${el.dataset.email}? Its link stops working and the seat is free again.`)) return;
+        const response = await fetch(
+            `/courses/${encodeURIComponent(el.dataset.course)}/invitations/${encodeURIComponent(el.dataset.id)}`,
+            {method: 'DELETE', headers: csrfHeaders()},
+        );
+        if (!response.ok) alert(`Failed: ${await errorMessage(response)}`);
+        loadSeats(el.dataset.course);
+    },
     'toggle-seats': (el) => {
         const row = document.getElementById(`seats-${el.dataset.id}`);
         row.hidden = !row.hidden;

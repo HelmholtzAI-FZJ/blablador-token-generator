@@ -199,6 +199,11 @@ may join one with its link.
 | `POST /courses/{id}/join-link` | | Replaces the join link; claimed seats stay claimed |
 | `POST /courses/{id}/close` | | Revokes every token of the course and disables its link, for good |
 | `POST /courses/{id}/seats/{seat_id}/revoke` | | Revokes one student's token; they cannot join again |
+| `POST /courses/{id}/invitations` | `{"emails": [...], "subject", "body"}` | Teachers only; needs mail. Mails each new address a single-use link (one seat each). `400` if there are not enough free seats. Returns `invited` and `skipped` (already invited) |
+| `GET /courses/{id}/invitations` | | Invitations: `email`, `status` (`open`, `claimed`, `cancelled`), `sent_at`, `send_count`, `delivery_failed`, `claimed_by_name` |
+| `POST /courses/{id}/invitations/{invitation_id}/resend` | `{"subject", "body"}` | Mails a new link; the old one stops working. At most `courses.max_invitation_sends` sends |
+| `DELETE /courses/{id}/invitations/{invitation_id}` | | Cancels an open invitation; its seat is free again |
+| `POST /courses/invite/{code}` | | Joins with a personal invitation link, which then stops working |
 | `POST /courses/join/{code}` | | Joins the course: returns `token` (shown once), `token_id`, `expires_at` and `course`. `404` for an unknown link, `410` for a closed, ended or full course, `409` if you already joined |
 
 ## Administration

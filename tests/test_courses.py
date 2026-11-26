@@ -12,7 +12,7 @@ from app.api import courses as courses_api
 from app.api.validate import is_possible_token, token_shape
 from app.auth import create_session_token, generate_token, hash_token
 from app.config import Config, get_config
-from app.models import Course, CourseSeat, Token, User
+from app.models import Course, CourseInvitation, CourseSeat, Token, User
 from app.timeutil import utcnow
 
 CSRF = {"X-CSRF-Token": "c"}
@@ -496,13 +496,20 @@ def test_join_page_resumes_after_sign_in(client, course):
     response = client.get(f"/courses/join/{code}", follow_redirects=False)
     assert response.status_code == 303 and response.headers["location"] == "/"
     resume = response.cookies.get("course_join")
-    assert resume == code
+    assert resume == f"join-{code}"
 
     from app.main import after_sign_in
     from starlette.requests import Request
     request = Request({"type": "http", "method": "GET", "path": "/", "query_string": b"",
-                       "headers": [(b"cookie", f"course_join={code}".encode())]})
+                       "headers": [(b"cookie", f"course_join=join-{code}".encode())]})
     assert after_sign_in(request) == f"/courses/join/{code}"
+    invite = Request({"type": "http", "method": "GET", "path": "/", "query_string": b"",
+                      "headers": [(b"cookie", f"course_join=invite-{code}".encode())]})
+    assert after_sign_in(invite) == f"/courses/invite/{code}"
+    for value in (code, f"other-{code}", "invite-../evil"):
+        odd = Request({"type": "http", "method": "GET", "path": "/", "query_string": b"",
+                       "headers": [(b"cookie", f"course_join={value}".encode())]})
+        assert after_sign_in(odd) == "/dashboard"
     bad = Request({"type": "http", "method": "GET", "path": "/", "query_string": b"",
                    "headers": [(b"cookie", b"course_join=../../evil")]})
     assert after_sign_in(bad) == "/dashboard"
@@ -524,7 +531,7 @@ def test_local_sign_in_follows_the_join_cookie(client, course):
     client.portal.call(seed)
     client.cookies.clear()
     client.cookies.set("csrf_token", "c")
-    client.cookies.set("course_join", code)
+    client.cookies.set("course_join", f"join-{code}")
     response = client.post("/login/local", data={"email": email, "password": password, "csrf_token": "c"},
                            follow_redirects=False)
     assert response.status_code == 303 and response.headers["location"] == f"/courses/join/{code}"
@@ -663,3 +670,257 @@ def test_purge_command_is_registered(monkeypatch, capsys):
 def test_stored_course_dates_are_naive_utc(teacher, course):
     stored = teacher.client.portal.call(lambda: fetch(select(Course).where(Course.id == course["id"])))[0]
     assert stored.starts_at == datetime.combine(today(), datetime.min.time())
+
+
+# Invitations by email
+
+
+@pytest.fixture
+def mailbox(monkeypatch):
+    """Mail enabled; messages recorded instead of sent."""
+    sent = []
+    monkeypatch.setattr(get_config().smtp, "enabled", True)
+
+    async def fake_send(recipients, subject, body, reply_to=None):
+        sent.append({"to": recipients, "subject": subject, "body": body, "reply_to": reply_to})
+        return True
+
+    monkeypatch.setattr("app.mailer.send_mail", fake_send)
+    return sent
+
+
+def drain(client):
+    """Wait for background mail deliveries."""
+    from app import mailer
+
+    async def wait():
+        while mailer._pending:
+            await asyncio.gather(*list(mailer._pending))
+
+    client.portal.call(wait)
+
+
+def invite(teacher, course, emails, subject="Welcome", body="Hello class"):
+    return teacher.post(f"/courses/{course['id']}/invitations",
+                        json={"emails": emails, "subject": subject, "body": body})
+
+
+def link_in(message) -> str:
+    return next(line.strip() for line in message["body"].splitlines() if "/courses/invite/" in line)
+
+
+def test_invitations_mail_one_personal_link_each(client, teacher, course, mailbox):
+    response = invite(teacher, course, ["A@Example.org", "b@example.org", "a@example.org"])
+    assert response.status_code == 200, response.text
+    result = response.json()
+    assert [i["email"] for i in result["invited"]] == ["a@example.org", "b@example.org"]
+    drain(client)
+    assert sorted(m["to"][0] for m in mailbox) == ["a@example.org", "b@example.org"]
+    message = mailbox[0]
+    assert message["subject"] == "Welcome"
+    assert message["body"].startswith("Hello class")
+    assert "Intro to LLMs" in message["body"] and today().isoformat() in message["body"]
+    teacher_user = client.portal.call(lambda: fetch(select(User).where(User.id == teacher.user_id)))[0]
+    assert message["reply_to"] == teacher_user.email
+    assert f"on behalf of {teacher_user.name} <{teacher_user.email}>" in message["body"]
+    links = {link_in(m) for m in mailbox}
+    assert len(links) == 2 and all(link.startswith("http://testserver/courses/invite/") for link in links)
+    stored = client.portal.call(lambda: fetch(select(CourseInvitation)))
+    assert all(code_of(link) not in {i.code_hash for i in stored} for link in links)
+
+
+def test_invitation_link_works_once_for_any_account(client, teacher, course, mailbox):
+    invite(teacher, course, ["student@uni.example"])
+    drain(client)
+    code = code_of(link_in(mailbox[0]))
+    someone = Session(client)
+    joined = someone.post(f"/courses/invite/{code}")
+    assert joined.status_code == 200, joined.text
+    assert validate(client, joined.json()["token"]).json()["user_id"] == someone.user_id
+    assert Session(client).post(f"/courses/invite/{code}").status_code == 404
+    listed = teacher.get(f"/courses/{course['id']}/invitations").json()
+    assert listed[0]["status"] == "claimed" and listed[0]["claimed_by_name"] == "Person"
+    assert teacher.get(f"/courses/{course['id']}").json()["seats_claimed"] == 1
+
+
+def test_invitations_hold_seats(client, teacher, course, mailbox):
+    assert invite(teacher, course, ["a@x.org", "b@x.org"]).status_code == 200
+    shared = Session(client).post(f"/courses/join/{code_of(course['join_url'])}")
+    assert shared.status_code == 200
+    full = Session(client).post(f"/courses/join/{code_of(course['join_url'])}")
+    assert full.status_code == 410 and "full" in full.json()["detail"]
+    too_many = invite(teacher, course, ["c@x.org"])
+    assert too_many.status_code == 400 and "0 seat(s) left" in too_many.json()["detail"]
+    drain(client)
+    for message in mailbox:
+        assert Session(client).post(f"/courses/invite/{code_of(link_in(message))}").status_code == 200
+    assert teacher.get(f"/courses/{course['id']}").json()["seats_claimed"] == 3
+
+
+def test_more_addresses_than_seats_sends_nothing(client, teacher, course, mailbox):
+    response = invite(teacher, course, [f"s{i}@x.org" for i in range(4)])
+    assert response.status_code == 400 and "Only 3 seat(s) left" in response.json()["detail"]
+    drain(client)
+    assert mailbox == []
+
+
+def test_already_invited_addresses_are_skipped(client, teacher, course, mailbox):
+    invite(teacher, course, ["a@x.org"])
+    again = invite(teacher, course, ["a@x.org", "b@x.org"]).json()
+    assert again["skipped"] == ["a@x.org"] and [i["email"] for i in again["invited"]] == ["b@x.org"]
+
+
+def test_cancel_frees_the_seat_and_kills_the_link(client, teacher, course, mailbox):
+    invited = invite(teacher, course, ["a@x.org", "b@x.org", "c@x.org"]).json()["invited"]
+    drain(client)
+    first = invited[0]
+    code = code_of(link_in(next(m for m in mailbox if m["to"] == [first["email"]])))
+    assert teacher.delete(f"/courses/{course['id']}/invitations/{first['id']}").status_code == 200
+    assert Session(client).post(f"/courses/invite/{code}").status_code == 404
+    assert Session(client).post(f"/courses/join/{code_of(course['join_url'])}").status_code == 200
+    assert teacher.delete(f"/courses/{course['id']}/invitations/{first['id']}").status_code == 404
+    reinvited = invite(teacher, course, ["a@x.org"])
+    assert reinvited.status_code == 400
+
+
+def test_resend_replaces_the_link_with_a_limit(client, teacher, course, mailbox):
+    invitation = invite(teacher, course, ["a@x.org"]).json()["invited"][0]
+    drain(client)
+    old = code_of(link_in(mailbox[0]))
+    path = f"/courses/{course['id']}/invitations/{invitation['id']}/resend"
+    resent = teacher.post(path, json={"subject": "Again", "body": "Reminder"})
+    assert resent.status_code == 200 and resent.json()["send_count"] == 2
+    drain(client)
+    new = code_of(link_in(mailbox[1]))
+    assert mailbox[1]["subject"] == "Again"
+    assert Session(client).post(f"/courses/invite/{old}").status_code == 404
+    assert teacher.post(path, json={"subject": "x", "body": "y"}).status_code == 200
+    limited = teacher.post(path, json={"subject": "x", "body": "y"})
+    assert limited.status_code == 400 and "at most 3 times" in limited.json()["detail"]
+    drain(client)
+    latest = code_of(link_in(mailbox[-1]))
+    assert new != latest
+    assert Session(client).post(f"/courses/invite/{latest}").status_code == 200
+
+
+def test_failed_delivery_is_reported(client, teacher, course, mailbox, monkeypatch):
+    async def failing(recipients, subject, body, reply_to=None):
+        return False
+
+    monkeypatch.setattr("app.mailer.send_mail", failing)
+    invite(teacher, course, ["a@x.org"])
+    drain(client)
+    assert teacher.get(f"/courses/{course['id']}/invitations").json()[0]["delivery_failed"] is True
+
+
+def test_closing_cancels_invitations(client, teacher, course, mailbox):
+    invite(teacher, course, ["a@x.org"])
+    drain(client)
+    teacher.post(f"/courses/{course['id']}/close")
+    assert Session(client).post(f"/courses/invite/{code_of(link_in(mailbox[0]))}").status_code == 404
+    assert teacher.get(f"/courses/{course['id']}/invitations").json()[0]["status"] == "cancelled"
+    assert invite(teacher, course, ["b@x.org"]).status_code == 400
+
+
+@pytest.mark.parametrize("payload, field", [
+    ({"subject": "Hi\r\nBcc: victim@x.org"}, "subject"),
+    ({"body": "bad \u202e override"}, "body"),
+    ({"body": "x" * 4001}, "body"),
+    ({"emails": ["not-an-address"]}, "emails"),
+    ({"emails": []}, "emails"),
+])
+def test_invitation_input_is_checked(client, teacher, course, mailbox, payload, field):
+    body = {"emails": ["a@x.org"], "subject": "Hi", "body": "Hello"}
+    body.update(payload)
+    response = teacher.post(f"/courses/{course['id']}/invitations", json=body)
+    assert response.status_code == 422
+    assert any(field in str(error["loc"]) for error in response.json()["detail"])
+
+
+def test_body_keeps_line_breaks(client, teacher, course, mailbox):
+    invite(teacher, course, ["a@x.org"], body="Line one\r\nLine two\n\tindented")
+    drain(client)
+    assert mailbox[0]["body"].startswith("Line one\nLine two\n\tindented")
+
+
+def test_only_the_teacher_of_an_active_course_invites(client, teacher, course, mailbox):
+    assert invite(Session(client, teacher=True), course, ["a@x.org"]).status_code == 404
+    assert invite(Session(client), course, ["a@x.org"]).status_code == 403
+    admin = Session(client, admin=True)
+    admin.patch(f"/api/admin/users/{teacher.user_id}", json={"is_teacher": False})
+    assert invite(teacher, course, ["a@x.org"]).status_code == 403
+
+
+def test_invitations_need_mail(client, teacher, course, monkeypatch):
+    monkeypatch.setattr(get_config().smtp, "enabled", False)
+    response = invite(teacher, course, ["a@x.org"])
+    assert response.status_code == 400 and "Mail is not configured" in response.json()["detail"]
+    assert "inviteForm" not in teacher.get("/dashboard").text
+
+
+def test_dashboard_offers_invitations_with_configured_text(client, teacher, mailbox):
+    page = teacher.get("/dashboard").text
+    assert 'id="inviteForm"' in page
+    assert get_config().courses.invitation_subject in page
+
+
+def test_invitation_page_shows_course_without_claiming(client, teacher, course, mailbox):
+    invite(teacher, course, ["a@x.org"])
+    drain(client)
+    code = code_of(link_in(mailbox[0]))
+    page = Session(client).get(f"/courses/invite/{code}")
+    assert page.status_code == 200 and f'data-path="/courses/invite/{code}"' in page.text
+    assert teacher.get(f"/courses/{course['id']}/invitations").json()[0]["status"] == "open"
+    client.cookies.clear()
+    signed_out = client.get(f"/courses/invite/{code}", follow_redirects=False)
+    assert signed_out.status_code == 303 and signed_out.cookies.get("course_join") == f"invite-{code}"
+
+
+def test_purge_deletes_invited_addresses(client, teacher, course, mailbox):
+    from app import database
+    from app.courses import purge_ended_courses
+
+    invite(teacher, course, ["a@x.org"])
+    client.portal.call(lambda: run_sql(
+        update(Course).where(Course.id == course["id"])
+        .values(starts_at=utcnow() - timedelta(days=400), ends_at=utcnow() - timedelta(days=390))
+    ))
+
+    async def purge():
+        async with database.async_session_maker() as db:
+            await purge_ended_courses(db)
+
+    client.portal.call(purge)
+    assert client.portal.call(lambda: fetch(
+        select(CourseInvitation).where(CourseInvitation.course_id == course["id"]))) == []
+
+
+def test_mailer_sets_reply_to(monkeypatch):
+    from app import mailer
+
+    captured = {}
+
+    class FakeSMTP:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+        def starttls(self, **kwargs):
+            pass
+
+        def login(self, *args):
+            pass
+
+        def send_message(self, message):
+            captured["message"] = message
+
+    monkeypatch.setattr(mailer.smtplib, "SMTP", FakeSMTP)
+    mailer._send(["s@x.org"], "Subject", "Body", reply_to="teacher@x.org")
+    assert captured["message"]["Reply-To"] == "teacher@x.org"
+    mailer._send(["s@x.org"], "Subject", "Body")
+    assert captured["message"]["Reply-To"] is None

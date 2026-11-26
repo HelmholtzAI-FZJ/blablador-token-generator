@@ -235,6 +235,7 @@ config:
     account_delete: 5/minute
     admin: 120/minute
     course_join: 10/minute
+    course_invite: 10/minute
     token_validation: 600/minute
     token_validation_exempt: []
     preauth: 240/minute
@@ -268,6 +269,8 @@ config:
     max_days_ahead: 180
     join_code_bytes: 24
     retention_days: 30
+    invitation_max_body_chars: 4000
+    max_invitation_sends: 3
     terms_version: '1'
   local:
     enabled: false

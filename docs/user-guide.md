@@ -73,7 +73,12 @@ If an administrator made you a teacher, the dashboard has a **Courses** card.
    They get one token, `blablador-course-…`, that works from the first day
    until the end of the last day (UTC). If they lose it they can rotate it on
    their dashboard; they cannot join a second time.
-4. **Students** lists who joined, when each token was last used and how often.
+   Or press **Invite by email**: paste the students' addresses, adjust the
+   message, and the service mails each of them a personal link that works
+   once. Each invitation holds a seat until it is used or you cancel it;
+   **Resend** mails a new link and disables the old one. Students may sign in
+   with any account, not only the address you used.
+4. **Students** lists who joined, and the invitations with their state, when each token was last used and how often.
    A token used far more than the others may have been shared: **Revoke** it.
    A revoked student's seat stays used.
 5. **Revoke all and close** ends the course at once: every token stops working

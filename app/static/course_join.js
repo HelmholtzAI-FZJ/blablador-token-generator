@@ -8,7 +8,7 @@ registerActions({
         const error = document.getElementById('joinError');
         error.textContent = '';
         try {
-            const response = await fetch(`/courses/join/${encodeURIComponent(el.dataset.code)}`, {
+            const response = await fetch(el.dataset.path, {
                 method: 'POST', headers: csrfHeaders(),
             });
             if (!response.ok) throw new Error(await errorMessage(response));
