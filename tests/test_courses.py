@@ -1451,7 +1451,7 @@ def test_a_new_course_user_is_not_blocked_by_an_old_deletion_record(client, teac
 
 def test_token_pages_have_the_test_box(client, teacher, course, mailbox):
     page = teacher.get("/dashboard").text
-    box = page.split('class="token-warning token-test"', 1)[1].split("</div>\n</div>", 1)[0]
+    box = page.split('<div class="token-test">', 1)[1].split("</div>\n</div>", 1)[0]
     assert "Test your token" in box and 'id="newTokenCurl"' in box and "malformed" in box and "401" in box
     invite(teacher, course, ["a@x.org"])
     drain(client)
@@ -1533,3 +1533,14 @@ def test_dashboard_offers_add_students_and_seats():
     script = (Path(__file__).resolve().parents[1] / "app/static/courses.js").read_text()
     assert ">Add students</button>" in script and 'data-action="change-seats"' in script
     assert "Invite by email" not in script
+
+
+
+def test_test_box_is_gray_not_the_token_warning():
+    from pathlib import Path
+    templates = Path(__file__).resolve().parents[1] / "app/templates"
+    assert '<div class="token-test">' in (templates / "_token_test.html").read_text()
+    assert "token-warning" not in (templates / "_token_test.html").read_text()
+    for page in ("dashboard.html", "course_join.html"):
+        css = (templates / page).read_text().split(".token-test {", 1)[1].split("}", 1)[0]
+        assert "#f4f5f7" in css and "#fff3cd" not in css
