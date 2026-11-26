@@ -205,7 +205,7 @@ may join one with its link.
 | `DELETE /courses/{id}` | | Deletes a closed or ended course with its tokens, students and invitations; `400` while it runs |
 | `POST /courses/{id}/seats/{seat_id}/revoke` | | Revokes one student's token; they cannot join again |
 | `POST /courses/{id}/invitations` | `{"emails": [...], "subject", "body"}` | Teachers only; needs mail. Mails each new address a single-use link (one seat each). `400` if there are not enough free seats. Returns `invited` and `skipped` (already invited) |
-| `GET /courses/{id}/invitations` | | Invitations: `email`, `status` (`open`, `claimed`, `cancelled`), `sent_at`, `send_count`, `delivery_failed`, `claimed_by_name` (after the student signed in), `token_status`, `last_used_at`, `use_count`. Never the token or the link |
+| `GET /courses/{id}/invitations` | | Invitations: `email`, `status` (`open`, `claimed`, `cancelled`, or `deleted` when the student's account was deleted afterwards; it can be reissued), `sent_at`, `send_count`, `delivery_failed`, `claimed_by_name` (after the student signed in), `token_status`, `last_used_at`, `use_count`. Never the token or the link |
 | `POST /courses/{id}/invitations/{invitation_id}/revoke` | | Revokes the token an invitation gave; the seat stays used |
 | `POST /courses/{id}/invitations/{invitation_id}/reissue` | `{"subject", "body"}` | For a lost token: revokes it and mails a new one-time link, without using another seat. Counts towards `courses.max_invitation_sends` |
 | `POST /courses/{id}/invitations/{invitation_id}/resend` | `{"subject", "body"}` | Mails a new link; the old one stops working. At most `courses.max_invitation_sends` sends |

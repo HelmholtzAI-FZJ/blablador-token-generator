@@ -44,6 +44,10 @@ def identity_reference(*, user: User | None = None, subject: str | None = None) 
 
 
 def record_deletion(db: AsyncSession, user: User) -> None:
+    # Course users cannot sign in, so there is nothing to keep out; a new
+    # invitation to the address is a teacher's fresh decision.
+    if user.is_course_user:
+        return
     db.add(DeletedUser(
         unity_id_hash=_subject_hash(user.unity_id) if user.unity_id else None,
         email_hash=_email_hash(user.email),
@@ -58,6 +62,8 @@ async def is_subject_deleted(db: AsyncSession, unity_id: str) -> bool:
 
 
 async def is_user_deleted(db: AsyncSession, user: User) -> bool:
+    if user.is_course_user:
+        return False
     if user.unity_id is not None:
         return await is_subject_deleted(db, user.unity_id)
     result = await db.execute(

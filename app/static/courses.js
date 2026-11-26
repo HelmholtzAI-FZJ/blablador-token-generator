@@ -62,12 +62,12 @@ function invitationRows(courseId, invitations) {
         ${invitations.map(invitation => `
             <tr>
                 <td>${escapeHtml(invitation.email)}${invitation.claimed_by_name ? `<br><span class="muted">signed in as ${escapeHtml(invitation.claimed_by_name)}</span>` : ''}</td>
-                <td>${escapeHtml(invitation.status)}${invitation.delivery_failed ? ' <strong>(not delivered)</strong>' : ''}</td>
+                <td>${invitation.status === 'deleted' ? 'account deleted' : escapeHtml(invitation.status)}${invitation.delivery_failed ? ' <strong>(not delivered)</strong>' : ''}</td>
                 <td>${courseDateTime(invitation.sent_at)} (${invitation.send_count}×)</td>
                 <td>${escapeHtml(invitation.token_status || '')}</td>
                 <td>${invitation.token_status ? courseDateTime(invitation.last_used_at) : ''}</td>
                 <td>${invitation.token_status ? invitation.use_count : ''}</td>
-                <td>${invitation.status === 'claimed' ? `
+                <td>${invitation.status === 'claimed' || invitation.status === 'deleted' ? `
                     ${invitation.token_status === 'active' ? `<button class="btn btn-small btn-danger" data-action="revoke-invitation" data-course="${escapeHtml(courseId)}" data-id="${escapeHtml(invitation.id)}" data-email="${escapeHtml(invitation.email)}">Revoke</button>` : ''}
                     <button class="btn btn-small" data-action="reissue-invitation" data-course="${escapeHtml(courseId)}" data-id="${escapeHtml(invitation.id)}" data-email="${escapeHtml(invitation.email)}">Reissue</button>` : ''}
                     ${invitation.status === 'open' ? `

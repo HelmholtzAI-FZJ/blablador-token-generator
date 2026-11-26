@@ -538,7 +538,8 @@ class InvitationResponse(BaseModel):
     """What the teacher sees: never the token or the link."""
     id: str
     email: str
-    # open (link not used yet), claimed (token shown) or cancelled
+    # open (link not used yet), claimed (token shown), cancelled, or
+    # deleted (the student's account was deleted afterwards)
     status: str
     sent_at: str
     send_count: int
@@ -554,6 +555,8 @@ class InvitationResponse(BaseModel):
     @classmethod
     def of(cls, invitation: CourseInvitation, token: Token | None = None) -> "InvitationResponse":
         status = "claimed" if invitation.claimed_at else ("cancelled" if invitation.cancelled_at else "open")
+        if status == "claimed" and invitation.claimed_by_id is None and token is None:
+            status = "deleted"
         return cls(
             id=invitation.id, email=invitation.email, status=status,
             sent_at=isoformat_utc(invitation.sent_at), send_count=invitation.send_count,

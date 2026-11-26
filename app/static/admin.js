@@ -417,7 +417,7 @@ async function toggleCourseInvitations(courseId) {
         ${invitations.map(invitation => `
             <tr>
                 <td>${escapeHtml(invitation.email)}${invitation.claimed_by_name ? ` (${escapeHtml(invitation.claimed_by_name)})` : ''}</td>
-                <td>${escapeHtml(invitation.status)}${invitation.delivery_failed ? ' (not delivered)' : ''}</td>
+                <td>${invitation.status === 'deleted' ? 'account deleted' : escapeHtml(invitation.status)}${invitation.delivery_failed ? ' (not delivered)' : ''}</td>
                 <td>${escapeHtml(invitation.token_status || '')}</td>
                 <td>${invitation.use_count}</td>
                 <td>${invitation.link ? `<a href="${escapeHtml(invitation.link)}" target="_blank" rel="noopener noreferrer">${escapeHtml(invitation.link)}</a>` : ''}</td>

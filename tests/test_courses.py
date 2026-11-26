@@ -1385,3 +1385,53 @@ def test_page_scripts_parse():
     for script in sorted((Path(__file__).resolve().parents[1] / "app/static").glob("*.js")):
         subprocess.run(["node", "-e", "new Function(require('fs').readFileSync(process.argv[1], 'utf8'))",
                         str(script)], check=True)
+
+
+# Deleting students
+
+
+def test_deleted_course_user_leaves_the_course_and_can_be_invited_again(client, teacher, course, mailbox):
+    address = unique_address()
+    invitation, claimed = mailed_token(client, teacher, course, mailbox, address)
+    course_user_id = validate(client, claimed["token"]).json()["user_id"]
+    admin = Session(client, admin=True)
+    assert admin.delete(f"/api/admin/users/{course_user_id}").status_code == 200
+
+    assert all(seat["student_email"] != address for seat in teacher.get(f"/courses/{course['id']}/seats").json())
+    listed = next(i for i in teacher.get(f"/courses/{course['id']}/invitations").json() if i["email"] == address)
+    assert listed["status"] == "deleted" and listed["token_status"] is None
+    assert validate(client, claimed["token"]).status_code == 401
+
+    reissued = teacher.post(f"/courses/{course['id']}/invitations/{invitation['id']}/reissue",
+                            json={"subject": "x", "body": "y"})
+    assert reissued.status_code == 200
+    drain(client)
+    again = claim_signed_out(client, code_of(link_in(mailbox[-1])))
+    assert again.status_code == 200
+    body = validate(client, again.json()["token"]).json()
+    assert body["valid"] and body["user"]["course_user"] and body["user_id"] != course_user_id
+
+
+def test_deleting_a_course_user_writes_no_deletion_record(client, teacher, course, mailbox):
+    from app.models import DeletedUser
+    address = unique_address()
+    _, claimed = mailed_token(client, teacher, course, mailbox, address)
+    before = len(client.portal.call(lambda: fetch(select(DeletedUser))))
+    Session(client, admin=True).delete(f"/api/admin/users/{validate(client, claimed['token']).json()['user_id']}")
+    assert len(client.portal.call(lambda: fetch(select(DeletedUser)))) == before
+
+
+def test_a_new_course_user_is_not_blocked_by_an_old_deletion_record(client, teacher, course, mailbox):
+    from app.tombstones import record_deletion
+
+    address = unique_address()
+
+    async def old_record():
+        from app import database
+        async with database.async_session_maker() as db:
+            record_deletion(db, User(email=address, name="Old local account"))
+            await db.commit()
+
+    client.portal.call(old_record)
+    _, claimed = mailed_token(client, teacher, course, mailbox, address)
+    assert validate(client, claimed["token"]).json()["valid"] is True

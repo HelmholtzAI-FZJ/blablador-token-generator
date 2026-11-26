@@ -71,6 +71,9 @@ All notable changes to this project are documented here. The format follows
 - The admin Courses tab's **Students** panel lists everyone with a seat,
   whether they joined through the shared link or an invitation, and the
   invitations; teachers' Students panel shows how each student joined.
+- Deleting a course user removes them from their courses; their invitations
+  then show "account deleted" and can be reissued. Course users leave no
+  deletion record, so the address can be invited again.
 - Administrators can search users by part of their email, name or OAuth
   subject (search box on the Users tab; `q` on `GET /api/admin/users`).
 - Configuration: `courses.*`, `rate_limits.course_join` and
