@@ -63,6 +63,24 @@ def invalid_token(detail: str) -> HTTPException:
     return HTTPException(status_code=401, detail=detail, headers={"WWW-Authenticate": "Bearer"})
 
 
+_HEX_DIGITS = frozenset("0123456789abcdefABCDEF")
+
+
+def is_possible_token(token: str) -> bool:
+    """Whether generate_token can have produced this value: the configured
+    prefix, then whole random bytes, so an even and non-zero number of hex
+    characters. A value that fails this cannot be a token of this service,
+    however it was truncated, copied or transcribed."""
+    prefix, separator, body = token.partition("-")
+    if not separator or prefix != get_config().tokens.token_prefix:
+        return False
+    return (
+        2 <= len(body) <= MAX_TOKEN_LENGTH
+        and len(body) % 2 == 0
+        and all(character in _HEX_DIGITS for character in body)
+    )
+
+
 async def authenticate_api_token(
     bearer_token: str | None, db: AsyncSession, respond: Callable[[Token], T],
 ) -> T:
@@ -72,6 +90,12 @@ async def authenticate_api_token(
     expire it."""
     if not bearer_token:
         raise invalid_token("No token provided. Use Bearer token.")
+
+    if not is_possible_token(bearer_token):
+        raise invalid_token(
+            f"Token is malformed: expected '{get_config().tokens.token_prefix}-' "
+            "followed by an even number of hexadecimal characters"
+        )
 
     token_hash = hash_token(bearer_token)
 
