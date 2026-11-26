@@ -60,6 +60,9 @@ class ValidateResponse(BaseModel):
 
 
 class CurrentUserResponse(BaseModel):
+    # The token's person, at the top level as in the validation response;
+    # None for application tokens.
+    email: str | None = None
     # None for an application token whose creator's account was deleted.
     user: UserInfo | None = None
     token_type: str
@@ -368,6 +371,7 @@ async def current_user(
 
 def current_user_response(token: Token) -> CurrentUserResponse:
     return CurrentUserResponse(
+        email=token_email(token),
         user=user_info(token.reported_user),
         token_type=token_type(token),
         application=application_info(token),

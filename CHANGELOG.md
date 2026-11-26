@@ -91,6 +91,8 @@ All notable changes to this project are documented here. The format follows
   former "Invite by email") and change its seats (**Seats**,
   `PATCH /courses/{id}`), up to `courses.max_seats` and never below the
   seats in use.
+- `/api/v1/user` reports the token's `email` at the top level, as
+  `/api/v1/auth/validate` does.
 - Administrators can search users by part of their email, name or OAuth
   subject (search box on the Users tab; `q` on `GET /api/admin/users`).
 - Configuration: `courses.*`, `rate_limits.course_join` and

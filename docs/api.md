@@ -128,8 +128,9 @@ GET /api/v1/user
 Authorization: Bearer blablador-6f1c…
 ```
 
-Returns `user` (`id`, `email`, `name`), `token_type`, `application` and
-`course`, as in the validation response, or `401` for a missing, revoked or expired token.
+Returns `email` (at the top level, as in the validation response; `null`
+for application tokens), `user` (`id`, `email`, `name`, `course_user`),
+`token_type`, `application` and `course`, as in the validation response, or `401` for a missing, revoked or expired token.
 
 ## Token management
 

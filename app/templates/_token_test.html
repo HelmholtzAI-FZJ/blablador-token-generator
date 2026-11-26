@@ -7,8 +7,8 @@
         <code class="token-value" id="{{ curl_id }}"></code>
         <button class="btn btn-small btn-copy" data-action="{{ copy_action }}"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg> Copy</button>
     </div>
-    <p><strong>If the token works</strong>, the answer is JSON describing it: your account under
-       <code>"user"</code>, the <code>"token_type"</code> (<code>personal</code>, <code>application</code> or
+    <p><strong>If the token works</strong>, the answer is JSON describing it: your <code>"email"</code>,
+       your account under <code>"user"</code>, the <code>"token_type"</code> (<code>personal</code>, <code>application</code> or
        <code>course</code>) and, for a course token, the course with its dates.</p>
     <p><strong>If it does not</strong>, the answer has HTTP status 401 and <code>"valid": false</code>, a
        <code>"reason"</code> and an explanation in <code>"error_description"</code>. The reason is

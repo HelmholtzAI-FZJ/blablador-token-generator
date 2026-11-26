@@ -113,3 +113,36 @@ def test_course_rejections_have_reasons(client):
     client.portal.call(lambda: run_sql(update(Course).where(Course.id == course["id"]).values(
         ends_at=utcnow() + timedelta(days=1), suspended_at=utcnow())))
     assert rejected(client, joined["token"]).json()["reason"] == "course_closed"
+
+
+def test_current_user_reports_email_at_the_top_level(client):
+    plain = seed_token(client, expires_at=utcnow() + timedelta(days=1))
+    body = client.get("/api/v1/user", headers={"Authorization": f"Bearer {plain}"}).json()
+    assert body["email"] == body["user"]["email"] and body["email"].endswith("@x.org")
+    assert list(body)[0] == "email"
+
+
+def test_current_user_email_for_a_mailed_course_token(client):
+    from tests.test_courses import Session, course_body, invite, drain, link_in, code_of, claim_signed_out
+    from app.config import get_config
+
+    teacher = Session(client, teacher=True)
+    course = teacher.post("/courses", json=course_body()).json()
+    sent = []
+
+    async def fake_send(recipients, subject, body, reply_to=None):
+        sent.append({"to": recipients, "subject": subject, "body": body})
+        return True
+
+    import app.mailer as mailer
+    original, enabled = mailer.send_mail, get_config().smtp.enabled
+    mailer.send_mail, get_config().smtp.enabled = fake_send, True
+    try:
+        address = f"top-{uuid.uuid4().hex[:6]}@uni.example"
+        invite(teacher, course, [address])
+        drain(client)
+        token = claim_signed_out(client, code_of(link_in(sent[-1]))).json()["token"]
+    finally:
+        mailer.send_mail, get_config().smtp.enabled = original, enabled
+    body = client.get("/api/v1/user", headers={"Authorization": f"Bearer {token}"}).json()
+    assert body["email"] == address and body["token_type"] == "course"
