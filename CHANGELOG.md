@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [1.4.0] - 2026-11-26
+
 ### Added
 
 - Courses, for teachers handing out short-lived tokens to a class. An
@@ -28,7 +30,8 @@ All notable changes to this project are documented here. The format follows
   single-use link per address, each holding a seat until claimed or
   cancelled, from an editable template (`courses.invitation_subject`,
   `courses.invitation_body`). The link, the dates and a footer naming the
-  teacher are always added; replies go to the teacher. Invitations can be
+  teacher (`courses.invitation_footer`, which teachers cannot change) are
+  always added; replies go to the teacher. Invitations can be
   resent (`courses.max_invitation_sends`) or cancelled, and failed deliveries
   are shown. Links are not tied to the address.
 - `python -m app.manage purge-course-tokens` and the chart's `coursePurge`
@@ -305,6 +308,7 @@ hardening listed below, and the fixes of a follow-up security audit
     its own dumps; long release names no longer break the database pod.
   - Fuller audit trail, safer restore and upgrade procedures.
 
+[1.4.0]: https://github.com/HelmholtzAI-FZJ/blablador-token-generator/releases/tag/v1.4.0
 [1.2.1]: https://github.com/HelmholtzAI-FZJ/blablador-token-generator/releases/tag/v1.2.1
 [1.2.0]: https://github.com/HelmholtzAI-FZJ/blablador-token-generator/releases/tag/v1.2.0
 [1.1.0]: https://github.com/HelmholtzAI-FZJ/blablador-token-generator/releases/tag/v1.1.0

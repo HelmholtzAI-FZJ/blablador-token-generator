@@ -131,19 +131,17 @@ def invitation_text(value: str, *, multiline: bool) -> str:
 
 def invitation_message(course: Course, teacher: User, body: str, link: str) -> str:
     """The teacher's text, then what the service always adds."""
-    app_name = get_config().app.name
-    last_day = (course.ends_at - timedelta(days=1)).date().isoformat()
-    return (
-        f"{body}\n\n"
-        f"Your personal link to join \"{course.name}\" "
-        f"({course.starts_at.date().isoformat()} to {last_day}):\n\n"
-        f"    {link}\n\n"
-        "Sign in with your account, open the link and press \"Join\" to get your API token. "
-        "The link works once, for one person; do not forward it.\n\n"
-        "-- \n"
-        f"Sent by {app_name} on behalf of {teacher.name} <{teacher.email}>. "
-        "Reply to this message to reach them. If you did not expect it, ignore it.\n"
+    config = get_config()
+    footer = config.courses.invitation_footer.format(
+        course=course.name,
+        start=course.starts_at.date().isoformat(),
+        end=(course.ends_at - timedelta(days=1)).date().isoformat(),
+        link=link,
+        app_name=config.app.name,
+        teacher_name=teacher.name,
+        teacher_email=teacher.email,
     )
+    return f"{body}\n\n{footer}"
 
 
 async def deliver_invitation(invitation_id: str, email: str, subject: str, text: str, reply_to: str) -> None:

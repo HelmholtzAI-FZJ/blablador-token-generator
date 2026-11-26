@@ -132,6 +132,10 @@ courses:
   # may edit it; the link, the dates and a footer naming the teacher are added.
   # invitation_subject: "..."
   # invitation_body: "..."
+  # Appended to every invitation; teachers cannot change it. Placeholders:
+  # {course} {start} {end} {link} {app_name} {teacher_name} {teacher_email};
+  # {link} is required.
+  # invitation_footer: "..."
   invitation_max_body_chars: 4000
   # Sends per invitation, the first included.
   max_invitation_sends: 3

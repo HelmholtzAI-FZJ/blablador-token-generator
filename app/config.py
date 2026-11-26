@@ -218,8 +218,18 @@ DEFAULT_INVITATION_SUBJECT = "Your access to Blablador for the course"
 DEFAULT_INVITATION_BODY = (
     "Hello,\n\n"
     "for this course you will use Blablador, an LLM service. Use the personal link "
-    "below to get your API token. Do not forward it: it works only once."
+    "below to get your API token."
 )
+DEFAULT_INVITATION_FOOTER = (
+    "Your personal link to join \"{course}\" ({start} to {end}):\n\n"
+    "    {link}\n\n"
+    "Sign in with your account, open the link and press \"Join\" to get your API token. "
+    "The link works once, for one person; do not forward it.\n\n"
+    "-- \n"
+    "Sent by {app_name} on behalf of {teacher_name} <{teacher_email}>. "
+    "Reply to this message to reach them. If you did not expect it, ignore it.\n"
+)
+INVITATION_FOOTER_FIELDS = ("course", "start", "end", "link", "app_name", "teacher_name", "teacher_email")
 
 
 class CourseConfig(SecurityConfigModel):
@@ -241,10 +251,30 @@ class CourseConfig(SecurityConfigModel):
     invitation_subject: str = Field(DEFAULT_INVITATION_SUBJECT, min_length=1, max_length=200)
     invitation_body: str = Field(DEFAULT_INVITATION_BODY, min_length=1, max_length=4000)
     invitation_max_body_chars: int = Field(4000, ge=100, le=20000)
+    # Appended to every invitation after the teacher's text; teachers cannot
+    # change it. Placeholders: {course}, {start}, {end} (first and last day),
+    # {link}, {app_name}, {teacher_name}, {teacher_email}. {link} is required.
+    invitation_footer: str = Field(DEFAULT_INVITATION_FOOTER, min_length=1, max_length=4000)
     # Sends per invitation, the first included, so resending cannot spam.
     max_invitation_sends: int = Field(3, ge=1, le=20)
     terms_version: str = Field("1", min_length=1, max_length=32)
     terms_text: str = Field(DEFAULT_COURSE_TERMS, min_length=1, max_length=4000)
+
+    @field_validator("invitation_footer")
+    @classmethod
+    def check_invitation_footer(cls, value: str) -> str:
+        from string import Formatter
+        try:
+            fields = {name for _, name, _, _ in Formatter().parse(value) if name is not None}
+        except ValueError as exc:
+            raise ValueError(f"courses.invitation_footer is not a valid template: {exc}") from None
+        unknown = fields - set(INVITATION_FOOTER_FIELDS)
+        if unknown:
+            raise ValueError(f"courses.invitation_footer has unknown placeholders: {sorted(unknown)}; "
+                             f"use {', '.join('{' + f + '}' for f in INVITATION_FOOTER_FIELDS)}")
+        if "link" not in fields:
+            raise ValueError("courses.invitation_footer must contain {link}")
+        return value
 
 
 class ModelConfig(SecurityConfigModel):

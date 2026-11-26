@@ -240,6 +240,7 @@ end of the last day. See the [user guide](user-guide.md#courses).
 | `retention_days` | `30` | Days after a course ends before `purge-course-tokens` deletes its tokens. Courses and seats are kept as a record. |
 | `invitation_subject` | (built-in text) | Default subject of mailed invitations; teachers may edit it. |
 | `invitation_body` | (built-in text) | Default message of mailed invitations; teachers may edit it. The personal link, the course dates and a footer naming the teacher are always appended, and replies go to the teacher. |
+| `invitation_footer` | (built-in text) | Appended to every invitation after the teacher's text; teachers cannot change it. Placeholders: `{course}`, `{start}` and `{end}` (first and last day), `{link}`, `{app_name}`, `{teacher_name}`, `{teacher_email}`. Must contain `{link}`; other placeholders are refused. |
 | `invitation_max_body_chars` | `4000` | Longest message a teacher may write. |
 | `max_invitation_sends` | `3` | How often one invitation may be sent, the first time included. |
 | `terms_version` | `"1"` | Version of the teacher terms, stored with each course. Change it together with `terms_text`. |

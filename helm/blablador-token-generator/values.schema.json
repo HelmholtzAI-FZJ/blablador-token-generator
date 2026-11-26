@@ -491,6 +491,12 @@
               "type": "integer",
               "minimum": 1,
               "maximum": 20
+            },
+            "invitation_footer": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 4000,
+              "pattern": "\\{link\\}"
             }
           }
         },

@@ -982,3 +982,47 @@ def test_deleted_student_seat_does_not_block_course_deletion(client, teacher, co
     student.post("/account/delete")
     teacher.post(f"/courses/{course['id']}/close")
     assert teacher.delete(f"/courses/{course['id']}").status_code == 200
+
+
+# Invitation footer
+
+
+def test_footer_is_configurable(client, teacher, course, mailbox, monkeypatch):
+    monkeypatch.setattr(get_config().courses, "invitation_footer",
+                        "Kurs {course} ({start}–{end}) von {teacher_name}: {link}")
+    invite(teacher, course, ["a@x.org"], body="Hallo {braces} stay literal")
+    drain(client)
+    body = mailbox[0]["body"]
+    assert body.startswith("Hallo {braces} stay literal\n\nKurs Intro to LLMs (")
+    assert f"{today().isoformat()}–{(today() + timedelta(days=13)).isoformat()}" in body
+    assert "/courses/invite/" in body and "von Person:" in body
+
+
+def test_course_name_with_braces_is_not_a_template(client, teacher, mailbox):
+    course = teacher.post("/courses", json=course_body(name="Course {link} {0}")).json()
+    invite(teacher, course, ["a@x.org"])
+    drain(client)
+    assert 'join "Course {link} {0}"' in mailbox[0]["body"]
+
+
+def test_default_body_does_not_repeat_the_footer():
+    courses = get_config().courses
+    assert "works only once" not in courses.invitation_body
+    assert "do not forward" in courses.invitation_footer
+
+
+@pytest.mark.parametrize("footer, message", [
+    ("No link here {course}", "must contain {link}"),
+    ("{link} {teacher_password}", "unknown placeholders"),
+    ("{link} {link.__class__}", "unknown placeholders"),
+    ("{link} {}", "unknown placeholders"),
+    ("{link} {unclosed", "not a valid template"),
+])
+def test_footer_is_validated(footer, message):
+    with pytest.raises(ValueError, match=message):
+        Config(courses={"invitation_footer": footer})
+
+
+def test_every_placeholder_is_accepted():
+    from app.config import INVITATION_FOOTER_FIELDS
+    Config(courses={"invitation_footer": " ".join("{" + f + "}" for f in INVITATION_FOOTER_FIELDS)})
