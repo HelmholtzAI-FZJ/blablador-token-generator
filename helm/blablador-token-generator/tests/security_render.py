@@ -129,6 +129,20 @@ def test_chart() -> None:
     reminded_app = reminded[("Deployment", name)]["spec"]["template"]["spec"]["containers"][0]
     assert "SMTP_PASSWORD" in [entry["name"] for entry in reminded_app["env"]]
 
+    purging = copy.deepcopy(values)
+    purging["coursePurge"] = {"enabled": True}
+    purge_job = next(
+        resource for resource in index(render(purging)).values()
+        if resource["kind"] == "CronJob" and resource["metadata"]["name"].endswith("-course-purge")
+    )
+    purge_pod = purge_job["spec"]["jobTemplate"]["spec"]["template"]["spec"]
+    purge_container = purge_pod["containers"][0]
+    assert purge_container["command"] == ["python", "-m", "app.manage", "purge-course-tokens"]
+    assert purge_container["securityContext"]["readOnlyRootFilesystem"] is True
+    assert purge_pod["readinessGates"], "purge pod would receive user traffic"
+    assert "SMTP_PASSWORD" not in [entry["name"] for entry in purge_container["env"]]
+    assert not any(resource["metadata"]["name"].endswith("-course-purge") for resource in render(values))
+
     rotated = copy.deepcopy(values)
     rotated["postgresql"]["password"] = "P" * 64
     rotated["redis"]["password"] = "R" * 64

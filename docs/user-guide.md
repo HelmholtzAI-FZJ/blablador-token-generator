@@ -60,6 +60,28 @@ new token.
 There is a limit on how many tokens one account can hold (100 by default,
 counting revoked and expired ones). Delete revoked tokens you no longer need.
 
+## Courses
+
+If an administrator made you a teacher, the dashboard has a **Courses** card.
+
+1. Enter the course name, the first and last day, and the number of seats, and
+   accept the terms. A course lasts at most 21 days and has at most 60 seats
+   by default; you can run one course at a time.
+2. Copy the **join link** and share it with your students only. It is shown
+   once; **New join link** replaces it (the old one stops working).
+3. Each student signs in, opens the link and presses **Join and get my token**.
+   They get one token, `blablador-course-…`, that works from the first day
+   until the end of the last day (UTC). If they lose it they can rotate it on
+   their dashboard; they cannot join a second time.
+4. **Students** lists who joined, when each token was last used and how often.
+   A token used far more than the others may have been shared: **Revoke** it.
+   A revoked student's seat stays used.
+5. **Revoke all and close** ends the course at once: every token stops working
+   and the link is disabled.
+
+Once all seats are claimed the link stops working, so a leaked link can be
+used at most as many times as there are seats.
+
 ## Sign out
 
 **Logout** ends the session on the server, so a copied session cookie stops

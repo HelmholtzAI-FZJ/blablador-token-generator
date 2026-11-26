@@ -337,6 +337,9 @@
                 "type": "string"
               },
               "type": "array"
+            },
+            "course_join": {
+              "type": "string"
             }
           },
           "type": "object"
@@ -416,6 +419,55 @@
               "type": "integer",
               "minimum": 1,
               "maximum": 1000
+            }
+          }
+        },
+        "courses": {
+          "additionalProperties": false,
+          "type": "object",
+          "properties": {
+            "enabled": {
+              "type": "boolean"
+            },
+            "max_days": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 365
+            },
+            "max_seats": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 1000
+            },
+            "max_active_per_teacher": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100
+            },
+            "max_days_ahead": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 365
+            },
+            "join_code_bytes": {
+              "type": "integer",
+              "minimum": 16,
+              "maximum": 64
+            },
+            "retention_days": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 3650
+            },
+            "terms_version": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 32
+            },
+            "terms_text": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 4000
             }
           }
         },
@@ -657,6 +709,22 @@
       "type": "object"
     },
     "expiryReminders": {
+      "additionalProperties": false,
+      "type": "object",
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "schedule": {
+          "type": "string",
+          "minLength": 1
+        },
+        "resources": {
+          "type": "object"
+        }
+      }
+    },
+    "coursePurge": {
       "additionalProperties": false,
       "type": "object",
       "properties": {

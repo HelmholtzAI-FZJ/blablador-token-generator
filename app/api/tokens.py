@@ -6,11 +6,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import func, or_, select, update
 from pydantic import BaseModel, Field, field_validator, model_validator
 from app.database import get_db, lock_user_for_update
-from app.models import ApplicationMember, User, Token
+from app.models import ApplicationMember, Course, User, Token
 from app.auth import get_current_user, generate_token, hash_token, invalidate_sessions
 from app.config import get_config
 from app.cookies import SESSION_COOKIE
 from app.rate_limit import limiter, RATE_LIMITS, user_or_ip
+from app.courses import is_active
 from app.timeutil import isoformat_utc, utcnow
 from app.validation import DisplayText, ResourceId
 
@@ -92,6 +93,7 @@ class TokenResponse(BaseModel):
     last_used_at: str | None = None
     revoked: bool = False
     application_id: str | None = None
+    course_id: str | None = None
 
     @classmethod
     def of(cls, token: Token) -> "TokenResponse":
@@ -103,6 +105,7 @@ class TokenResponse(BaseModel):
             last_used_at=isoformat_utc(token.last_used_at),
             revoked=token.revoked_at is not None,
             application_id=token.application_id,
+            course_id=token.course_id,
         )
 
 
@@ -134,7 +137,9 @@ async def issue_token(
     application they belong to. Each has its own max_tokens_per_user."""
     config = get_config()
 
-    owner = Token.application_id == application_id if application_id else Token.user_id == user.id
+    # Course tokens have their own limit, the course's seats.
+    owner = (Token.application_id == application_id if application_id
+             else (Token.user_id == user.id) & Token.course_id.is_(None))
     token_count = (await db.execute(select(func.count()).select_from(Token).where(owner))).scalar_one()
     if token_count >= config.tokens.max_tokens_per_user:
         raise HTTPException(
@@ -288,6 +293,8 @@ async def renew_token(
 ):
     user = await lock_token_owner(request, user, db)
     token = await manageable_token(token_id, user, db)
+    if token.course_id is not None:
+        raise HTTPException(status_code=400, detail="A course token ends with its course and cannot be renewed")
 
     config = get_config()
 
@@ -337,15 +344,18 @@ async def rotate_token(
     token = await manageable_token(token_id, user, db, lock=True)
     if token.revoked_at is not None:
         raise HTTPException(status_code=400, detail="Create a new token to replace a revoked token")
-    expires_at = token.expires_at
-    if body and body.expires_at is not None:
-        expires_at = body.expires_at
-    elif body and body.expires_in_days is not None:
-        expires_at = utcnow() + timedelta(days=body.expires_in_days)
-    if expires_at is None:
-        expires_at = utcnow() + timedelta(days=get_config().tokens.default_expiration_days)
-    check_expiration(expires_at)
-    plain_token = generate_token()
+    if token.course_id is not None:
+        expires_at = await course_rotation_expiry(token, db)
+    else:
+        expires_at = token.expires_at
+        if body and body.expires_at is not None:
+            expires_at = body.expires_at
+        elif body and body.expires_in_days is not None:
+            expires_at = utcnow() + timedelta(days=body.expires_in_days)
+        if expires_at is None:
+            expires_at = utcnow() + timedelta(days=get_config().tokens.default_expiration_days)
+        check_expiration(expires_at)
+    plain_token = generate_token(course=token.course_id is not None)
     # The old value's last use is evidence when rotating after a leak; it
     # stays in the audit log while the token's record starts afresh.
     previous_use = token.last_used_at
@@ -373,3 +383,12 @@ async def rotate_token(
         expires_at=isoformat_utc(token.expires_at),
         application_id=token.application_id,
     )
+
+
+async def course_rotation_expiry(token: Token, db: AsyncSession) -> datetime:
+    """A rotated course token keeps the course's end; a closed or ended
+    course's tokens cannot be brought back."""
+    course = (await db.execute(select(Course).where(Course.id == token.course_id))).scalar_one()
+    if not is_active(course):
+        raise HTTPException(status_code=400, detail="The course has ended or was closed")
+    return course.ends_at

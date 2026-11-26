@@ -6,6 +6,38 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- Courses, for teachers handing out short-lived tokens to a class. An
+  administrator marks an account as a teacher; the teacher creates a course
+  with a date range (at most 21 days) and a number of seats (at most 60),
+  accepts the course terms and gets a join link. Each student signs in, opens
+  the link and gets one token, `blablador-course-<hex>`, valid from the first
+  day until the end of the last day (UTC). A link opened before signing in is
+  resumed after sign-in. Claimed seats are never given back, so the link
+  stops working once the course is full. A teacher runs one course at a time.
+- Validation reports course tokens as `token_type: "course"` with a `course`
+  object (`id`, `name`, `starts_at`, `ends_at`), and refuses them before the
+  course starts, after it ends and once it is closed. Every use of a course
+  token is counted (`use_count`) so teachers can spot shared tokens.
+- Teachers see who joined, each token's last use and use count, and can revoke
+  one student's token, replace the join link, or revoke everything and close
+  the course. Administrators list and suspend courses. Removing the teacher
+  role or deleting the teacher's account closes their active course.
+- `python -m app.manage purge-course-tokens` and the chart's `coursePurge`
+  CronJob delete the tokens of courses that ended more than
+  `courses.retention_days` ago.
+- Configuration: `courses.*` and `rate_limits.course_join`. Courses are off
+  until `courses.enabled` is set.
+
+### Changed
+
+- Course tokens do not count towards `tokens.max_tokens_per_user`, cannot be
+  renewed, keep their course's end when rotated, and get no expiry reminders.
+- Migration 0006 adds `users.is_teacher`, the `courses` and `course_seats`
+  tables, and `tokens.course_id` and `tokens.use_count`. It is safe during a
+  rolling upgrade: 1.3.x instances reject course tokens as malformed.
+
 ## [1.3.2] - 2026-11-25
 
 ### Fixed

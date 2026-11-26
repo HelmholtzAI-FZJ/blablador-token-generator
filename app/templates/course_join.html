@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="csrf-token" content="{{ request.state.csrf_token }}">
+    <title>Join course - {{ app_name }}</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            background: #f5f5f5;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .card {
+            background: white;
+            padding: 2rem;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            max-width: 560px;
+            width: calc(100% - 2rem);
+        }
+        h1 { margin-bottom: 1rem; color: #2c3e50; }
+        p { margin-bottom: 1rem; }
+        .muted { color: #666; }
+        .btn {
+            display: inline-block;
+            padding: 0.75rem 1.5rem;
+            background: #3498db;
+            color: white;
+            text-decoration: none;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 1rem;
+        }
+        .btn:hover { background: #2980b9; }
+        .btn-copy { background: #27ae60; }
+        .token-warning {
+            background: #fff3cd;
+            border: 1px solid #ffc107;
+            padding: 1rem;
+            border-radius: 4px;
+            margin: 1rem 0;
+        }
+        .token-value { font-family: monospace; word-break: break-all; display: block; margin: 0.5rem 0; }
+        .error { color: #c0392b; }
+    </style>
+</head>
+<body>
+    <main class="card">
+        {% if problem %}
+        <h1>Cannot join</h1>
+        <p>{{ problem }}</p>
+        <a href="/dashboard" class="btn">Go to your dashboard</a>
+        {% else %}
+        <h1>{{ course.name }}</h1>
+        <p class="muted">
+            From <span class="datetime-date" data-utc="{{ course.starts_at|utc_iso }}">{{ course.starts_at.strftime('%Y-%m-%d') }}</span>
+            until <span class="datetime-date" data-utc="{{ course.ends_at|utc_iso }}">{{ course.ends_at.strftime('%Y-%m-%d') }}</span> (end of the course, UTC).
+        </p>
+        <p>Signed in as {{ user.name }} ({{ user.email }}). Joining gives you one personal API token for this course.
+           It works only while the course runs; your teacher can see when it was last used and can revoke it.
+           Do not share it: you cannot get a second one.</p>
+        <div id="joinArea">
+            <button class="btn" data-action="join-course" data-code="{{ code }}">Join and get my token</button>
+        </div>
+        <div id="joinResult" hidden>
+            <div class="token-warning">
+                <strong>Copy your token now. You won't be able to see it again.</strong>
+                <code class="token-value" id="courseTokenValue"></code>
+                <button class="btn btn-copy" data-action="copy-course-token">Copy</button>
+            </div>
+            <a href="/dashboard" class="btn">Go to your dashboard</a>
+        </div>
+        <p class="error" id="joinError" role="alert"></p>
+        {% endif %}
+    </main>
+    <script src="/static/common.js"></script>
+    <script src="/static/course_join.js"></script>
+</body>
+</html>

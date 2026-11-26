@@ -7,7 +7,7 @@ from sqlalchemy import and_, delete, or_, select, update
 from sqlalchemy.orm import joinedload, selectinload
 from pydantic import BaseModel, Field, StrictBool, field_validator
 from app.database import get_db, lock_user_for_update
-from app.models import Application, ApplicationMember, ROLE_OWNER, User, Token
+from app.models import Application, ApplicationMember, Course, ROLE_OWNER, User, Token
 from app.config import get_config
 from app.tombstones import (
     identity_reference, is_user_deleted, lift_deletions_for_email, lift_deletions_for_subject,
@@ -18,6 +18,9 @@ from app.auth import (
     validate_password_strength,
 )
 from app.api.applications import delete_application_and_tokens
+from app.courses import (
+    SUSPENDED_BY_ADMIN, TEACHER_DELETED, TEACHER_ROLE_REMOVED, close_course, close_courses_of, is_active,
+)
 from app.memberships import notify_orphaned, orphan_applications_left_by, orphaned_query
 from app.rate_limit import limiter, RATE_LIMITS, user_or_ip
 from app.cookies import SESSION_COOKIE
@@ -106,9 +109,18 @@ class UserResponse(BaseModel):
     email: str
     name: str
     is_admin: bool
+    is_teacher: bool = False
     created_at: str
     unity_id: str | None = None
     has_password: bool = False
+
+    @classmethod
+    def of(cls, user: User) -> "UserResponse":
+        return cls(
+            id=user.id, email=user.email, name=user.name, is_admin=user.is_admin,
+            is_teacher=bool(user.is_teacher), created_at=isoformat_utc(user.created_at),
+            unity_id=user.unity_id, has_password=user.password_hash is not None,
+        )
 
 
 class CreateUserRequest(BaseModel):
@@ -133,6 +145,7 @@ class UpdateUserRequest(BaseModel):
     name: Annotated[str, Field(min_length=1, max_length=255), DisplayText] | None = None
     password: str | None = Field(None, min_length=8, max_length=128)
     is_admin: StrictBool | None = None
+    is_teacher: StrictBool | None = None
 
 
 class RestoreOAuthRequest(BaseModel):
@@ -287,16 +300,7 @@ async def list_users(
     logger.info("admin=%s action=list_users page=%d", admin.id, page)
 
     return [
-        UserResponse(
-            id=u.id,
-            email=u.email,
-            name=u.name,
-            is_admin=u.is_admin,
-            created_at=isoformat_utc(u.created_at),
-            unity_id=u.unity_id,
-            has_password=u.password_hash is not None,
-        )
-        for u in users
+        UserResponse.of(u) for u in users
     ]
 
 
@@ -351,15 +355,7 @@ async def create_user(
         user.is_admin,
     )
 
-    return UserResponse(
-        id=user.id,
-        email=user.email,
-        name=user.name,
-        is_admin=user.is_admin,
-        created_at=isoformat_utc(user.created_at),
-        unity_id=user.unity_id,
-        has_password=user.password_hash is not None,
-    )
+    return UserResponse.of(user)
 
 
 @router.patch("/users/{user_id}", response_model=UserResponse)
@@ -404,6 +400,12 @@ async def update_user(
         user.is_admin = body.is_admin
     if body.password is not None or role_changed:
         await invalidate_sessions(user, db)
+    was_teacher = bool(user.is_teacher)
+    closed_courses = []
+    if body.is_teacher is not None and body.is_teacher != was_teacher:
+        user.is_teacher = body.is_teacher
+        if not body.is_teacher:
+            closed_courses = await close_courses_of(db, user, TEACHER_ROLE_REMOVED)
 
     try:
         await db.commit()
@@ -413,23 +415,19 @@ async def update_user(
         raise HTTPException(status_code=500, detail="Failed to update user")
 
     logger.info(
-        "admin=%s action=update_user user_id=%s was_admin=%s is_admin=%s password_changed=%s name_changed=%s",
+        "admin=%s action=update_user user_id=%s was_admin=%s is_admin=%s was_teacher=%s is_teacher=%s "
+        "courses_closed=%d password_changed=%s name_changed=%s",
         admin.id,
         user.id,
         was_admin,
         user.is_admin,
+        was_teacher,
+        user.is_teacher,
+        len(closed_courses),
         body.password is not None,
         body.name is not None,
     )
-    return UserResponse(
-        id=user.id,
-        email=user.email,
-        name=user.name,
-        is_admin=user.is_admin,
-        created_at=isoformat_utc(user.created_at),
-        unity_id=user.unity_id,
-        has_password=user.password_hash is not None,
-    )
+    return UserResponse.of(user)
 
 
 @router.delete("/users/{user_id}")
@@ -461,6 +459,7 @@ async def delete_user(
     # Tombstone so the account isn't resurrected by logging in again
     record_deletion(db, user)
     orphaned = await orphan_applications_left_by(db, user)
+    await close_courses_of(db, user, TEACHER_DELETED)
     identity = identity_reference(user=user)
     await db.delete(user)
     try:
@@ -614,3 +613,76 @@ async def delete_orphaned_application(
     logger.info("admin=%s action=delete_application application_id=%s tokens_deleted=%d",
                 admin.id, application_id, deleted)
     return {"message": "Application and its tokens deleted", "tokens_deleted": deleted}
+
+
+class AdminCourseResponse(BaseModel):
+    id: str
+    name: str
+    teacher_id: str | None = None
+    teacher_email: str | None = None
+    teacher_name: str | None = None
+    starts_at: str
+    ends_at: str
+    max_seats: int
+    seats_claimed: int
+    active: bool
+    suspended_at: str | None = None
+    suspended_reason: str | None = None
+    terms_version: str
+    terms_accepted_at: str
+
+
+@router.get("/courses", response_model=list[AdminCourseResponse])
+@limiter.limit(ADMIN_RATE_LIMIT, key_func=user_or_ip)
+async def list_courses(
+    request: Request,
+    response: Response,
+    page: Annotated[int, Query(ge=1, le=MAX_PAGE)] = 1,
+    page_size: Annotated[int, Query(ge=1, le=MAX_PAGE_SIZE)] = 20,
+    admin: User = Depends(get_current_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    courses = (await db.execute(
+        select(Course).options(joinedload(Course.teacher))
+        .order_by(Course.ends_at.desc(), Course.id)
+        .offset((page - 1) * page_size).limit(page_size + 1)
+    )).scalars().all()
+    response.headers["X-Has-More"] = "true" if len(courses) > page_size else "false"
+    logger.info("admin=%s action=list_courses page=%d", admin.id, page)
+    return [
+        AdminCourseResponse(
+            id=c.id, name=c.name, teacher_id=c.teacher_id,
+            teacher_email=c.teacher.email if c.teacher else None,
+            teacher_name=c.teacher.name if c.teacher else None,
+            starts_at=isoformat_utc(c.starts_at), ends_at=isoformat_utc(c.ends_at),
+            max_seats=c.max_seats, seats_claimed=c.seats_claimed, active=is_active(c),
+            suspended_at=isoformat_utc(c.suspended_at), suspended_reason=c.suspended_reason,
+            terms_version=c.terms_version, terms_accepted_at=isoformat_utc(c.terms_accepted_at),
+        )
+        for c in courses[:page_size]
+    ]
+
+
+@router.post("/courses/{course_id}/suspend")
+@limiter.limit(ADMIN_RATE_LIMIT, key_func=user_or_ip)
+async def suspend_course(
+    request: Request,
+    course_id: ResourceId,
+    admin: User = Depends(get_current_admin),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Revoke every token of a course and disable its join link."""
+    admin = await lock_admin_actor(db, admin.id, request)
+    course = (await db.execute(
+        select(Course).where(Course.id == course_id).with_for_update()
+    )).scalar_one_or_none()
+    if course is None:
+        raise HTTPException(status_code=404, detail="Course not found")
+    revoked = await close_course(db, course, SUSPENDED_BY_ADMIN)
+    try:
+        await db.commit()
+    except Exception:
+        await db.rollback()
+        raise HTTPException(status_code=500, detail="Failed to suspend course")
+    logger.info("admin=%s action=suspend_course course_id=%s tokens_revoked=%d", admin.id, course.id, revoked)
+    return {"message": "Course suspended and all its tokens revoked", "tokens_revoked": revoked}

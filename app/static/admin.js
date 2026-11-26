@@ -33,6 +33,9 @@ function switchTab(tab) {
     if (tabName === 'users') {
         loadUsers();
     }
+    if (tabName === 'courses') {
+        loadCourses();
+    }
 }
 
 // Confirmations name the account by what identifies it: the OAuth subject
@@ -55,7 +58,7 @@ async function loadUsers(page = 1) {
         document.getElementById('usersPage').textContent = `Page ${page}`;
         
         if (users.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="6" class="empty">No users</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="7" class="empty">No users</td></tr>';
             return;
         }
         
@@ -70,19 +73,21 @@ async function loadUsers(page = 1) {
                         : ''}
                 </td>
                 <td>${user.is_admin ? 'Yes' : 'No'}</td>
+                <td>${user.is_teacher ? 'Yes' : 'No'}</td>
                 <td>${new Date(user.created_at).toLocaleString()}</td>
                 <td>
                     ${user.has_password
                         ? `<button class="btn btn-small" data-action="reset-password" data-id="${escapeHtml(user.id)}">Reset Password</button>`
                         : ''}
                     <button class="btn btn-small" data-action="toggle-admin" data-id="${escapeHtml(user.id)}" data-account="${escapeHtml(describeAccount(user))}" data-admin="${user.is_admin}">${user.is_admin ? 'Remove Admin' : 'Make Admin'}</button>
+                    <button class="btn btn-small" data-action="toggle-teacher" data-id="${escapeHtml(user.id)}" data-account="${escapeHtml(describeAccount(user))}" data-teacher="${user.is_teacher}">${user.is_teacher ? 'Remove Teacher' : 'Make Teacher'}</button>
                     <button class="btn btn-small btn-danger" data-action="revoke-credentials" data-id="${escapeHtml(user.id)}" data-account="${escapeHtml(describeAccount(user))}">Revoke All Credentials</button>
                     <button class="btn btn-small btn-danger" data-action="delete-user" data-id="${escapeHtml(user.id)}" data-account="${escapeHtml(describeAccount(user))}">Delete</button>
                 </td>
             </tr>
         `).join('');
     } catch (e) {
-        tbody.innerHTML = '<tr><td colspan="6" class="empty">Failed to load users</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="7" class="empty">Failed to load users</td></tr>';
     }
 }
 
@@ -312,8 +317,66 @@ async function deleteOrphanedApplication(applicationId, name) {
     }
 }
 
+async function toggleTeacher(userId, account, isTeacher) {
+    const question = isTeacher
+        ? `Remove teacher rights from ${account}? Their running course is closed and its tokens revoked.`
+        : `Allow ${account} to run courses?`;
+    if (!confirm(question)) return;
+    const response = await fetch(`/api/admin/users/${encodeURIComponent(userId)}`, {
+        method: 'PATCH',
+        headers: csrfHeaders({'Content-Type': 'application/json'}),
+        body: JSON.stringify({is_teacher: !isTeacher}),
+    });
+    if (!response.ok) alert('Teacher change failed: ' + await errorMessage(response));
+    loadUsers(usersPage);
+}
+
+let coursesPage = 1;
+
+async function loadCourses(page = 1) {
+    const tbody = document.getElementById('coursesTableBody');
+    try {
+        const response = await fetch(`/api/admin/courses?page=${page}&page_size=100`);
+        if (!response.ok) throw new Error(await errorMessage(response));
+        const courses = await response.json();
+        coursesPage = page;
+        document.getElementById('coursesPrevious').disabled = page <= 1;
+        document.getElementById('coursesNext').disabled = response.headers.get('X-Has-More') !== 'true';
+        if (courses.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="6" class="empty">No courses</td></tr>';
+            return;
+        }
+        tbody.innerHTML = courses.map(course => `
+            <tr>
+                <td>${escapeHtml(course.name)}</td>
+                <td>${course.teacher_email ? `${escapeHtml(course.teacher_name)} &lt;${escapeHtml(course.teacher_email)}&gt;` : '<span class="muted">deleted</span>'}</td>
+                <td>${toLocalDate(course.starts_at)} – ${toLocalDateTime(course.ends_at)}</td>
+                <td>${course.seats_claimed} / ${course.max_seats}</td>
+                <td>${course.suspended_at ? `Closed: ${escapeHtml(course.suspended_reason || '')}` : (course.active ? 'Active' : 'Ended')}</td>
+                <td>${course.active
+                    ? `<button class="btn btn-small btn-danger" data-action="suspend-course" data-id="${escapeHtml(course.id)}" data-name="${escapeHtml(course.name)}">Suspend</button>`
+                    : ''}</td>
+            </tr>`).join('');
+    } catch (e) {
+        tbody.innerHTML = '<tr><td colspan="6" class="empty">Failed to load courses</td></tr>';
+    }
+}
+
+async function suspendCourse(courseId, name) {
+    if (!confirm(`Suspend "${name}" and revoke all its tokens? This cannot be undone.`)) return;
+    const response = await fetch(`/api/admin/courses/${encodeURIComponent(courseId)}/suspend`, {
+        method: 'POST', headers: csrfHeaders(),
+    });
+    if (!response.ok) alert(`Failed to suspend course: ${await errorMessage(response)}`);
+    loadCourses(coursesPage);
+}
+
 registerActions({
     'switch-tab': (el) => switchTab(el),
+    'toggle-teacher': (el) => toggleTeacher(el.dataset.id, el.dataset.account, el.dataset.teacher === 'true'),
+    'suspend-course': (el) => suspendCourse(el.dataset.id, el.dataset.name),
+    'courses-previous': () => loadCourses(Math.max(1, coursesPage - 1)),
+    'courses-next': () => loadCourses(coursesPage + 1),
     'take-over-application': (el) => takeOverApplication(el.dataset.id, el.dataset.name),
     'delete-orphaned-application': (el) => deleteOrphanedApplication(el.dataset.id, el.dataset.name),
     'delete-revoked': () => deleteRevokedTokens(),

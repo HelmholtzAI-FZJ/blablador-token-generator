@@ -5,6 +5,7 @@
     python -m app.manage grant-admin --subject <OAuth subject>
     python -m app.manage grant-admin --user-id <user id>
     python -m app.manage notify-expiring-tokens [--dry-run]
+    python -m app.manage purge-course-tokens
 
 create-local-admin reads the password from the terminal, or from standard
 input with --password-stdin. Both commands write an audit event; inside the
@@ -14,6 +15,9 @@ commands' own output does not.
 notify-expiring-tokens mails the owners of tokens that have reached a
 configured `notifications.warning_days` threshold; the chart runs it daily as
 a CronJob. It needs `smtp.enabled` and `notifications.expiry_reminders`.
+
+purge-course-tokens deletes the tokens of courses that ended more than
+`courses.retention_days` ago; the chart runs it daily as a CronJob.
 """
 import argparse
 import asyncio
@@ -32,6 +36,7 @@ from app import database
 from app.api.admin import CreateUserRequest
 from app.auth import hash_password_async, invalidate_sessions, validate_password_strength
 from app.config import get_config
+from app.courses import purge_ended_courses
 from app.logging_config import APP_LOGGER, configure_logging
 from app.models import User
 from app.notifications import NotificationError, send_expiry_reminders
@@ -151,6 +156,10 @@ async def run(args: argparse.Namespace) -> str:
                 except NotificationError as error:
                     raise CommandError(str(error)) from error
             return f"Expiry reminders: {result.summary()}"
+        if args.command == "purge-course-tokens":
+            async with database.async_session_maker() as db:
+                count = await purge_ended_courses(db)
+            return f"Deleted {count} tokens of ended courses"
         user_id = await grant_admin(user_id=args.user_id, subject=args.subject)
         return f"Account {user_id} is an administrator"
     finally:
@@ -180,6 +189,8 @@ def main() -> None:
                                  help="mail warnings for tokens that are about to expire")
     notify.add_argument("--dry-run", action="store_true",
                         help="report what would be sent, without sending or recording")
+    commands.add_parser("purge-course-tokens",
+                        help="delete the tokens of courses that ended more than courses.retention_days ago")
     args = parser.parse_args()
     configure_logging(get_config().app.log_level)
     copy_events_to_container_log()

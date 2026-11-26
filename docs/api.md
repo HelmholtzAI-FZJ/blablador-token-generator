@@ -47,10 +47,16 @@ case-insensitive; no request body is needed and no CSRF token is involved.
     already parse from other identity providers; it is `null` for application
     tokens, which authenticate an application rather than a person. `expires_at`
     is `null` only for tokens created before expiry became mandatory.
-    `token_type` is `personal` or `application`; `user` is the token's owner
-    (for an application token, the member who created it, or `null` with
-    `user_id` once their account is deleted) and `application` is `null` for
-    personal tokens.
+    `token_type` is `personal`, `application` or `course`; `user` is the
+    token's owner (for an application token, the member who created it, or
+    `null` with `user_id` once their account is deleted) and `application` is
+    `null` for personal tokens.
+
+    A course token (`blablador-course-…`) belongs to the student who joined;
+    the response adds `course` with its `id`, `name`, `starts_at` and
+    `ends_at`. Gateways should apply their own per-token and per-course limits
+    to these, keyed on `user_id` and `course.id`. `course` is `null` for every
+    other token.
 
 === "Invalid token (401)"
 
@@ -62,7 +68,9 @@ case-insensitive; no request body is needed and no CSRF token is involved.
     ```
 
     Other reasons: `No token provided. Use Bearer token.`, `Token has
-    expired`, `Token invalid: account has been deleted`.
+    expired`, `Token invalid: account has been deleted`, and for course
+    tokens `Token not valid yet: the course has not started`, `Token has
+    expired: the course has ended`, `Token revoked: the course was closed`.
 
 | Status | Meaning | Gateway should |
 | --- | --- | --- |
@@ -107,8 +115,8 @@ GET /api/v1/user
 Authorization: Bearer blablador-6f1c…
 ```
 
-Returns `user` (`id`, `email`, `name`), `token_type` and `application`, as in
-the validation response, or `401` for a missing, revoked or expired token.
+Returns `user` (`id`, `email`, `name`), `token_type`, `application` and
+`course`, as in the validation response, or `401` for a missing, revoked or expired token.
 
 ## Token management
 
@@ -176,6 +184,23 @@ Non-members get `404`; members attempting an owner's action get `403`.
 [`tokens.max_expiration_days`](configuration.md#tokens). Supplying both is an
 error. Without either, new tokens get `tokens.default_expiration_days`.
 
+## Courses
+
+Requires `courses.enabled`; otherwise these answer `404`. Session cookie plus
+`X-CSRF-Token`, as above. Teachers manage their own courses; anyone signed in
+may join one with its link.
+
+| Method and path | Body | Result |
+| --- | --- | --- |
+| `POST /courses` | `{"name", "starts_on", "ends_on", "max_seats", "accept_terms": true}` | Teachers only. Creates a course (dates are `YYYY-MM-DD`, inclusive, UTC) and returns it with its `join_url`, shown only here |
+| `GET /courses` | | Your courses: `id`, `name`, `starts_at`, `ends_at`, `max_seats`, `seats_claimed`, `active`, `suspended_at`, `suspended_reason` |
+| `GET /courses/{id}` | | One of your courses |
+| `GET /courses/{id}/seats` | | Students who joined, with `token_status` (`active`, `revoked`, `expired`, `deleted`), `last_used_at` and `use_count` |
+| `POST /courses/{id}/join-link` | | Replaces the join link; claimed seats stay claimed |
+| `POST /courses/{id}/close` | | Revokes every token of the course and disables its link, for good |
+| `POST /courses/{id}/seats/{seat_id}/revoke` | | Revokes one student's token; they cannot join again |
+| `POST /courses/join/{code}` | | Joins the course: returns `token` (shown once), `token_id`, `expires_at` and `course`. `404` for an unknown link, `410` for a closed, ended or full course, `409` if you already joined |
+
 ## Administration
 
 Administrator session plus `X-CSRF-Token`, as above. Lists are paged with
@@ -190,9 +215,11 @@ Administrator session plus `X-CSRF-Token`, as above. Lists are paged with
 | `DELETE /api/admin/tokens/{id}` | | Revokes a token |
 | `DELETE /api/admin/tokens/{id}/permanent` | | Deletes a token |
 | `DELETE /api/admin/tokens/revoked` | | Deletes all revoked tokens |
-| `GET /api/admin/users` | | Accounts: `id`, `email`, `name`, `is_admin`, `created_at`, `unity_id` (OAuth subject), `has_password` |
+| `GET /api/admin/courses` | | All courses with teacher, dates, seats, state and the terms version the teacher accepted |
+| `POST /api/admin/courses/{id}/suspend` | | Revokes every token of a course and disables its link |
+| `GET /api/admin/users` | | Accounts: `id`, `email`, `name`, `is_admin`, `is_teacher`, `created_at`, `unity_id` (OAuth subject), `has_password` |
 | `POST /api/admin/users` | `{"email", "name", "password", "is_admin"}` | Creates a **local** password account |
-| `PATCH /api/admin/users/{id}` | any of `name`, `password` (local accounts only), `is_admin` | Updates the account; a password or role change ends its sessions |
+| `PATCH /api/admin/users/{id}` | any of `name`, `password` (local accounts only), `is_admin`, `is_teacher` | Updates the account; a password or admin role change ends its sessions; removing `is_teacher` closes the teacher's active courses |
 | `DELETE /api/admin/users/{id}` | | Deletes the account and its tokens and blocks it from signing in again |
 | `POST /api/admin/users/{id}/revoke-credentials` | | Revokes all of the account's tokens and ends its sessions |
 | `POST /api/admin/users/restore-oauth` | `{"subject": "<exact OAuth subject>"}` | Lets a deleted OAuth account sign in again (as a new, empty account) |

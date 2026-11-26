@@ -132,6 +132,8 @@ class RateLimitConfig(SecurityConfigModel):
     session: str = "30/minute"
     account_delete: str = "5/minute"
     admin: str = "120/minute"
+    # Claiming a course seat, per signed-in user.
+    course_join: str = "10/minute"
     # Token validation, per client IP. Addresses or CIDRs listed in
     # token_validation_exempt (e.g. the API gateway) are not limited.
     token_validation: str = "600/minute"
@@ -139,7 +141,7 @@ class RateLimitConfig(SecurityConfigModel):
 
     @field_validator("pages", "oauth_callback", "local_login", "local_login_account",
                      "preauth", "tokens_read", "tokens_write", "session", "account_delete",
-                     "admin", "token_validation")
+                     "admin", "course_join", "token_validation")
     @classmethod
     def check_limit(cls, value: str) -> str:
         if parse(value).amount < 1:
@@ -203,6 +205,31 @@ class NotificationsConfig(SecurityConfigModel):
         return sorted(value, reverse=True)
 
 
+DEFAULT_COURSE_TERMS = (
+    "I run this course and am responsible for how its participants use their tokens. "
+    "I will tell them the service's terms of use, revoke tokens that are misused, and "
+    "not share the join link outside the course."
+)
+
+
+class CourseConfig(SecurityConfigModel):
+    """Courses: a teacher (set by an admin) shares a join link; each student
+    who signs in and opens it gets one token that ends with the course."""
+    enabled: bool = False
+    # Longest course, first to last day inclusive.
+    max_days: int = Field(21, ge=1, le=365)
+    max_seats: int = Field(60, ge=1, le=1000)
+    max_active_per_teacher: int = Field(1, ge=1, le=100)
+    # How far ahead a course may be scheduled.
+    max_days_ahead: int = Field(180, ge=0, le=365)
+    # Random bytes in a join link's code.
+    join_code_bytes: int = Field(24, ge=16, le=64)
+    # Days after a course ends before its tokens are purged.
+    retention_days: int = Field(30, ge=0, le=3650)
+    terms_version: str = Field("1", min_length=1, max_length=32)
+    terms_text: str = Field(DEFAULT_COURSE_TERMS, min_length=1, max_length=4000)
+
+
 class ModelConfig(SecurityConfigModel):
     id: str
     object: str = "model"
@@ -227,7 +254,17 @@ class Config(SecurityConfigModel):
     admin: AdminConfig = AdminConfig()
     smtp: SmtpConfig = SmtpConfig()
     notifications: NotificationsConfig = NotificationsConfig()
+    courses: CourseConfig = CourseConfig()
     blablador: BlabladorConfig = BlabladorConfig()
+
+    @model_validator(mode="after")
+    def check_course_tokens_fit(self) -> "Config":
+        # Course tokens are <prefix>-course-<hex>.
+        if self.courses.enabled and (
+            len(self.tokens.token_prefix) + len("-course-") + 2 * self.tokens.token_length_bytes > 256
+        ):
+            raise ValueError("Course tokens must fit the 256 character input limit; shorten tokens.token_prefix")
+        return self
 
     # Known weak/default secret values that must never be used in production.
     # Declared as ClassVar so Pydantic does not treat it as a model field.

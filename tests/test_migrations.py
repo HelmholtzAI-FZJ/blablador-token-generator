@@ -81,7 +81,7 @@ async def create_pre_migration_database(engine) -> str:
 
 
 def test_single_linear_history():
-    assert migrate.head_revision() == "0005"
+    assert migrate.head_revision() == "0006"
 
 
 @pytest.mark.asyncio
@@ -89,7 +89,7 @@ async def test_fresh_database_matches_the_models(engine, audit_records):
     assert await migrate.upgrade_database(engine) == migrate.head_revision()
     assert await schema_differences(engine) == []
     messages = [record.getMessage() for record in audit_records]
-    assert messages == ["action=schema_migrated from=none to=0005"]
+    assert messages == ["action=schema_migrated from=none to=0006"]
 
 
 @pytest.mark.asyncio
@@ -103,10 +103,10 @@ async def test_upgrade_is_idempotent(engine, audit_records):
 @pytest.mark.asyncio
 async def test_pre_migration_database_is_adopted_and_upgraded(engine, audit_records):
     user_id = await create_pre_migration_database(engine)
-    assert await migrate.upgrade_database(engine) == "0005"
+    assert await migrate.upgrade_database(engine) == "0006"
     assert await schema_differences(engine) == []
     messages = [record.getMessage() for record in audit_records]
-    assert messages == ["action=schema_adopted revision=0001", "action=schema_migrated from=none to=0005"]
+    assert messages == ["action=schema_adopted revision=0001", "action=schema_migrated from=none to=0006"]
     async with AsyncSession(engine) as db:
         assert (await db.execute(select(Token.name).where(Token.user_id == user_id))).scalar_one() == "Kept token"
 
@@ -143,7 +143,7 @@ async def test_check_requires_the_latest_revision(engine):
     with pytest.raises(migrate.SchemaError, match="revision 0001"):
         await migrate.require_current_schema(engine)
     await migrate.upgrade_database(engine)
-    assert await migrate.require_current_schema(engine) == "0005"
+    assert await migrate.require_current_schema(engine) == "0006"
 
 
 @pytest.mark.asyncio
@@ -157,7 +157,7 @@ async def test_startup_migrates_or_refuses_as_configured(engine, monkeypatch):
     if engine.dialect.name == "postgresql":
         monkeypatch.setattr(migrate, "migration_engine", lambda: build_engine(engine.url, migration=True))
     await migrate.prepare_schema(engine)
-    assert await migrate.database_revision(engine) == "0005"
+    assert await migrate.database_revision(engine) == "0006"
 
 
 @pytest.mark.asyncio
@@ -185,7 +185,7 @@ async def test_application_owners_become_members(engine):
                 "INSERT INTO tokens (id, user_id, application_id, token_hash, name, created_at) "
                 "VALUES (:id, 'owner', :application, :hash, :id, CURRENT_TIMESTAMP)"),
                 {"id": token_id, "application": application_id, "hash": hash_token(generate_token())})
-    assert await migrate.upgrade_database(engine) == "0005"
+    assert await migrate.upgrade_database(engine) == "0006"
     async with engine.connect() as conn:
         members = (await conn.execute(text(
             "SELECT application_id, user_id, email, role FROM application_members"))).all()
@@ -206,7 +206,7 @@ async def test_concurrent_postgres_startups_serialize(engine):
     if engine.dialect.name != "postgresql":
         pytest.skip("The schema lock is a PostgreSQL advisory lock")
     results = await asyncio.gather(*(migrate.upgrade_database(engine) for _ in range(4)))
-    assert results == ["0005"] * 4
+    assert results == ["0006"] * 4
     assert await schema_differences(engine) == []
 
 
@@ -222,9 +222,9 @@ def test_command_line(tmp_path):
     assert check.returncode == 1 and "revision none" in check.stdout
     upgrade = run_cli(database_url=url)
     assert upgrade.returncode == 0, upgrade.stderr
-    assert "revision 0005" in upgrade.stdout
+    assert "revision 0006" in upgrade.stdout
     assert run_cli("check", database_url=url).returncode == 0
-    assert run_cli("current", database_url=url).stdout.strip() == "0005"
+    assert run_cli("current", database_url=url).stdout.strip() == "0006"
 
 
 def test_command_line_hides_connection_errors(tmp_path):
@@ -284,7 +284,7 @@ async def test_current_schema_starts_without_the_lock(engine):
     await migrate.upgrade_database(engine)
     holder = await hold_schema_lock(engine)
     try:
-        assert await asyncio.wait_for(migrate.upgrade_database(engine), 5) == "0005"
+        assert await asyncio.wait_for(migrate.upgrade_database(engine), 5) == "0006"
     finally:
         await holder.close()
 

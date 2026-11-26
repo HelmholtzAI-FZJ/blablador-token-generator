@@ -36,6 +36,8 @@ class User(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
     # Embedded in session JWTs; bumping it invalidates all existing sessions.
     session_epoch: Mapped[int] = mapped_column(Integer, default=0)
+    # Granted by an admin: may run courses.
+    is_teacher: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("false"))
 
     tokens: Mapped[list["Token"]] = relationship(
         "Token", back_populates="user", cascade="all, delete-orphan", foreign_keys="Token.user_id"
@@ -102,8 +104,66 @@ class ApplicationMember(Base):
     user: Mapped[Optional["User"]] = relationship("User", back_populates="memberships")
 
 
+class Course(Base):
+    """A time-boxed course. Students who sign in and open its join link get
+    one course token each, valid from starts_at until ends_at.
+
+    The join code is stored as a keyed hash; seats_claimed only grows, so a
+    seat a student gave up or lost cannot be claimed again.
+    """
+
+    __tablename__ = "courses"
+    __table_args__ = (
+        CheckConstraint("seats_claimed >= 0 AND seats_claimed <= max_seats", name="ck_courses_seats"),
+        CheckConstraint("ends_at > starts_at", name="ck_courses_dates"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    name: Mapped[str] = mapped_column(String(255))
+    teacher_id: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("users.id", ondelete="SET NULL"), index=True, nullable=True
+    )
+    starts_at: Mapped[datetime] = mapped_column(DateTime)
+    ends_at: Mapped[datetime] = mapped_column(DateTime, index=True)
+    max_seats: Mapped[int] = mapped_column(Integer)
+    seats_claimed: Mapped[int] = mapped_column(Integer, default=0, server_default=text("0"))
+    join_code_hash: Mapped[str | None] = mapped_column(String(64), unique=True, nullable=True)
+    terms_version: Mapped[str] = mapped_column(String(32))
+    terms_accepted_at: Mapped[datetime] = mapped_column(DateTime)
+    suspended_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    suspended_reason: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+    teacher: Mapped[Optional["User"]] = relationship("User")
+    seats: Mapped[list["CourseSeat"]] = relationship(
+        "CourseSeat", back_populates="course", cascade="all, delete-orphan"
+    )
+
+
+class CourseSeat(Base):
+    """A student's claim on a course: at most one per student."""
+
+    __tablename__ = "course_seats"
+    __table_args__ = (
+        UniqueConstraint("course_id", "user_id", name="uq_course_seats_user"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    course_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("courses.id", ondelete="CASCADE"), index=True
+    )
+    user_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("users.id", ondelete="CASCADE"), index=True
+    )
+    claimed_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+    course: Mapped["Course"] = relationship("Course", back_populates="seats")
+    user: Mapped["User"] = relationship("User")
+
+
 class Token(Base):
-    """A personal token (user_id) or an application token (application_id)."""
+    """A personal token (user_id) or an application token (application_id).
+    A course token is a personal token of a student with course_id set."""
 
     __tablename__ = "tokens"
     __table_args__ = (
@@ -116,6 +176,10 @@ class Token(Base):
     )
     application_id: Mapped[str | None] = mapped_column(
         String(36), ForeignKey("applications.id", ondelete="CASCADE"), index=True, nullable=True
+    )
+    course_id: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("courses.id", ondelete="CASCADE", name="fk_tokens_course_id"),
+        index=True, nullable=True
     )
     # Who created an application token; it outlives their membership.
     created_by_id: Mapped[str | None] = mapped_column(
@@ -132,10 +196,13 @@ class Token(Base):
     # so a daily run warns once per threshold instead of every day.
     expiry_notified_days: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     expiry_notified_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    # Validations of a course token, for spotting a shared or leaked one.
+    use_count: Mapped[int] = mapped_column(Integer, default=0, server_default=text("0"))
 
     user: Mapped[Optional["User"]] = relationship("User", back_populates="tokens", foreign_keys=[user_id])
     application: Mapped[Optional["Application"]] = relationship("Application", back_populates="tokens")
     created_by: Mapped[Optional["User"]] = relationship("User", foreign_keys=[created_by_id])
+    course: Mapped[Optional["Course"]] = relationship("Course")
 
     @property
     def reported_user(self) -> Optional["User"]:

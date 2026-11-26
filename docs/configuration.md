@@ -161,6 +161,7 @@ Limits use the [limits](https://limits.readthedocs.io/) syntax, such as
 | `session` | `30/minute` | Logout, per user. |
 | `account_delete` | `5/minute` | Account deletion, per user. |
 | `admin` | `120/minute` | Administration, per user. |
+| `course_join` | `10/minute` | Joining a course through its link, per user. |
 | `token_validation` | `600/minute` | Validation API, per address; also its admission budget. |
 | `token_validation_exempt` | `[]` | Addresses or networks (for example the API gateway) exempt from validation limits. |
 
@@ -217,6 +218,33 @@ token every day. Renewing a token — or rotating it with a new expiry — start
 new warning cycle: the stored threshold is cleared, so the reminders are sent
 again as the new expiry approaches. Rotating a token without changing its
 expiry keeps the state and sends nothing.
+
+## `courses`
+
+Courses let a teacher hand out short-lived tokens to a class. An administrator
+marks an account as a teacher (Users tab of the admin panel); the teacher
+creates a course with a date range and a number of seats and gets a join link.
+Each student signs in, opens the link and gets one course token,
+`<token_prefix>-course-<hex>`, valid from the first day (00:00 UTC) until the
+end of the last day. See the [user guide](user-guide.md#courses).
+
+| Key | Default | Description |
+| --- | --- | --- |
+| `enabled` | `false` | Offer courses. While false the course pages and API answer 404. |
+| `max_days` | `21` | Longest course, first to last day inclusive. |
+| `max_seats` | `60` | Most seats a course may have. A claimed seat is never given back. |
+| `max_active_per_teacher` | `1` | Courses a teacher may run (scheduled or running, not closed) at once. |
+| `max_days_ahead` | `180` | How far ahead a course may start. |
+| `join_code_bytes` | `24` | Random bytes in a join link's code. |
+| `retention_days` | `30` | Days after a course ends before `purge-course-tokens` deletes its tokens. Courses and seats are kept as a record. |
+| `terms_version` | `"1"` | Version of the teacher terms, stored with each course. Change it together with `terms_text`. |
+| `terms_text` | (built-in text) | Terms a teacher must accept to create a course. |
+
+Course tokens do not count towards `tokens.max_tokens_per_user`, cannot be
+renewed, and keep the course's end when rotated. Closing a course (by its
+teacher, an administrator, removing the teacher role or deleting the teacher's
+account) revokes all its tokens and disables its link. The chart's
+`coursePurge` CronJob runs `python -m app.manage purge-course-tokens` daily.
 
 ## `blablador`
 

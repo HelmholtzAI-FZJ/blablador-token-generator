@@ -89,6 +89,8 @@ async def pending_tokens(db: AsyncSession, now: datetime) -> list[Token]:
         .where(
             Token.expires_at.isnot(None),
             Token.revoked_at.is_(None),
+            # Course tokens end with their course, which students know.
+            Token.course_id.is_(None),
             Token.expires_at > now,
             Token.expires_at <= now + timedelta(days=max(warning_days)),
             # Warned at the tightest threshold already: nothing left to say.

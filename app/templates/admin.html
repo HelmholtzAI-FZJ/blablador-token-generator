@@ -127,6 +127,7 @@
         <div class="tabs">
             <div class="tab active" data-action="switch-tab" data-tab="tokens">Tokens</div>
             <div class="tab" data-action="switch-tab" data-tab="users">Users</div>
+            <div class="tab" data-action="switch-tab" data-tab="courses">Courses</div>
         </div>
 
         <div id="tokens-tab" class="tab-content active">
@@ -246,11 +247,31 @@
                             <th>Name</th>
                             <th>Type</th>
                             <th>Admin</th>
+                            <th>Teacher</th>
                             <th>Created</th>
                             <th>Actions</th>
                         </tr>
                     </thead>
                     <tbody id="usersTableBody">
+                        <tr><td colspan="7" class="empty">Loading...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <div id="courses-tab" class="tab-content">
+            <div class="card">
+                <h3>Courses</h3>
+                <p>Make a user a teacher on the Users tab. Suspending a course revokes all its tokens and disables its join link.</p>
+                <div>
+                    <button class="btn btn-small" id="coursesPrevious" data-action="courses-previous" disabled>Previous</button>
+                    <button class="btn btn-small" id="coursesNext" data-action="courses-next" disabled>Next</button>
+                </div>
+                <table>
+                    <thead>
+                        <tr><th>Course</th><th>Teacher</th><th>Runs</th><th>Seats</th><th>State</th><th>Actions</th></tr>
+                    </thead>
+                    <tbody id="coursesTableBody">
                         <tr><td colspan="6" class="empty">Loading...</td></tr>
                     </tbody>
                 </table>
