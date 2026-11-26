@@ -63,6 +63,8 @@
         .btn-danger:hover { background: #c0392b; }
         .btn-success { background: #27ae60; }
         .btn-small { padding: 0.25rem 0.5rem; font-size: 0.875rem; }
+        .search-form { display: flex; gap: 0.5rem; margin-bottom: 0.75rem; }
+        .search-form input { flex: 1 1 auto; padding: 0.4rem; border: 1px solid #ddd; border-radius: 4px; }
         .form-group { margin-bottom: 1rem; }
         .form-group label { display: block; margin-bottom: 0.5rem; font-weight: 500; }
         .form-group input, .form-group select {
@@ -235,6 +237,11 @@
                 {% endif %}
 
                 <h3>Existing Users</h3>
+                <form id="userSearchForm" class="search-form" role="search">
+                    <input type="search" id="userSearch" maxlength="255" placeholder="Search by email, name or OAuth subject" aria-label="Search users">
+                    <button type="submit" class="btn btn-small">Search</button>
+                    <button type="button" class="btn btn-small" data-action="clear-user-search">Clear</button>
+                </form>
                 <div>
                     <button class="btn btn-small" id="usersPrevious" data-action="users-previous" disabled>Previous</button>
                     <span id="usersPage">Page 1</span>

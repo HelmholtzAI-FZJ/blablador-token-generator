@@ -49,7 +49,10 @@ function describeAccount(user) {
 async function loadUsers(page = 1) {
     const tbody = document.getElementById('usersTableBody');
     try {
-        const response = await fetch(`/api/admin/users?page=${page}&page_size=100`);
+        const params = new URLSearchParams({page, page_size: 100});
+        const search = document.getElementById('userSearch').value.trim();
+        if (search) params.set('q', search);
+        const response = await fetch(`/api/admin/users?${params}`);
         if (!response.ok) throw new Error('User listing failed');
         const users = await response.json();
         usersPage = page;
@@ -58,7 +61,7 @@ async function loadUsers(page = 1) {
         document.getElementById('usersPage').textContent = `Page ${page}`;
         
         if (users.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="7" class="empty">No users</td></tr>';
+            tbody.innerHTML = `<tr><td colspan="7" class="empty">${search ? 'No users match' : 'No users'}</td></tr>`;
             return;
         }
         
@@ -389,6 +392,10 @@ registerActions({
     'restore-oauth': () => restoreOAuthAccount(),
     'users-previous': () => loadUsers(Math.max(1, usersPage - 1)),
     'users-next': () => loadUsers(usersPage + 1),
+    'clear-user-search': () => {
+        document.getElementById('userSearch').value = '';
+        loadUsers();
+    },
     'toggle-password': () => togglePasswordVisibility(),
     'submit-password': () => submitPasswordReset(),
     'close-password': () => closePasswordModal(),
@@ -396,4 +403,9 @@ registerActions({
 
 document.getElementById('newPasswordInput').addEventListener('keydown', (event) => {
     if (event.key === 'Enter') submitPasswordReset();
+});
+
+document.getElementById('userSearchForm').addEventListener('submit', (event) => {
+    event.preventDefault();
+    loadUsers();
 });

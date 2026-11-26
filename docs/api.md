@@ -222,7 +222,7 @@ Administrator session plus `X-CSRF-Token`, as above. Lists are paged with
 | `DELETE /api/admin/tokens/revoked` | | Deletes all revoked tokens |
 | `GET /api/admin/courses` | | All courses with teacher, dates, seats, state and the terms version the teacher accepted |
 | `POST /api/admin/courses/{id}/suspend` | | Revokes every token of a course and disables its link |
-| `GET /api/admin/users` | | Accounts: `id`, `email`, `name`, `is_admin`, `is_teacher`, `created_at`, `unity_id` (OAuth subject), `has_password` |
+| `GET /api/admin/users` | | Optional `q` matches part of the email, name or OAuth subject, ignoring case. Accounts: `id`, `email`, `name`, `is_admin`, `is_teacher`, `created_at`, `unity_id` (OAuth subject), `has_password` |
 | `POST /api/admin/users` | `{"email", "name", "password", "is_admin"}` | Creates a **local** password account |
 | `PATCH /api/admin/users/{id}` | any of `name`, `password` (local accounts only), `is_admin`, `is_teacher` | Updates the account; a password or admin role change ends its sessions; removing `is_teacher` closes the teacher's active courses |
 | `DELETE /api/admin/users/{id}` | | Deletes the account and its tokens and blocks it from signing in again |

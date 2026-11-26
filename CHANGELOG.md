@@ -34,6 +34,8 @@ All notable changes to this project are documented here. The format follows
 - `python -m app.manage purge-course-tokens` and the chart's `coursePurge`
   CronJob delete the tokens of courses that ended more than
   `courses.retention_days` ago.
+- Administrators can search users by part of their email, name or OAuth
+  subject (search box on the Users tab; `q` on `GET /api/admin/users`).
 - Configuration: `courses.*`, `rate_limits.course_join` and
   `rate_limits.course_invite`. Courses are off
   until `courses.enabled` is set.

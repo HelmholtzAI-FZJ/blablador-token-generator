@@ -3,7 +3,7 @@ import unicodedata
 from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, Request, Query, Response
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import and_, delete, or_, select, update
+from sqlalchemy import and_, delete, func, or_, select, update
 from sqlalchemy.orm import joinedload, selectinload
 from pydantic import BaseModel, Field, StrictBool, field_validator
 from app.database import get_db, lock_user_for_update
@@ -284,12 +284,23 @@ async def list_users(
     response: Response,
     page: Annotated[int, Query(ge=1, le=MAX_PAGE)] = 1,
     page_size: Annotated[int, Query(ge=1, le=MAX_PAGE_SIZE)] = 20,
+    q: Annotated[str | None, Query(max_length=255)] = None,
     admin: User = Depends(get_current_admin),
     db: AsyncSession = Depends(get_db),
 ):
+    """Accounts, newest first; q matches part of the email, name or OAuth
+    subject, ignoring case."""
     offset = (page - 1) * page_size
+    query = select(User)
+    search = (q or "").strip().lower()
+    if search:
+        query = query.where(or_(
+            func.lower(User.email).contains(search, autoescape=True),
+            func.lower(User.name).contains(search, autoescape=True),
+            func.lower(User.unity_id).contains(search, autoescape=True),
+        ))
     result = await db.execute(
-        select(User)
+        query
         .order_by(User.created_at.desc(), User.id.desc())
         .offset(offset)
         .limit(page_size + 1)
@@ -297,7 +308,7 @@ async def list_users(
     users = result.scalars().all()
     response.headers["X-Has-More"] = "true" if len(users) > page_size else "false"
     users = users[:page_size]
-    logger.info("admin=%s action=list_users page=%d", admin.id, page)
+    logger.info("admin=%s action=list_users page=%d searched=%s", admin.id, page, bool(search))
 
     return [
         UserResponse.of(u) for u in users
