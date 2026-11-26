@@ -1459,3 +1459,18 @@ def test_token_pages_have_the_test_box(client, teacher, course, mailbox):
     join_page = client.get(f"/courses/invite/{code_of(link_in(mailbox[0]))}").text
     assert join_page.count("Test your token") == 1 and 'id="courseTokenCurl"' in join_page
     assert "Try it:" not in join_page and "Try it:" not in page
+
+
+def test_send_limit_can_be_switched_off(client, teacher, course, mailbox, monkeypatch):
+    monkeypatch.setattr(get_config().courses, "max_invitation_sends", 0)
+    invitation = invite(teacher, course, [unique_address()]).json()["invited"][0]
+    path = f"/courses/{course['id']}/invitations/{invitation['id']}/resend"
+    for expected in range(2, 7):
+        response = teacher.post(path, json={"subject": "x", "body": "y"})
+        assert response.status_code == 200 and response.json()["send_count"] == expected
+
+
+def test_send_limit_config_range():
+    assert Config(courses={"max_invitation_sends": 0}).courses.max_invitation_sends == 0
+    with pytest.raises(ValueError):
+        Config(courses={"max_invitation_sends": -1})

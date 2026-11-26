@@ -82,6 +82,8 @@ All notable changes to this project are documented here. The format follows
   names both token forms and the expected length.
 - Pages that show a new token have a "Test your token" box with the curl
   command and what a working and a failing token answer look like.
+- `courses.max_invitation_sends: 0` removes the per-invitation send limit
+  (for testing); `rate_limits.course_invite` still limits sending.
 - Administrators can search users by part of their email, name or OAuth
   subject (search box on the Users tab; `q` on `GET /api/admin/users`).
 - Configuration: `courses.*`, `rate_limits.course_join` and

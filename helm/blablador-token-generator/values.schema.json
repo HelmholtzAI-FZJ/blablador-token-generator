@@ -489,8 +489,8 @@
             },
             "max_invitation_sends": {
               "type": "integer",
-              "minimum": 1,
-              "maximum": 20
+              "minimum": 0,
+              "maximum": 100
             },
             "invitation_footer": {
               "type": "string",

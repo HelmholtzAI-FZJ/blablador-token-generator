@@ -715,7 +715,7 @@ async def resend_invitation(
     user, course = await active_teacher_course(request, course_id, user, db)
     invitation = await open_invitation(db, course, invitation_id)
     limit = get_config().courses.max_invitation_sends
-    if invitation.send_count >= limit:
+    if limit and invitation.send_count >= limit:
         raise HTTPException(status_code=400, detail=f"An invitation is sent at most {limit} times")
     code = new_link(invitation)
     invitation.send_count += 1
@@ -811,7 +811,7 @@ async def reissue_invitation(
     user, course = await active_teacher_course(request, course_id, user, db)
     invitation = await claimed_invitation(db, course, invitation_id)
     limit = get_config().courses.max_invitation_sends
-    if invitation.send_count >= limit:
+    if limit and invitation.send_count >= limit:
         raise HTTPException(status_code=400, detail=f"An invitation is sent at most {limit} times")
     await revoke_invitation_token(db, course, invitation)
     course.seats_claimed -= 1

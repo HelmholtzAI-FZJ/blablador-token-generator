@@ -243,7 +243,7 @@ end of the last day. See the [user guide](user-guide.md#courses).
 | `invitation_footer` | (built-in text) | Appended to every invitation after the teacher's text; teachers cannot change it. Placeholders: `{course}`, `{start}` and `{end}` (first and last day), `{link}`, `{app_name}`, `{teacher_name}`, `{teacher_email}`. Must contain `{link}`; other placeholders are refused. |
 | `invitation_max_body_chars` | `4000` | Longest message a teacher may write. |
 | `admin_can_view_invitation_links` | `false` | For testing: keep each unused invitation's link so administrators can open it (admin Courses tab, Invitations). Otherwise links are stored only as hashes. Keep off in production. |
-| `max_invitation_sends` | `3` | How often one invitation may be sent, the first time included. |
+| `max_invitation_sends` | `3` | How often one invitation may be sent (resends and reissues included). `0` means no limit, for testing; `rate_limits.course_invite` still limits how fast a teacher sends. |
 | `terms_version` | `"1"` | Version of the teacher terms, stored with each course. Change it together with `terms_text`. |
 | `terms_text` | (built-in text) | Terms a teacher must accept to create a course. |
 

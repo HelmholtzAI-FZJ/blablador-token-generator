@@ -260,8 +260,9 @@ class CourseConfig(SecurityConfigModel):
     # For testing: keep each unused invitation's link so administrators can
     # open it. Links are otherwise stored only as hashes. Keep off in production.
     admin_can_view_invitation_links: bool = False
-    # Sends per invitation, the first included, so resending cannot spam.
-    max_invitation_sends: int = Field(3, ge=1, le=20)
+    # Sends per invitation, the first included, so resending cannot spam;
+    # 0 for no limit (testing). course_invite still rate-limits sending.
+    max_invitation_sends: int = Field(3, ge=0, le=100)
     terms_version: str = Field("1", min_length=1, max_length=32)
     terms_text: str = Field(DEFAULT_COURSE_TERMS, min_length=1, max_length=4000)
 

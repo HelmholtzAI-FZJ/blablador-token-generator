@@ -140,7 +140,7 @@ courses:
   # For testing only: let administrators see unused invitation links.
   admin_can_view_invitation_links: false
   # Sends per invitation, the first included.
-  max_invitation_sends: 3
+  max_invitation_sends: 3   # 0: no limit (testing)
   # Bump terms_version when terms_text changes; courses record the version accepted.
   terms_version: "1"
   # terms_text: "..."
