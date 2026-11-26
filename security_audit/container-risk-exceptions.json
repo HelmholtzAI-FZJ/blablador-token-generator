@@ -392,6 +392,62 @@
       "expires": "2026-12-11",
       "status": "not_affected",
       "reason": "The overflow is in gz_vacate(), part of zlib's gzFile API. In the image only apt (libapt-pkg) and dpkg-deb call that API, and the service never runs them; Python's zlib module and gzip use the deflate/inflate stream API only. Production requires UID10001, no privilege escalation, ALL capabilities dropped, read-only root, and RuntimeDefault seccomp."
+    },
+    {
+      "vulnerability_id": "CVE-2026-107494",
+      "package_name": "libssl3t64",
+      "installed_version": "3.5.7-1~deb13u3",
+      "expires": "2026-12-11",
+      "status": "not_affected",
+      "reason": "OpenSSL QUIC: a remote QUIC peer can queue RETIRE_CONNECTION_ID frames without bound and exhaust memory. The image has no QUIC or HTTP/3 endpoint: uvicorn serves HTTP/1.1 over TLS through Python's ssl module, which exposes no QUIC API, so the vulnerable code path cannot be reached. Production requires UID10001, no privilege escalation, ALL capabilities dropped, read-only root, and RuntimeDefault seccomp."
+    },
+    {
+      "vulnerability_id": "CVE-2026-107494",
+      "package_name": "openssl",
+      "installed_version": "3.5.7-1~deb13u3",
+      "expires": "2026-12-11",
+      "status": "not_affected",
+      "reason": "OpenSSL QUIC: a remote QUIC peer can queue RETIRE_CONNECTION_ID frames without bound and exhaust memory. The image has no QUIC or HTTP/3 endpoint: uvicorn serves HTTP/1.1 over TLS through Python's ssl module, which exposes no QUIC API, so the vulnerable code path cannot be reached. Production requires UID10001, no privilege escalation, ALL capabilities dropped, read-only root, and RuntimeDefault seccomp."
+    },
+    {
+      "vulnerability_id": "CVE-2026-107494",
+      "package_name": "openssl-provider-legacy",
+      "installed_version": "3.5.7-1~deb13u3",
+      "expires": "2026-12-11",
+      "status": "not_affected",
+      "reason": "OpenSSL QUIC: a remote QUIC peer can queue RETIRE_CONNECTION_ID frames without bound and exhaust memory. The image has no QUIC or HTTP/3 endpoint: uvicorn serves HTTP/1.1 over TLS through Python's ssl module, which exposes no QUIC API, so the vulnerable code path cannot be reached. Production requires UID10001, no privilege escalation, ALL capabilities dropped, read-only root, and RuntimeDefault seccomp."
+    },
+    {
+      "vulnerability_id": "CVE-2026-124709",
+      "package_name": "libssl3t64",
+      "installed_version": "3.5.7-1~deb13u3",
+      "expires": "2026-12-11",
+      "status": "not_affected",
+      "reason": "OpenSSL QUIC: a peer that resets rejected streams leaks stream state and can slowly exhaust server memory. No QUIC listener exists: uvicorn serves HTTP/1.1 over TLS through Python's ssl module, which exposes no QUIC API, and upstream rates the impact Low. Production requires UID10001, no privilege escalation, ALL capabilities dropped, read-only root, and RuntimeDefault seccomp."
+    },
+    {
+      "vulnerability_id": "CVE-2026-124709",
+      "package_name": "openssl",
+      "installed_version": "3.5.7-1~deb13u3",
+      "expires": "2026-12-11",
+      "status": "not_affected",
+      "reason": "OpenSSL QUIC: a peer that resets rejected streams leaks stream state and can slowly exhaust server memory. No QUIC listener exists: uvicorn serves HTTP/1.1 over TLS through Python's ssl module, which exposes no QUIC API, and upstream rates the impact Low. Production requires UID10001, no privilege escalation, ALL capabilities dropped, read-only root, and RuntimeDefault seccomp."
+    },
+    {
+      "vulnerability_id": "CVE-2026-124709",
+      "package_name": "openssl-provider-legacy",
+      "installed_version": "3.5.7-1~deb13u3",
+      "expires": "2026-12-11",
+      "status": "not_affected",
+      "reason": "OpenSSL QUIC: a peer that resets rejected streams leaks stream state and can slowly exhaust server memory. No QUIC listener exists: uvicorn serves HTTP/1.1 over TLS through Python's ssl module, which exposes no QUIC API, and upstream rates the impact Low. Production requires UID10001, no privilege escalation, ALL capabilities dropped, read-only root, and RuntimeDefault seccomp."
+    },
+    {
+      "vulnerability_id": "CVE-2026-124851",
+      "package_name": "libzstd1",
+      "installed_version": "1.5.7+dfsg-1",
+      "expires": "2026-12-11",
+      "status": "not_affected",
+      "reason": "Decompressing crafted zstd data can expose a 64 KiB internal buffer. The image has no zstd codec binding and zstandard is absent from the locked dependency set; no route accepts zstd-compressed input, so application data never reaches the vulnerable decompressor. Production requires UID10001, no privilege escalation, ALL capabilities dropped, read-only root, and RuntimeDefault seccomp."
     }
   ]
 }

@@ -23,9 +23,15 @@ The chart refuses to render without them:
 | `networkPolicy.app.egress.extraRules` | The identity provider's addresses on port 443. |
 
 Useful optional values: `postgresql.backup.enabled` (nightly `pg_dump`),
+`expiryReminders.enabled` (daily expiry-warning mail), `smtpPasswordSecret`,
 `replicaCount`, `workers`, `resources`, `shutdownDelaySeconds`,
 `terminationGracePeriodSeconds`, `secretRevision` (bump after changing an
 existing Secret). See `values.yaml`; `values.schema.json` validates them.
+
+On a private registry, set `imagePullSecrets` (names only, created
+separately); the application, PostgreSQL, Redis and the backup Job all use
+them, so no ServiceAccount patching is needed. `postgresql.imagePullSecrets`
+and `redis.imagePullSecrets` add per-component entries, deduplicated by name.
 
 ## Checks
 

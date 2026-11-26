@@ -4,6 +4,8 @@ image:
   pullPolicy: IfNotPresent
   tag: ''
   digest: ''
+# Pull secrets used by every workload: the app, PostgreSQL, Redis and the
+# backup Job. Components also accept their own imagePullSecrets list.
 imagePullSecrets: []
 nameOverride: ''
 fullnameOverride: ''
@@ -71,6 +73,23 @@ networkPolicy:
     egress:
       enabled: true
       extraRules: []
+# Daily `notify-expiring-tokens` CronJob. It needs
+# config.notifications.expiry_reminders and config.smtp.enabled too; without
+# them the Job exits non-zero and says why.
+expiryReminders:
+  enabled: false
+  schedule: '0 3 * * *'
+  resources:
+    limits:
+      cpu: 300m
+      memory: 256Mi
+    requests:
+      cpu: 25m
+      memory: 96Mi
+# Secret holding the SMTP password, injected as SMTP_PASSWORD into the
+# application and the expiry-reminder Job. Never put the password in values.
+smtpPasswordSecret: ''
+smtpPasswordSecretKey: password
 redis:
   enabled: true
   password: ''
@@ -78,6 +97,9 @@ redis:
     repository: registry.jsc.fz-juelich.de/kaas/rke2-clusters/blablador/blablador-token-generator-redis
     tag: ''
     digest: ''
+  # Extra pull secrets for this component, on top of the global
+  # imagePullSecrets; entries are deduplicated by name.
+  imagePullSecrets: []
   resources:
     limits:
       cpu: 200m
@@ -99,6 +121,9 @@ postgresql:
     repository: registry.jsc.fz-juelich.de/kaas/rke2-clusters/blablador/blablador-token-generator-postgresql
     tag: ''
     digest: ''
+  # Extra pull secrets for this component (and its backup Job), on top of the
+  # global imagePullSecrets; entries are deduplicated by name.
+  imagePullSecrets: []
   storageClass: ''
   size: 5Gi
   resources:
@@ -215,6 +240,13 @@ config:
     starttls: true
     use_tls: false
     timeout_seconds: 10.0
+  notifications:
+    expiry_reminders: false
+    warning_days:
+    - 30
+    - 7
+    - 1
+    batch_size: 200
   local:
     enabled: false
     allow_registration: false

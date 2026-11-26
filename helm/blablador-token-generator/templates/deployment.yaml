@@ -53,9 +53,10 @@ spec:
       labels:
         {{- include "blablador-token-generator.selectorLabels" . | nindent 8 }}
     spec:
-      {{- with .Values.imagePullSecrets }}
+      {{- $pullSecrets := include "blablador-token-generator.imagePullSecrets" (dict "root" . "component" "app") }}
+      {{- if $pullSecrets }}
       imagePullSecrets:
-        {{- toYaml . | nindent 8 }}
+        {{- $pullSecrets | nindent 8 }}
       {{- end }}
       automountServiceAccountToken: false
       terminationGracePeriodSeconds: {{ .Values.terminationGracePeriodSeconds }}
@@ -105,6 +106,13 @@ spec:
                 secretKeyRef:
                   name: {{ include "blablador-token-generator.redisSecret" . }}
                   key: storage-uri
+            {{- end }}
+            {{- if .Values.smtpPasswordSecret }}
+            - name: SMTP_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.smtpPasswordSecret | quote }}
+                  key: {{ .Values.smtpPasswordSecretKey | quote }}
             {{- end }}
           ports:
             - name: http

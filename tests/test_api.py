@@ -30,6 +30,8 @@ class TestValidateEndpoint:
 
         assert response.valid is True
         assert response.user_id == test_token["token"].user_id
+        assert response.email == "test@example.com"
+        assert response.email == response.user.email
 
     @pytest.mark.asyncio
     async def test_validate_invalid_token(self, test_db):

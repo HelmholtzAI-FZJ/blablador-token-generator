@@ -16,6 +16,7 @@ instead of producing an insecure deployment.
 | Redis `Deployment` | Redis 8, TLS only, an ACL that allows the counter commands and the rate limiter's Lua scripts only, no modules, no persistence, `noeviction`. |
 | `NetworkPolicy` | The application accepts traffic only from the peers you list; PostgreSQL only from the application and the backup job, Redis only from the application. |
 | Backup `CronJob` | Optional nightly `pg_dump`; see [Backups](../operations/backups.md). |
+| Reminder `CronJob` | Optional daily expiry warnings (`expiryReminders.enabled`); needs `config.notifications.expiry_reminders` and `config.smtp`. |
 
 Requirements: Kubernetes 1.25 or newer, an ingress controller, a CNI that
 enforces NetworkPolicy, and a storage class that honours `fsGroup` (the
@@ -44,6 +45,12 @@ Use the hardened PostgreSQL and Redis images: the upstream images contain
 vulnerable components these builds remove or update. After pushing, use the
 registry's manifest digests (`docker buildx imagetools inspect <image>`), not
 local image IDs.
+
+On a private registry, create the pull Secret in the namespace and list it in
+`imagePullSecrets`. All four workloads use it — the application, PostgreSQL,
+Redis and the backup Job — so the namespace's ServiceAccount needs no patch.
+`postgresql.imagePullSecrets` and `redis.imagePullSecrets` add
+component-specific entries, deduplicated by name.
 
 ## 2. Secrets
 
@@ -248,6 +255,28 @@ the database URL and `database.ssl_ca_file` in the configuration Secret; mount
 its CA with `postgresql.tls.existingSecret`. The same applies to Redis with
 `redis.enabled: false` and `rate_limits.storage_uri`. Allow their addresses in
 `networkPolicy.app.egress.extraRules`.
+
+## Expiry reminder mail
+
+`expiryReminders.enabled: true` adds a daily CronJob that runs
+`python -m app.manage notify-expiring-tokens`. It mails the owner of every
+token that has reached a `config.notifications.warning_days` threshold (30, 7
+and 1 days by default), once per threshold; the web process never sends on a
+schedule. Application tokens go to their owners who have signed in, plus their
+creator while that account exists.
+
+Three settings are needed together, and the Job fails with a message naming
+the one that is missing:
+
+- `config.notifications.expiry_reminders: true`
+- `config.smtp.enabled: true`, with `host` and `from_address`
+- `smtpPasswordSecret` (and `smtpPasswordSecretKey`, default `password`): a
+  Secret in the namespace holding the SMTP password. The chart injects it as
+  `SMTP_PASSWORD` into the application and the Job; never put it in values.
+
+Allow egress to the mail server too (`networkPolicy.app.egress.extraRules`),
+or the Job's connections time out. The same rule restores the
+administrators' mail when an application loses its last owner.
 
 ## Uninstalling
 

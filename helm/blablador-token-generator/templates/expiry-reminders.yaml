@@ -1,0 +1,125 @@
+{{- if .Values.expiryReminders.enabled }}
+{{- $sqlite := eq .Values.databaseBackend "sqlite" }}
+{{- $name := printf "%s-expiry-reminders" (include "blablador-token-generator.fullname" . | trunc 35 | trimSuffix "-") }}
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "blablador-token-generator.labels" . | nindent 4 }}
+spec:
+  schedule: {{ .Values.expiryReminders.schedule | quote }}
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 3600
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      activeDeadlineSeconds: 1800
+      template:
+        metadata:
+          labels:
+            {{- include "blablador-token-generator.selectorLabels" . | nindent 12 }}
+            app.kubernetes.io/component: expiry-reminders
+        spec:
+          {{- $pullSecrets := include "blablador-token-generator.imagePullSecrets" (dict "root" . "component" "app") }}
+          {{- if $pullSecrets }}
+          imagePullSecrets:
+            {{- $pullSecrets | nindent 12 }}
+          {{- end }}
+          restartPolicy: Never
+          automountServiceAccountToken: false
+          # The pod carries the application labels so the NetworkPolicy admits
+          # it to PostgreSQL and Redis. It must never receive user traffic:
+          # this readiness gate is never satisfied, so it stays out of the
+          # Service endpoints while the container runs.
+          readinessGates:
+            - conditionType: token-generator.example/not-a-server
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 10001
+            fsGroup: 10001
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            - name: expiry-reminders
+              image: {{ include "blablador-token-generator.image" .Values.image | quote }}
+              imagePullPolicy: {{ .Values.image.pullPolicy | quote }}
+              command: ["python", "-m", "app.manage", "notify-expiring-tokens"]
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop: ["ALL"]
+              env:
+                - name: APP_ENVIRONMENT
+                  value: {{ .Values.config.app.environment | quote }}
+                - name: CONFIG_PATH
+                  value: /app/config/config.yaml
+                {{- if .Values.postgresql.enabled }}
+                - name: DATABASE_URL
+                  valueFrom:
+                    secretKeyRef:
+                      name: {{ include "blablador-token-generator.postgresSecret" . }}
+                      key: database-url
+                {{- end }}
+                {{- if .Values.redis.enabled }}
+                - name: RATE_LIMIT_STORAGE_URI
+                  valueFrom:
+                    secretKeyRef:
+                      name: {{ include "blablador-token-generator.redisSecret" . }}
+                      key: storage-uri
+                {{- end }}
+                {{- if .Values.smtpPasswordSecret }}
+                - name: SMTP_PASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: {{ .Values.smtpPasswordSecret | quote }}
+                      key: {{ .Values.smtpPasswordSecretKey | quote }}
+                {{- end }}
+              resources:
+                {{- toYaml .Values.expiryReminders.resources | nindent 16 }}
+              volumeMounts:
+                - name: config
+                  mountPath: /app/config
+                  readOnly: true
+                {{- if $sqlite }}
+                - name: token-db
+                  mountPath: /app/data
+                {{- end }}
+                {{- range $component := list "postgresql" "redis" }}
+                {{- if (index $.Values $component).tls.enabled }}
+                - name: {{ $component }}-ca
+                  mountPath: /app/tls/{{ $component }}
+                  readOnly: true
+                {{- end }}
+                {{- end }}
+                - name: tmp
+                  mountPath: /tmp
+          volumes:
+            - name: tmp
+              emptyDir:
+                sizeLimit: 32Mi
+            - name: config
+              secret:
+                secretName: {{ include "blablador-token-generator.configSecret" . }}
+                defaultMode: 0440
+            {{- range $component := list "postgresql" "redis" }}
+            {{- $tls := (index $.Values $component).tls }}
+            {{- if $tls.enabled }}
+            - name: {{ $component }}-ca
+              secret:
+                secretName: {{ required (printf "%s.tls.existingSecret with ca.crt is required" $component) $tls.existingSecret }}
+                defaultMode: 0440
+                items:
+                  - key: ca.crt
+                    path: ca.crt
+            {{- end }}
+            {{- end }}
+            {{- if $sqlite }}
+            - name: token-db
+              persistentVolumeClaim:
+                claimName: {{ include "blablador-token-generator.fullname" . }}-db
+            {{- end }}
+{{- end }}

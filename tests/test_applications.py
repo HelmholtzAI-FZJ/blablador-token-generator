@@ -4,6 +4,7 @@ import uuid
 import pytest
 from fastapi import HTTPException
 from fastapi.testclient import TestClient
+from pydantic import ValidationError
 from sqlalchemy import select
 from starlette.requests import Request
 
@@ -56,6 +57,8 @@ async def test_application_token_validation_reports_application(test_db, test_us
     assert response.token_type == "application"
     assert response.application.id == application.id and response.application.name == "Gateway"
     assert response.user_id == test_user.id
+    assert response.email is None
+    assert response.user.email == test_user.email
 
     me = await current_user.__wrapped__(request("GET"), issued.token, test_db)
     assert me.token_type == "application" and me.user.id == test_user.id
@@ -122,6 +125,35 @@ async def test_application_limit(test_db, test_user, monkeypatch):
     with pytest.raises(HTTPException) as exc:
         await make_application(test_db, test_user, name="Second")
     assert exc.value.status_code == 400
+
+
+def test_application_description_is_optional():
+    """The dashboard sends an empty description as null, not as ""."""
+    assert CreateApplicationRequest(name="Bot", description=None).description is None
+    assert CreateApplicationRequest(name="Bot").description is None
+    with pytest.raises(ValidationError):
+        CreateApplicationRequest(name="Bot", description="invisible\u202eoverride")
+
+
+def test_http_application_with_empty_description():
+    from app import database
+    from app.main import app
+
+    async def seed():
+        async with database.async_session_maker() as db:
+            user = User(email="nodesc@example.com", name="NoDesc", unity_id=f"nodesc-{uuid.uuid4()}")
+            db.add(user)
+            await db.commit()
+            await db.refresh(user)
+            return create_session_token(user)
+
+    with TestClient(app) as client:
+        client.cookies.set("access_token", client.portal.call(seed))
+        client.cookies.set("csrf_token", "c")
+        response = client.post("/applications", json={"name": "Bot", "description": None},
+                               headers={"X-CSRF-Token": "c"})
+        assert response.status_code == 200
+        assert response.json()["description"] is None
 
 
 def test_http_routes():

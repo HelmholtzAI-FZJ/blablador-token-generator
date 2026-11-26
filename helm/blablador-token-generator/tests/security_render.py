@@ -81,6 +81,54 @@ def test_chart() -> None:
     assert "noeviction" in redis["spec"]["template"]["spec"]["containers"][0]["args"]
     assert "NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION" in mapped[("ConfigMap", name + "-postgresql-init")]["data"]["10-runtime-role.sh"]
     assert mapped[("Secret", name + "-redis")]["stringData"]["storage-uri"].startswith("rediss://")
+    pull = copy.deepcopy(values)
+    pull.update(imagePullSecrets=[{"name": "global"}])
+    pull["postgresql"].update(imagePullSecrets=[{"name": "pg"}, {"name": "global"}], backup={"enabled": True})
+    pull["redis"].update(imagePullSecrets=[{"name": "redis"}])
+    pulled = index(render(pull))
+
+    def pull_secrets(resource: dict, path: tuple) -> list:
+        spec = resource
+        for step in path:
+            spec = spec[step]
+        return [entry["name"] for entry in spec.get("imagePullSecrets", [])]
+
+    pod_path = ("spec", "template", "spec")
+    assert pull_secrets(pulled[("Deployment", name)], pod_path) == ["global"]
+    assert pull_secrets(pulled[("StatefulSet", name + "-postgresql")], pod_path) == ["global", "pg"]
+    assert pull_secrets(pulled[("Deployment", name + "-redis")], pod_path) == ["global", "redis"]
+    backup_job = next(
+        resource for resource in pulled.values()
+        if resource["kind"] == "CronJob" and resource["metadata"]["name"].endswith("-postgresql-backup")
+    )
+    assert pull_secrets(
+        backup_job, ("spec", "jobTemplate", "spec", "template", "spec"),
+    ) == ["global", "pg"]
+
+    reminders = copy.deepcopy(values)
+    reminders["imagePullSecrets"] = [{"name": "global"}]
+    reminders["expiryReminders"] = {"enabled": True}
+    reminders["smtpPasswordSecret"] = "smtp-credentials"
+    reminded = index(render(reminders))
+    reminder_job = next(
+        resource for resource in reminded.values()
+        if resource["kind"] == "CronJob" and resource["metadata"]["name"].endswith("-expiry-reminders")
+    )
+    reminder_template = reminder_job["spec"]["jobTemplate"]["spec"]["template"]
+    reminder_pod = reminder_template["spec"]
+    reminder_container = reminder_pod["containers"][0]
+    assert reminder_container["command"] == ["python", "-m", "app.manage", "notify-expiring-tokens"]
+    assert reminder_container["securityContext"]["readOnlyRootFilesystem"] is True
+    assert [entry["name"] for entry in reminder_pod["imagePullSecrets"]] == ["global"]
+    # It carries the application labels to satisfy the NetworkPolicy, so the
+    # readiness gate must keep it out of the Service endpoints.
+    assert reminder_pod["readinessGates"], "reminder pod would receive user traffic"
+    assert reminder_template["metadata"]["labels"]["app.kubernetes.io/name"] == "blablador-token-generator"
+    smtp_env = next(entry for entry in reminder_container["env"] if entry["name"] == "SMTP_PASSWORD")
+    assert smtp_env["valueFrom"]["secretKeyRef"] == {"name": "smtp-credentials", "key": "password"}
+    reminded_app = reminded[("Deployment", name)]["spec"]["template"]["spec"]["containers"][0]
+    assert "SMTP_PASSWORD" in [entry["name"] for entry in reminded_app["env"]]
+
     rotated = copy.deepcopy(values)
     rotated["postgresql"]["password"] = "P" * 64
     rotated["redis"]["password"] = "R" * 64
