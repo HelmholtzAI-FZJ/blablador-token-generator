@@ -214,6 +214,7 @@ Administrator session plus `X-CSRF-Token`, as above. Lists are paged with
 | Method and path | Body | Result |
 | --- | --- | --- |
 | `GET /api/admin/tokens` | | All tokens with owner (or application token creator) name and email, and `application_id`/`application_name` for application tokens |
+| `GET /api/admin/applications` | | Every application (orphaned first): `id`, `name`, `description`, `created_at`, `orphaned_at`, `owners` (emails), `members`, `tokens`, `active_tokens`. Optional `q` matches part of the name or a member's email |
 | `GET /api/admin/applications/orphaned` | | Applications whose last owner left: `id`, `name`, `description`, `orphaned_at`, `members`, `tokens` |
 | `POST /api/admin/applications/{id}/take-over` | | Makes you an owner of an orphaned application |
 | `DELETE /api/admin/applications/{id}` | | Deletes an orphaned application and its tokens |

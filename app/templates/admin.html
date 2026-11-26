@@ -130,6 +130,7 @@
             <div class="tab active" data-action="switch-tab" data-tab="tokens">Tokens</div>
             <div class="tab" data-action="switch-tab" data-tab="users">Users</div>
             <div class="tab" data-action="switch-tab" data-tab="courses">Courses</div>
+            <div class="tab" data-action="switch-tab" data-tab="applications">Applications</div>
         </div>
 
         <div id="tokens-tab" class="tab-content active">
@@ -261,6 +262,30 @@
                     </thead>
                     <tbody id="usersTableBody">
                         <tr><td colspan="7" class="empty">Loading...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <div id="applications-tab" class="tab-content">
+            <div class="card">
+                <h3>Applications</h3>
+                <p>Every application, those without an owner first. Search by application name or a member's email.</p>
+                <form id="applicationSearchForm" class="search-form" role="search">
+                    <input type="search" id="applicationSearch" maxlength="255" placeholder="Search by name or member email" aria-label="Search applications">
+                    <button type="submit" class="btn btn-small">Search</button>
+                    <button type="button" class="btn btn-small" data-action="clear-application-search">Clear</button>
+                </form>
+                <div>
+                    <button class="btn btn-small" id="applicationsPrevious" data-action="applications-previous" disabled>Previous</button>
+                    <button class="btn btn-small" id="applicationsNext" data-action="applications-next" disabled>Next</button>
+                </div>
+                <table>
+                    <thead>
+                        <tr><th>Application</th><th>Owners</th><th>Members</th><th>Tokens (active)</th><th>Created</th><th>Actions</th></tr>
+                    </thead>
+                    <tbody id="applicationsTableBody">
+                        <tr><td colspan="6" class="empty">Loading...</td></tr>
                     </tbody>
                 </table>
             </div>

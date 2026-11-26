@@ -697,3 +697,72 @@ async def suspend_course(
         raise HTTPException(status_code=500, detail="Failed to suspend course")
     logger.info("admin=%s action=suspend_course course_id=%s tokens_revoked=%d", admin.id, course.id, revoked)
     return {"message": "Course suspended and all its tokens revoked", "tokens_revoked": revoked}
+
+
+class AdminApplicationResponse(BaseModel):
+    id: str
+    name: str
+    description: str | None = None
+    created_at: str
+    orphaned_at: str | None = None
+    owners: list[str]
+    members: int
+    tokens: int
+    active_tokens: int
+
+
+@router.get("/applications", response_model=list[AdminApplicationResponse])
+@limiter.limit(ADMIN_RATE_LIMIT, key_func=user_or_ip)
+async def list_applications(
+    request: Request,
+    response: Response,
+    page: Annotated[int, Query(ge=1, le=MAX_PAGE)] = 1,
+    page_size: Annotated[int, Query(ge=1, le=MAX_PAGE_SIZE)] = 20,
+    q: Annotated[str | None, Query(max_length=255)] = None,
+    admin: User = Depends(get_current_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    """Every application, orphaned first, then by name; q matches part of
+    the name or of a member's email, ignoring case."""
+    query = select(Application).options(selectinload(Application.members))
+    search = (q or "").strip().lower()
+    if search:
+        member_match = select(ApplicationMember.application_id).where(
+            func.lower(ApplicationMember.email).contains(search, autoescape=True)
+        )
+        query = query.where(or_(
+            func.lower(Application.name).contains(search, autoescape=True),
+            Application.id.in_(member_match),
+        ))
+    applications = (await db.execute(
+        query.order_by(Application.orphaned_at.is_(None), Application.name, Application.id)
+        .offset((page - 1) * page_size).limit(page_size + 1)
+    )).scalars().all()
+    response.headers["X-Has-More"] = "true" if len(applications) > page_size else "false"
+    applications = applications[:page_size]
+    now = utcnow()
+    counts = {}
+    if applications:
+        rows = await db.execute(
+            select(
+                Token.application_id,
+                func.count(),
+                func.count().filter(
+                    Token.revoked_at.is_(None), or_(Token.expires_at.is_(None), Token.expires_at > now)
+                ),
+            )
+            .where(Token.application_id.in_([a.id for a in applications]))
+            .group_by(Token.application_id)
+        )
+        counts = {application_id: (total, active) for application_id, total, active in rows}
+    logger.info("admin=%s action=list_applications page=%d searched=%s", admin.id, page, bool(search))
+    return [
+        AdminApplicationResponse(
+            id=a.id, name=a.name, description=a.description, created_at=isoformat_utc(a.created_at),
+            orphaned_at=isoformat_utc(a.orphaned_at),
+            owners=sorted(m.email for m in a.members if m.role == ROLE_OWNER),
+            members=len(a.members),
+            tokens=counts.get(a.id, (0, 0))[0], active_tokens=counts.get(a.id, (0, 0))[1],
+        )
+        for a in applications
+    ]

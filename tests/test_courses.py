@@ -470,7 +470,10 @@ def test_dashboard_shows_course_badge_without_renew(client, course):
 
 
 def test_dashboard_course_card_only_for_teachers(client, teacher):
-    assert 'id="coursesCard"' in teacher.get("/dashboard").text
+    page = teacher.get("/dashboard").text
+    assert 'id="coursesCard"' in page
+    assert '<h2>My courses</h2>' in page and 'data-tab="courses">My courses<' in page
+    assert 'id="courses-tab"' in page
     assert "/static/courses.js" in teacher.get("/dashboard").text
     assert 'id="coursesCard"' not in Session(client).get("/dashboard").text
 

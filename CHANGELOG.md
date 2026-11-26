@@ -34,6 +34,13 @@ All notable changes to this project are documented here. The format follows
 - `python -m app.manage purge-course-tokens` and the chart's `coursePurge`
   CronJob delete the tokens of courses that ended more than
   `courses.retention_days` ago.
+- The dashboard is split into tabs: Tokens, My courses (teachers) and
+  Applications. The active tab is kept in the address, so reloading after an
+  action stays on it.
+- The admin panel has an Applications tab listing every application with its
+  owners, member count and tokens, searchable by name or member email
+  (`GET /api/admin/applications`). Orphaned ones come first, with the take
+  over and delete actions.
 - Administrators can search users by part of their email, name or OAuth
   subject (search box on the Users tab; `q` on `GET /api/admin/users`).
 - Configuration: `courses.*`, `rate_limits.course_join` and

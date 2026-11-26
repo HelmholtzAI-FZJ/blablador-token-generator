@@ -36,6 +36,9 @@ function switchTab(tab) {
     if (tabName === 'courses') {
         loadCourses();
     }
+    if (tabName === 'applications') {
+        loadApplications();
+    }
 }
 
 // Confirmations name the account by what identifies it: the OAuth subject
@@ -374,8 +377,55 @@ async function suspendCourse(courseId, name) {
     loadCourses(coursesPage);
 }
 
+let applicationsPage = 1;
+
+async function loadApplications(page = 1) {
+    const tbody = document.getElementById('applicationsTableBody');
+    try {
+        const params = new URLSearchParams({page, page_size: 100});
+        const search = document.getElementById('applicationSearch').value.trim();
+        if (search) params.set('q', search);
+        const response = await fetch(`/api/admin/applications?${params}`);
+        if (!response.ok) throw new Error(await errorMessage(response));
+        const applications = await response.json();
+        applicationsPage = page;
+        document.getElementById('applicationsPrevious').disabled = page <= 1;
+        document.getElementById('applicationsNext').disabled = response.headers.get('X-Has-More') !== 'true';
+        if (applications.length === 0) {
+            tbody.innerHTML = `<tr><td colspan="6" class="empty">${search ? 'No applications match' : 'No applications'}</td></tr>`;
+            return;
+        }
+        tbody.innerHTML = applications.map(application => `
+            <tr>
+                <td>${escapeHtml(application.name)}${application.description ? `<br><span class="muted">${escapeHtml(application.description)}</span>` : ''}</td>
+                <td>${application.orphaned_at
+                    ? `<strong>No owner</strong> since ${toLocalDate(application.orphaned_at)}`
+                    : application.owners.map(escapeHtml).join('<br>')}</td>
+                <td>${application.members}</td>
+                <td>${application.tokens} (${application.active_tokens})</td>
+                <td>${toLocalDate(application.created_at)}</td>
+                <td>${application.orphaned_at ? `
+                    <button class="btn btn-small" data-action="take-over-application" data-id="${escapeHtml(application.id)}" data-name="${escapeHtml(application.name)}">Take over</button>
+                    <button class="btn btn-small btn-danger" data-action="delete-orphaned-application" data-id="${escapeHtml(application.id)}" data-name="${escapeHtml(application.name)}">Delete</button>` : ''}</td>
+            </tr>`).join('');
+    } catch (e) {
+        tbody.innerHTML = '<tr><td colspan="6" class="empty">Failed to load applications</td></tr>';
+    }
+}
+
+document.getElementById('applicationSearchForm').addEventListener('submit', (event) => {
+    event.preventDefault();
+    loadApplications();
+});
+
 registerActions({
     'switch-tab': (el) => switchTab(el),
+    'applications-previous': () => loadApplications(Math.max(1, applicationsPage - 1)),
+    'applications-next': () => loadApplications(applicationsPage + 1),
+    'clear-application-search': () => {
+        document.getElementById('applicationSearch').value = '';
+        loadApplications();
+    },
     'toggle-teacher': (el) => toggleTeacher(el.dataset.id, el.dataset.account, el.dataset.teacher === 'true'),
     'suspend-course': (el) => suspendCourse(el.dataset.id, el.dataset.name),
     'courses-previous': () => loadCourses(Math.max(1, coursesPage - 1)),

@@ -761,3 +761,21 @@ registerActions({
     'leave-application': (el) => leaveApplication(el.dataset.id, el.dataset.name, el.dataset.role),
     'remove-member': (el) => removeMember(el.dataset.application, el.dataset.id, el.dataset.email),
 });
+
+// Tabs: the active one is kept in the address (#courses), so reloading
+// after an action returns to it.
+function showTab(name) {
+    const tab = document.querySelector(`.tab[data-tab="${name}"]`);
+    if (!tab) return;
+    document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t === tab));
+    document.querySelectorAll('.tab-content').forEach(c => c.classList.toggle('active', c.id === `${name}-tab`));
+}
+
+registerActions({
+    'switch-tab': (el) => {
+        showTab(el.dataset.tab);
+        history.replaceState(null, '', `#${el.dataset.tab}`);
+    },
+});
+
+showTab(location.hash.slice(1) || 'tokens');

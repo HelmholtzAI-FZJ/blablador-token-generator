@@ -96,6 +96,11 @@
         .member-form input[type=email] { flex: 1 1 16rem; padding: 0.5rem; border: 1px solid #ddd; border-radius: 4px; font-size: 1rem; }
         .member-form select, .member-role { padding: 0.4rem; border: 1px solid #ddd; border-radius: 4px; font-size: 0.95rem; }
         .empty { text-align: center; color: #666; padding: 2rem; }
+        .tabs { display: flex; flex-wrap: wrap; gap: 1rem; margin-bottom: 1.5rem; border-bottom: 2px solid #ddd; }
+        .tab { padding: 0.75rem 1.5rem; cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -2px; }
+        .tab.active { border-bottom-color: #3498db; color: #3498db; font-weight: 500; }
+        .tab-content { display: none; }
+        .tab-content.active { display: block; }
     </style>
 </head>
 <body>
@@ -113,6 +118,15 @@
     </header>
     
     <div class="container">
+        <div class="tabs" role="tablist">
+            <div class="tab active" role="tab" data-action="switch-tab" data-tab="tokens">Tokens</div>
+            {% if courses.enabled and user.is_teacher %}
+            <div class="tab" role="tab" data-action="switch-tab" data-tab="courses">My courses</div>
+            {% endif %}
+            <div class="tab" role="tab" data-action="switch-tab" data-tab="applications">Applications</div>
+        </div>
+
+        <div id="tokens-tab" class="tab-content active">
         <div class="card">
             <h2>Create New Token</h2>
             <form id="createTokenForm">
@@ -137,7 +151,7 @@
                 <button type="submit" class="btn">Create Token</button>
             </form>
         </div>
-        
+
         <div class="card" id="tokensCard">
             <h2>Your Tokens</h2>
             <button class="btn btn-danger" data-action="revoke-all">Revoke All Tokens and Sessions</button>
@@ -200,7 +214,79 @@
             <p class="empty">No tokens yet. Create one above!</p>
             {% endif %}
         </div>
-        
+
+        <div class="card">
+            <h2>API Usage</h2>
+            <p>To validate tokens from your applications, use Bearer token authentication:</p>
+            <pre style="background: #f8f9fa; padding: 1rem; border-radius: 4px; overflow-x: auto;">
+curl -X POST {{ api_url }}/api/v1/auth/validate \
+  -H "Authorization: Bearer YOUR_TOKEN_HERE"
+
+# Who does this token belong to?
+curl {{ api_url }}/api/v1/user \
+  -H "Authorization: Bearer YOUR_TOKEN_HERE"</pre>
+        </div>
+        </div>
+
+        {% if courses.enabled and user.is_teacher %}
+        <div id="courses-tab" class="tab-content">
+        <div class="card" id="coursesCard" data-max-days="{{ courses.max_days }}" data-max-seats="{{ courses.max_seats }}" data-mail="{{ 'true' if course_mail else 'false' }}">
+            <h2>My courses</h2>
+            <p class="muted">Students who sign in and open your course's join link get one token each, valid from the first day of the course until the end of its last day (UTC). A course lasts at most {{ courses.max_days }} days and has at most {{ courses.max_seats }} seats; you can run {{ courses.max_active_per_teacher }} at a time. A seat stays used once claimed, so the link stops working when the course is full.</p>
+            <form id="createCourseForm">
+                <div class="form-group">
+                    <label for="courseName">Course name</label>
+                    <input type="text" id="courseName" maxlength="200" required>
+                </div>
+                <div class="form-group">
+                    <label for="courseStarts">First day</label>
+                    <input type="date" id="courseStarts" required>
+                </div>
+                <div class="form-group">
+                    <label for="courseEnds">Last day</label>
+                    <input type="date" id="courseEnds" required>
+                </div>
+                <div class="form-group">
+                    <label for="courseSeats">Seats</label>
+                    <input type="number" id="courseSeats" min="1" max="{{ courses.max_seats }}" value="{{ courses.max_seats }}" required>
+                </div>
+                <div class="form-group">
+                    <label><input type="checkbox" id="courseTerms" required> {{ courses.terms_text }}</label>
+                </div>
+                <button type="submit" class="btn">Create course</button>
+            </form>
+            <div id="courseLinkDisplay" class="token-warning" hidden>
+                <strong>Join link</strong> (shown once; create a new one if you lose it):
+                <code class="token-value" id="courseLinkValue"></code>
+                <button class="btn btn-small btn-copy" data-action="copy-course-link">Copy</button>
+            </div>
+            <div id="coursesList"><p class="empty">Loading...</p></div>
+            {% if course_mail %}
+            <form id="inviteForm" hidden>
+                <h3>Invite students by email</h3>
+                <p class="muted">Each address gets its own link, which works once and holds a seat until it is used or you cancel it. Students may sign in with any account. The link, the course dates and a line saying you sent it are added below your text; replies go to you.</p>
+                <input type="hidden" id="inviteCourse">
+                <div class="form-group">
+                    <label for="inviteEmails">Email addresses (one per line, or separated by commas)</label>
+                    <textarea id="inviteEmails" rows="5" required></textarea>
+                </div>
+                <div class="form-group">
+                    <label for="inviteSubject">Subject</label>
+                    <input type="text" id="inviteSubject" maxlength="200" value="{{ courses.invitation_subject }}" required>
+                </div>
+                <div class="form-group">
+                    <label for="inviteBody">Message</label>
+                    <textarea id="inviteBody" rows="8" maxlength="{{ courses.invitation_max_body_chars }}" required>{{ courses.invitation_body }}</textarea>
+                </div>
+                <button type="submit" class="btn">Send invitations</button>
+                <button type="button" class="btn" data-action="close-invite">Cancel</button>
+            </form>
+            {% endif %}
+        </div>
+        </div>
+        {% endif %}
+
+        <div id="applications-tab" class="tab-content">
         <div class="card" id="applicationsCard">
             <h2>Applications</h2>
             <p class="muted">Give a service, CI job or bot its own tokens, shared with the people who run it. Validation reports the application and the person who created the token. Owners add people by email and may delete the application, which deletes its tokens; members manage its tokens. If the last owner leaves, the application passes to the administrators.</p>
@@ -254,73 +340,6 @@
             <p class="empty">No applications yet.</p>
             {% endif %}
         </div>
-
-        {% if courses.enabled and user.is_teacher %}
-        <div class="card" id="coursesCard" data-max-days="{{ courses.max_days }}" data-max-seats="{{ courses.max_seats }}" data-mail="{{ 'true' if course_mail else 'false' }}">
-            <h2>Courses</h2>
-            <p class="muted">Students who sign in and open your course's join link get one token each, valid from the first day of the course until the end of its last day (UTC). A course lasts at most {{ courses.max_days }} days and has at most {{ courses.max_seats }} seats; you can run {{ courses.max_active_per_teacher }} at a time. A seat stays used once claimed, so the link stops working when the course is full.</p>
-            <form id="createCourseForm">
-                <div class="form-group">
-                    <label for="courseName">Course name</label>
-                    <input type="text" id="courseName" maxlength="200" required>
-                </div>
-                <div class="form-group">
-                    <label for="courseStarts">First day</label>
-                    <input type="date" id="courseStarts" required>
-                </div>
-                <div class="form-group">
-                    <label for="courseEnds">Last day</label>
-                    <input type="date" id="courseEnds" required>
-                </div>
-                <div class="form-group">
-                    <label for="courseSeats">Seats</label>
-                    <input type="number" id="courseSeats" min="1" max="{{ courses.max_seats }}" value="{{ courses.max_seats }}" required>
-                </div>
-                <div class="form-group">
-                    <label><input type="checkbox" id="courseTerms" required> {{ courses.terms_text }}</label>
-                </div>
-                <button type="submit" class="btn">Create course</button>
-            </form>
-            <div id="courseLinkDisplay" class="token-warning" hidden>
-                <strong>Join link</strong> (shown once; create a new one if you lose it):
-                <code class="token-value" id="courseLinkValue"></code>
-                <button class="btn btn-small btn-copy" data-action="copy-course-link">Copy</button>
-            </div>
-            <div id="coursesList"><p class="empty">Loading...</p></div>
-            {% if course_mail %}
-            <form id="inviteForm" hidden>
-                <h3>Invite students by email</h3>
-                <p class="muted">Each address gets its own link, which works once and holds a seat until it is used or you cancel it. Students may sign in with any account. The link, the course dates and a line saying you sent it are added below your text; replies go to you.</p>
-                <input type="hidden" id="inviteCourse">
-                <div class="form-group">
-                    <label for="inviteEmails">Email addresses (one per line, or separated by commas)</label>
-                    <textarea id="inviteEmails" rows="5" required></textarea>
-                </div>
-                <div class="form-group">
-                    <label for="inviteSubject">Subject</label>
-                    <input type="text" id="inviteSubject" maxlength="200" value="{{ courses.invitation_subject }}" required>
-                </div>
-                <div class="form-group">
-                    <label for="inviteBody">Message</label>
-                    <textarea id="inviteBody" rows="8" maxlength="{{ courses.invitation_max_body_chars }}" required>{{ courses.invitation_body }}</textarea>
-                </div>
-                <button type="submit" class="btn">Send invitations</button>
-                <button type="button" class="btn" data-action="close-invite">Cancel</button>
-            </form>
-            {% endif %}
-        </div>
-        {% endif %}
-
-        <div class="card">
-            <h2>API Usage</h2>
-            <p>To validate tokens from your applications, use Bearer token authentication:</p>
-            <pre style="background: #f8f9fa; padding: 1rem; border-radius: 4px; overflow-x: auto;">
-curl -X POST {{ api_url }}/api/v1/auth/validate \
-  -H "Authorization: Bearer YOUR_TOKEN_HERE"
-
-# Who does this token belong to?
-curl {{ api_url }}/api/v1/user \
-  -H "Authorization: Bearer YOUR_TOKEN_HERE"</pre>
         </div>
     </div>
     
