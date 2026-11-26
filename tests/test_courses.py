@@ -1304,8 +1304,8 @@ def test_mailed_token_footer_explains_no_sign_in(client, teacher, course, mailbo
 
 def test_token_pages_carry_copy_buttons_and_curl_url(client, teacher, course, mailbox):
     from app.config import get_config as config
-    url = config().blablador.test_url
-    assert url == config().blablador.api_url.rstrip("/") + "/v1/models"
+    url = config().token_test_url
+    assert url == config().app.api_url.rstrip("/") + "/api/v1/user"
     page = teacher.get("/dashboard").text
     assert f'<meta name="blablador-test-url" content="{url}">' in page
     assert 'data-action="copy-token-curl"' in page and 'id="newTokenCurl"' in page
@@ -1332,17 +1332,29 @@ def test_scripts_build_the_curl_line():
     ("api_url", 'https://x.example/"; rm -rf ~'),
     ("api_url", "https://x.example/ `id`"),
     ("api_url", "javascript:alert(1)"),
-    ("test_path", "v1/models"),
-    ("test_path", "/v1/models?x=$(id)"),
+    ("test_url", "https://x.example/v1?x=$(id)"),
+    ("test_url", "/api/v1/user"),
 ])
 def test_curl_url_parts_are_safe_to_paste(field, value):
     with pytest.raises(ValueError):
         Config(blablador={field: value})
 
 
-def test_curl_url_joins_cleanly():
-    assert Config(blablador={"api_url": "https://api.example/", "test_path": "/v1/models"}).blablador.test_url \
-        == "https://api.example/v1/models"
+def test_curl_url_defaults_to_this_service():
+    assert Config(app={"api_url": "https://tokens.example/"}).token_test_url == "https://tokens.example/api/v1/user"
+    assert Config(blablador={"test_url": "https://gw.example/v1/models"}).token_test_url \
+        == "https://gw.example/v1/models"
+
+
+def test_default_curl_command_really_checks_the_token(client, teacher, course):
+    """The default endpoint answers 401 to a bad token and names the owner
+    of a good one, unlike an endpoint that answers every request alike."""
+    _, joined = join(client, course)
+    client.cookies.clear()
+    good = client.get("/api/v1/user", headers={"Authorization": f"Bearer {joined['token']}"})
+    assert good.status_code == 200 and good.json()["token_type"] == "course"
+    bad = client.get("/api/v1/user", headers={"Authorization": f"Bearer {joined['token']}a"})
+    assert bad.status_code == 401
 
 
 # Who is in a course

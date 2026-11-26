@@ -545,10 +545,9 @@
               },
               "type": "array"
             },
-            "test_path": {
+            "test_url": {
               "type": "string",
-              "pattern": "^/[A-Za-z0-9/_.-]*$",
-              "maxLength": 200
+              "maxLength": 500
             }
           },
           "type": "object"

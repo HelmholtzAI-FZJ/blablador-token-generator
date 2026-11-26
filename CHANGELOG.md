@@ -56,8 +56,8 @@ All notable changes to this project are documented here. The format follows
   Deletions are audit-logged.
 - Pages that show a new token (the dashboard and the course token page) have
   copy buttons next to the token and a ready-to-paste `curl` command that
-  tries it against the Blablador API (`blablador.api_url` +
-  `blablador.test_path`). On the dashboard the command follows the View/Hide
+  tries it: against this service's `/api/v1/user` (which checks the token and
+  names its owner) unless `blablador.test_url` names another endpoint. On the dashboard the command follows the View/Hide
   state; Copy always copies the real one.
 - Using a mailed invitation creates (or reuses) a **course user** for the
   address, which owns the token and appears on the admin Users tab with a

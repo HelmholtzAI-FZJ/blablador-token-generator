@@ -387,7 +387,7 @@ async def dashboard(
             "token_default_expiration_days": config.tokens.default_expiration_days,
             "token_max_expiration_days": config.tokens.max_expiration_days,
             "courses": config.courses,
-            "blablador_test_url": config.blablador.test_url,
+            "blablador_test_url": config.token_test_url,
             "course_mail": config.courses.enabled and config.smtp.enabled,
             "login_name": config.login.name
         }
@@ -663,7 +663,7 @@ async def course_page(request: Request, kind: str, code: str, db: AsyncSession):
         "problem": problem,
         "join_path": f"/courses/{kind}/{code}" if problem is None else "",
         "invited": kind == "invite",
-        "blablador_test_url": config.blablador.test_url,
+        "blablador_test_url": config.token_test_url,
     }, status_code=200 if problem is None else (404 if course is None else 410))
     delete_cookie(response, COURSE_JOIN_COOKIE)
     return response

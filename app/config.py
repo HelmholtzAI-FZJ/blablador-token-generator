@@ -290,16 +290,16 @@ class ModelConfig(SecurityConfigModel):
     max_model_len: int | None = None
 
 
-class BlabladorConfig(SecurityConfigModel):
-    # The Blablador API that tokens are for; pages show a curl command
-    # against api_url + test_path to try a new token.
-    api_url: str = Field("https://ptj.blablador.fz-juelich.de", pattern=r"^https?://[^\s\"'`$\\]+$")
-    test_path: str = Field("/v1/models", pattern=r"^/[A-Za-z0-9/_.-]*$", max_length=200)
-    models: List[ModelConfig] = []
+SAFE_URL = r"^https?://[^\s\"'`$\\]+$"
 
-    @property
-    def test_url(self) -> str:
-        return self.api_url.rstrip("/") + self.test_path
+
+class BlabladorConfig(SecurityConfigModel):
+    api_url: str = Field("https://ptj.blablador.fz-juelich.de", pattern=SAFE_URL)
+    # What the "Try it" curl command on token pages calls. Empty: this
+    # service's own /api/v1/user, which checks the token and names its
+    # owner. Characters unsafe in a pasted shell command are refused.
+    test_url: str = Field("", pattern=r"^$|" + SAFE_URL, max_length=500)
+    models: List[ModelConfig] = []
 
 
 class Config(SecurityConfigModel):
@@ -315,6 +315,11 @@ class Config(SecurityConfigModel):
     notifications: NotificationsConfig = NotificationsConfig()
     courses: CourseConfig = CourseConfig()
     blablador: BlabladorConfig = BlabladorConfig()
+
+    @property
+    def token_test_url(self) -> str:
+        """The URL the "Try it" curl command on token pages calls."""
+        return self.blablador.test_url or self.app.api_url.rstrip("/") + "/api/v1/user"
 
     @model_validator(mode="after")
     def check_course_tokens_fit(self) -> "Config":
