@@ -359,11 +359,13 @@ async function loadCourses(page = 1) {
                 <td>${toLocalDate(course.starts_at)} – ${toLocalDateTime(course.ends_at)}</td>
                 <td>${course.seats_claimed} / ${course.max_seats}</td>
                 <td>${course.suspended_at ? `Closed: ${escapeHtml(course.suspended_reason || '')}` : (course.active ? 'Active' : 'Ended')}</td>
-                <td>${course.active
+                <td><button class="btn btn-small" data-action="course-invitations" data-id="${escapeHtml(course.id)}">Invitations</button>
+                    ${course.active
                     ? `<button class="btn btn-small btn-danger" data-action="suspend-course" data-id="${escapeHtml(course.id)}" data-name="${escapeHtml(course.name)}">Suspend</button>`
                     : ''}
                     <button class="btn btn-small btn-danger" data-action="delete-course" data-id="${escapeHtml(course.id)}" data-name="${escapeHtml(course.name)}" data-active="${course.active}">Delete</button></td>
-            </tr>`).join('');
+            </tr>
+            <tr id="course-invitations-${escapeHtml(course.id)}" hidden><td colspan="6"></td></tr>`).join('');
     } catch (e) {
         tbody.innerHTML = '<tr><td colspan="6" class="empty">Failed to load courses</td></tr>';
     }
@@ -377,6 +379,30 @@ async function deleteCourse(courseId, name, active) {
     });
     if (!response.ok) alert(`Failed to delete course: ${await errorMessage(response)}`);
     loadCourses(coursesPage);
+}
+
+async function toggleCourseInvitations(courseId) {
+    const row = document.getElementById(`course-invitations-${courseId}`);
+    row.hidden = !row.hidden;
+    if (row.hidden) return;
+    const cell = row.querySelector('td');
+    const response = await fetch(`/api/admin/courses/${encodeURIComponent(courseId)}/invitations`);
+    if (!response.ok) {
+        cell.textContent = `Failed to load invitations: ${await errorMessage(response)}`;
+        return;
+    }
+    const invitations = await response.json();
+    cell.innerHTML = invitations.length === 0 ? '<span class="muted">No invitations.</span>' : `
+        <table><thead><tr><th>Address</th><th>State</th><th>Token</th><th>Uses</th><th>Link (testing)</th></tr></thead><tbody>
+        ${invitations.map(invitation => `
+            <tr>
+                <td>${escapeHtml(invitation.email)}${invitation.claimed_by_name ? ` (${escapeHtml(invitation.claimed_by_name)})` : ''}</td>
+                <td>${escapeHtml(invitation.status)}${invitation.delivery_failed ? ' (not delivered)' : ''}</td>
+                <td>${escapeHtml(invitation.token_status || '')}</td>
+                <td>${invitation.use_count}</td>
+                <td>${invitation.link ? `<a href="${escapeHtml(invitation.link)}" target="_blank" rel="noopener noreferrer">${escapeHtml(invitation.link)}</a>` : ''}</td>
+            </tr>`).join('')}
+        </tbody></table>`;
 }
 
 async function suspendCourse(courseId, name) {
@@ -439,6 +465,7 @@ registerActions({
     },
     'toggle-teacher': (el) => toggleTeacher(el.dataset.id, el.dataset.account, el.dataset.teacher === 'true'),
     'suspend-course': (el) => suspendCourse(el.dataset.id, el.dataset.name),
+    'course-invitations': (el) => toggleCourseInvitations(el.dataset.id),
     'delete-course': (el) => deleteCourse(el.dataset.id, el.dataset.name, el.dataset.active === 'true'),
     'courses-previous': () => loadCourses(Math.max(1, coursesPage - 1)),
     'courses-next': () => loadCourses(coursesPage + 1),

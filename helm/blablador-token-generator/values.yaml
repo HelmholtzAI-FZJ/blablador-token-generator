@@ -271,6 +271,7 @@ config:
     retention_days: 30
     invitation_max_body_chars: 4000
     max_invitation_sends: 3
+    admin_can_view_invitation_links: false
     terms_version: '1'
   local:
     enabled: false

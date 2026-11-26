@@ -35,6 +35,11 @@ class CourseInfo(BaseModel):
     name: str
     starts_at: str
     ends_at: str
+    # One per student and course, for per-student limits: the account for a
+    # student who joined signed in, the invitation for one mailed a token.
+    student_id: str
+    # The invited address, for a token mailed to it.
+    student_email: str | None = None
 
 
 class ValidateResponse(BaseModel):
@@ -142,7 +147,7 @@ async def authenticate_api_token(
     result = await db.execute(
         select(Token)
         .options(joinedload(Token.user), joinedload(Token.application), joinedload(Token.created_by),
-                 joinedload(Token.course))
+                 joinedload(Token.course), joinedload(Token.course_invitation))
         .where(
             Token.token_hash == token_hash,
             Token.revoked_at.is_(None)
@@ -150,7 +155,7 @@ async def authenticate_api_token(
     )
     token = result.scalar_one_or_none()
 
-    if token is None or (token.user is None and token.application is None):
+    if token is None or (token.user is None and token.application is None and token.course_invitation is None):
         raise invalid_token("Token not found or revoked")
     # A value's shape must agree with its record, so a course token cannot
     # pass as a personal one (and the gateway's course limits be skipped).
@@ -250,10 +255,23 @@ def application_info(token: Token) -> ApplicationInfo | None:
 def course_info(token: Token) -> CourseInfo | None:
     if token.course is None:
         return None
+    invitation = token.course_invitation
     return CourseInfo(
         id=token.course.id, name=token.course.name,
         starts_at=isoformat_utc(token.course.starts_at), ends_at=isoformat_utc(token.course.ends_at),
+        student_id=f"invitation:{invitation.id}" if invitation else f"user:{token.user_id}",
+        student_email=invitation.email if invitation else None,
     )
+
+
+def token_email(token: Token) -> str | None:
+    """The flat email: the owner's, or the address a course token was
+    mailed to. Application tokens authenticate an application, not a person."""
+    if token.course_invitation is not None:
+        return token.course_invitation.email
+    if token.application_id is None and token.reported_user is not None:
+        return token.reported_user.email
+    return None
 
 
 def token_type(token: Token) -> str:
@@ -279,7 +297,7 @@ def validation_response(token: Token) -> ValidateResponse:
         user_id=reported.id if reported else None,
         # An application token authenticates an application, not a person, so
         # the flat field stays empty; the nested user still names the owner.
-        email=reported.email if reported and token.application_id is None else None,
+        email=token_email(token),
         expires_at=isoformat_utc(token.expires_at),
         token_type=token_type(token),
         user=user_info(token.reported_user),

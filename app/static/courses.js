@@ -58,14 +58,19 @@ const mailEnabled = document.getElementById('coursesCard').dataset.mail === 'tru
 function invitationRows(courseId, invitations) {
     if (invitations.length === 0) return '';
     return `<h4>Invitations</h4>
-        <table><thead><tr><th>Address</th><th>State</th><th>Sent</th><th>Claimed by</th><th></th></tr></thead><tbody>
+        <table><thead><tr><th>Address</th><th>State</th><th>Sent</th><th>Token</th><th>Last used</th><th>Uses</th><th></th></tr></thead><tbody>
         ${invitations.map(invitation => `
             <tr>
-                <td>${escapeHtml(invitation.email)}</td>
+                <td>${escapeHtml(invitation.email)}${invitation.claimed_by_name ? `<br><span class="muted">signed in as ${escapeHtml(invitation.claimed_by_name)}</span>` : ''}</td>
                 <td>${escapeHtml(invitation.status)}${invitation.delivery_failed ? ' <strong>(not delivered)</strong>' : ''}</td>
                 <td>${courseDateTime(invitation.sent_at)} (${invitation.send_count}×)</td>
-                <td>${invitation.claimed_by_name ? escapeHtml(invitation.claimed_by_name) : ''}</td>
-                <td>${invitation.status === 'open' ? `
+                <td>${escapeHtml(invitation.token_status || '')}</td>
+                <td>${invitation.token_status ? courseDateTime(invitation.last_used_at) : ''}</td>
+                <td>${invitation.token_status ? invitation.use_count : ''}</td>
+                <td>${invitation.status === 'claimed' ? `
+                    ${invitation.token_status === 'active' ? `<button class="btn btn-small btn-danger" data-action="revoke-invitation" data-course="${escapeHtml(courseId)}" data-id="${escapeHtml(invitation.id)}" data-email="${escapeHtml(invitation.email)}">Revoke</button>` : ''}
+                    <button class="btn btn-small" data-action="reissue-invitation" data-course="${escapeHtml(courseId)}" data-id="${escapeHtml(invitation.id)}" data-email="${escapeHtml(invitation.email)}">Reissue</button>` : ''}
+                    ${invitation.status === 'open' ? `
                     <button class="btn btn-small" data-action="resend-invitation" data-course="${escapeHtml(courseId)}" data-id="${escapeHtml(invitation.id)}" data-email="${escapeHtml(invitation.email)}">Resend</button>
                     <button class="btn btn-small btn-danger" data-action="cancel-invitation" data-course="${escapeHtml(courseId)}" data-id="${escapeHtml(invitation.id)}" data-email="${escapeHtml(invitation.email)}">Cancel</button>` : ''}</td>
             </tr>`).join('')}
@@ -167,6 +172,24 @@ registerActions({
         if (!confirm(`Send ${el.dataset.email} a new link (with the message in the invitation form)? The previous link stops working.`)) return;
         const response = await fetch(
             `/courses/${encodeURIComponent(el.dataset.course)}/invitations/${encodeURIComponent(el.dataset.id)}/resend`,
+            {method: 'POST', headers: csrfHeaders({'Content-Type': 'application/json'}), body: JSON.stringify(inviteText())},
+        );
+        if (!response.ok) alert(`Failed: ${await errorMessage(response)}`);
+        loadSeats(el.dataset.course);
+    },
+    'revoke-invitation': async (el) => {
+        if (!confirm(`Revoke the token of ${el.dataset.email}? Their seat stays used.`)) return;
+        const response = await fetch(
+            `/courses/${encodeURIComponent(el.dataset.course)}/invitations/${encodeURIComponent(el.dataset.id)}/revoke`,
+            {method: 'POST', headers: csrfHeaders()},
+        );
+        if (!response.ok) alert(`Failed: ${await errorMessage(response)}`);
+        loadSeats(el.dataset.course);
+    },
+    'reissue-invitation': async (el) => {
+        if (!confirm(`Revoke the token of ${el.dataset.email} and mail them a new link (with the message in the invitation form)?`)) return;
+        const response = await fetch(
+            `/courses/${encodeURIComponent(el.dataset.course)}/invitations/${encodeURIComponent(el.dataset.id)}/reissue`,
             {method: 'POST', headers: csrfHeaders({'Content-Type': 'application/json'}), body: JSON.stringify(inviteText())},
         );
         if (!response.ok) alert(`Failed: ${await errorMessage(response)}`);

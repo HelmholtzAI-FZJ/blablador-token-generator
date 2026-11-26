@@ -428,17 +428,32 @@ async def join_course(
 async def accept_invitation(
     request: Request,
     code: Annotated[str, Path(max_length=128)],
-    user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> JoinedCourseResponse:
-    """Join through a personal invitation, which holds its own seat. Any
-    signed-in account may use it: students sign in with other addresses."""
-    user = await lock_token_owner(request, user, db)
+    """Show the token of a mailed invitation, once. No sign-in: the token
+    belongs to the invited address, and moves to the student's account if
+    they later sign in with that verified address."""
     invitation, course = await invitation_for_code(db, code, lock=True)
     problem = join_problem(course, -1 if course else 0)
     if problem:
         raise HTTPException(status_code=404 if course is None else 410, detail=problem)
-    return await claim_seat(db, course, user, invitation)
+    plain_token = generate_token(course=True)
+    token = Token(
+        course_invitation_id=invitation.id, course_id=course.id, token_hash=hash_token(plain_token),
+        name=f"Course: {course.name}", expires_at=course.ends_at,
+    )
+    course.seats_claimed += 1
+    invitation.claimed_at = utcnow()
+    invitation.code_hash = None
+    invitation.link = None
+    db.add(token)
+    await commit(db, "Failed to issue the token")
+    logger.info("action=claim_course_invitation course_id=%s invitation_id=%s token_id=%s seat=%d/%d",
+                course.id, invitation.id, token.id, course.seats_claimed, course.max_seats)
+    return JoinedCourseResponse(
+        token_id=token.id, token=plain_token, expires_at=isoformat_utc(token.expires_at),
+        course=CourseResponse.of(course),
+    )
 
 
 # Invitations mailed by the service.
@@ -490,18 +505,24 @@ class ResendRequest(BaseModel):
 
 
 class InvitationResponse(BaseModel):
+    """What the teacher sees: never the token or the link."""
     id: str
     email: str
-    # open, claimed or cancelled
+    # open (link not used yet), claimed (token shown) or cancelled
     status: str
     sent_at: str
     send_count: int
     delivery_failed: bool
     claimed_at: str | None = None
+    # The student's account once they signed in with JSC and this address.
     claimed_by_name: str | None = None
+    # active, revoked, expired, or None before the token was shown
+    token_status: str | None = None
+    last_used_at: str | None = None
+    use_count: int = 0
 
     @classmethod
-    def of(cls, invitation: CourseInvitation) -> "InvitationResponse":
+    def of(cls, invitation: CourseInvitation, token: Token | None = None) -> "InvitationResponse":
         status = "claimed" if invitation.claimed_at else ("cancelled" if invitation.cancelled_at else "open")
         return cls(
             id=invitation.id, email=invitation.email, status=status,
@@ -509,7 +530,32 @@ class InvitationResponse(BaseModel):
             delivery_failed=invitation.delivery_failed_at is not None,
             claimed_at=isoformat_utc(invitation.claimed_at),
             claimed_by_name=invitation.claimed_by.name if invitation.claimed_by else None,
+            token_status=seat_status(token, utcnow()) if token else None,
+            last_used_at=isoformat_utc(token.last_used_at) if token else None,
+            use_count=token.use_count if token else 0,
         )
+
+
+async def invitation_tokens(db: AsyncSession, invitations: list[CourseInvitation]) -> dict[str, Token]:
+    """The current token of each claimed invitation, whether still mailed
+    to the address or moved to the student's account."""
+    ids = [invitation.id for invitation in invitations]
+    by_user = {invitation.claimed_by_id: invitation.id for invitation in invitations if invitation.claimed_by_id}
+    if not ids:
+        return {}
+    course_ids = {invitation.course_id for invitation in invitations}
+    tokens = (await db.execute(
+        select(Token).where(
+            Token.course_id.in_(course_ids),
+            (Token.course_invitation_id.in_(ids)) | (Token.user_id.in_(list(by_user) or [""])),
+        ).order_by(Token.created_at)
+    )).scalars().all()
+    result = {}
+    for token in tokens:
+        key = token.course_invitation_id or by_user.get(token.user_id)
+        if key:
+            result[key] = token
+    return result
 
 
 class InvitationResult(BaseModel):
@@ -520,6 +566,14 @@ class InvitationResult(BaseModel):
 
 def invite_url(code: str) -> str:
     return f"{get_config().app.api_url.rstrip('/')}/courses/invite/{code}"
+
+
+def new_link(invitation: CourseInvitation) -> str:
+    """A fresh code for the invitation; returns it. The link is kept only
+    for administrators' testing, when configured."""
+    code, invitation.code_hash = new_invite_code()
+    invitation.link = invite_url(code) if get_config().courses.admin_can_view_invitation_links else None
+    return code
 
 
 def send_invitation(course: Course, teacher: User, invitation: CourseInvitation, code: str,
@@ -565,8 +619,8 @@ async def invite_students(
         )
     created = []
     for address in new:
-        code, code_hash = new_invite_code()
-        invitation = CourseInvitation(course_id=course.id, email=address, code_hash=code_hash)
+        invitation = CourseInvitation(course_id=course.id, email=address)
+        code = new_link(invitation)
         db.add(invitation)
         created.append((invitation, code))
     await commit(db, "Failed to create invitations")
@@ -590,11 +644,16 @@ async def list_invitations(
     db: AsyncSession = Depends(get_db),
 ):
     course = await teacher_course(course_id, user, db)
+    return await invitation_listing(db, course)
+
+
+async def invitation_listing(db: AsyncSession, course: Course) -> list[InvitationResponse]:
     invitations = (await db.execute(
         select(CourseInvitation).options(joinedload(CourseInvitation.claimed_by))
         .where(CourseInvitation.course_id == course.id).order_by(CourseInvitation.created_at)
     )).scalars().all()
-    return [InvitationResponse.of(invitation) for invitation in invitations]
+    tokens = await invitation_tokens(db, invitations)
+    return [InvitationResponse.of(invitation, tokens.get(invitation.id)) for invitation in invitations]
 
 
 async def open_invitation(db: AsyncSession, course: Course, invitation_id: str) -> CourseInvitation:
@@ -625,7 +684,7 @@ async def resend_invitation(
     limit = get_config().courses.max_invitation_sends
     if invitation.send_count >= limit:
         raise HTTPException(status_code=400, detail=f"An invitation is sent at most {limit} times")
-    code, invitation.code_hash = new_invite_code()
+    code = new_link(invitation)
     invitation.send_count += 1
     invitation.sent_at = utcnow()
     invitation.delivery_failed_at = None
@@ -651,7 +710,86 @@ async def cancel_invitation(
     invitation = await open_invitation(db, course, invitation_id)
     invitation.cancelled_at = utcnow()
     invitation.code_hash = None
+    invitation.link = None
     await commit(db, "Failed to cancel invitation")
     logger.info("user=%s action=cancel_course_invitation course_id=%s invitation_id=%s",
                 user.id, course.id, invitation.id)
     return {"message": "Invitation cancelled; its seat is free again"}
+
+
+async def claimed_invitation(db: AsyncSession, course: Course, invitation_id: str) -> CourseInvitation:
+    invitation = (await db.execute(
+        select(CourseInvitation).where(
+            CourseInvitation.id == invitation_id, CourseInvitation.course_id == course.id,
+            CourseInvitation.claimed_at.isnot(None),
+        ).with_for_update()
+    )).scalar_one_or_none()
+    if invitation is None:
+        raise HTTPException(status_code=404, detail="No used invitation with this id")
+    return invitation
+
+
+async def revoke_invitation_token(db: AsyncSession, course: Course, invitation: CourseInvitation) -> int:
+    """Revoke the token an invitation gave, wherever it lives now."""
+    owner = Token.course_invitation_id == invitation.id
+    if invitation.claimed_by_id:
+        owner = owner | (Token.user_id == invitation.claimed_by_id)
+    result = await db.execute(
+        update(Token).where(Token.course_id == course.id, owner, Token.revoked_at.is_(None))
+        .values(revoked_at=utcnow()).execution_options(synchronize_session=False)
+    )
+    return result.rowcount
+
+
+@router.post("/{course_id}/invitations/{invitation_id}/revoke", dependencies=[Depends(require_courses_enabled)])
+@limiter.limit(TOKEN_WRITE_LIMIT, key_func=user_or_ip)
+async def revoke_invitation(
+    request: Request,
+    course_id: ResourceId,
+    invitation_id: ResourceId,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Revoke the token mailed to one student. The seat stays used."""
+    user = await lock_token_owner(request, user, db)
+    course = await teacher_course(course_id, user, db, lock=True)
+    invitation = await claimed_invitation(db, course, invitation_id)
+    revoked = await revoke_invitation_token(db, course, invitation)
+    await commit(db, "Failed to revoke the token")
+    logger.info("user=%s action=revoke_course_invitation_token course_id=%s invitation_id=%s count=%d",
+                user.id, course.id, invitation.id, revoked)
+    return {"message": "The student's token was revoked", "tokens_revoked": revoked}
+
+
+@router.post("/{course_id}/invitations/{invitation_id}/reissue", response_model=InvitationResponse,
+             dependencies=[Depends(require_courses_enabled), Depends(require_mail)])
+@limiter.limit(RATE_LIMITS.course_invite, key_func=user_or_ip)
+async def reissue_invitation(
+    request: Request,
+    course_id: ResourceId,
+    invitation_id: ResourceId,
+    body: ResendRequest,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> InvitationResponse:
+    """For a student who lost their token: revoke it and mail a new
+    one-time link. The seat moves back to the invitation, so none is used
+    up; it counts towards max_invitation_sends."""
+    user, course = await active_teacher_course(request, course_id, user, db)
+    invitation = await claimed_invitation(db, course, invitation_id)
+    limit = get_config().courses.max_invitation_sends
+    if invitation.send_count >= limit:
+        raise HTTPException(status_code=400, detail=f"An invitation is sent at most {limit} times")
+    await revoke_invitation_token(db, course, invitation)
+    course.seats_claimed -= 1
+    invitation.claimed_at = None
+    invitation.claimed_by_id = None
+    code = new_link(invitation)
+    invitation.send_count += 1
+    invitation.sent_at = utcnow()
+    invitation.delivery_failed_at = None
+    await commit(db, "Failed to reissue the token")
+    send_invitation(course, user, invitation, code, body.subject, body.body)
+    logger.info("user=%s action=reissue_course_invitation course_id=%s invitation_id=%s",
+                user.id, course.id, invitation.id)
+    return InvitationResponse.of(invitation)

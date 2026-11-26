@@ -52,11 +52,15 @@ case-insensitive; no request body is needed and no CSRF token is involved.
     `null` with `user_id` once their account is deleted) and `application` is
     `null` for personal tokens.
 
-    A course token (`blablador-course-…`) belongs to the student who joined;
-    the response adds `course` with its `id`, `name`, `starts_at` and
-    `ends_at`. Gateways should apply their own per-token and per-course limits
-    to these, keyed on `user_id` and `course.id`. `course` is `null` for every
-    other token.
+    A course token (`blablador-course-…`) adds `course` with its `id`,
+    `name`, `starts_at`, `ends_at` and `student_id`. A token mailed to an
+    invited address has no account: `user_id` and `user` are `null`, and
+    `email` and `course.student_email` give the address. Once that student
+    signs in with JSC and the same verified address, the token moves to their
+    account and reports them like any course token (`student_id` changes from
+    `invitation:…` to `user:…`). Gateways should key per-student limits on
+    `course.student_id` and per-course limits on `course.id`. `course` is
+    `null` for every other token.
 
 === "Invalid token (401)"
 
@@ -201,10 +205,12 @@ may join one with its link.
 | `DELETE /courses/{id}` | | Deletes a closed or ended course with its tokens, students and invitations; `400` while it runs |
 | `POST /courses/{id}/seats/{seat_id}/revoke` | | Revokes one student's token; they cannot join again |
 | `POST /courses/{id}/invitations` | `{"emails": [...], "subject", "body"}` | Teachers only; needs mail. Mails each new address a single-use link (one seat each). `400` if there are not enough free seats. Returns `invited` and `skipped` (already invited) |
-| `GET /courses/{id}/invitations` | | Invitations: `email`, `status` (`open`, `claimed`, `cancelled`), `sent_at`, `send_count`, `delivery_failed`, `claimed_by_name` |
+| `GET /courses/{id}/invitations` | | Invitations: `email`, `status` (`open`, `claimed`, `cancelled`), `sent_at`, `send_count`, `delivery_failed`, `claimed_by_name` (after the student signed in), `token_status`, `last_used_at`, `use_count`. Never the token or the link |
+| `POST /courses/{id}/invitations/{invitation_id}/revoke` | | Revokes the token an invitation gave; the seat stays used |
+| `POST /courses/{id}/invitations/{invitation_id}/reissue` | `{"subject", "body"}` | For a lost token: revokes it and mails a new one-time link, without using another seat. Counts towards `courses.max_invitation_sends` |
 | `POST /courses/{id}/invitations/{invitation_id}/resend` | `{"subject", "body"}` | Mails a new link; the old one stops working. At most `courses.max_invitation_sends` sends |
 | `DELETE /courses/{id}/invitations/{invitation_id}` | | Cancels an open invitation; its seat is free again |
-| `POST /courses/invite/{code}` | | Joins with a personal invitation link, which then stops working |
+| `POST /courses/invite/{code}` | | No sign-in. Shows the token of a mailed invitation once (`token`, `token_id`, `expires_at`, `course`); the link then stops working |
 | `POST /courses/join/{code}` | | Joins the course: returns `token` (shown once), `token_id`, `expires_at` and `course`. `404` for an unknown link, `410` for a closed, ended or full course, `409` if you already joined |
 
 ## Administration
@@ -224,6 +230,7 @@ Administrator session plus `X-CSRF-Token`, as above. Lists are paged with
 | `DELETE /api/admin/tokens/revoked` | | Deletes all revoked tokens |
 | `GET /api/admin/courses` | | All courses with teacher, dates, seats, state and the terms version the teacher accepted |
 | `POST /api/admin/courses/{id}/suspend` | | Revokes every token of a course and disables its link |
+| `GET /api/admin/courses/{id}/invitations` | | A course's invitations as teachers see them, plus `link` for unused ones when `courses.admin_can_view_invitation_links` is on (testing) |
 | `DELETE /api/admin/courses/{id}` | | Deletes any course, running or not, with its tokens, students and invitations |
 | `GET /api/admin/users` | | Optional `q` matches part of the email, name or OAuth subject, ignoring case. Accounts: `id`, `email`, `name`, `is_admin`, `is_teacher`, `created_at`, `unity_id` (OAuth subject), `has_password` |
 | `POST /api/admin/users` | `{"email", "name", "password", "is_admin"}` | Creates a **local** password account |

@@ -73,11 +73,13 @@ If an administrator made you a teacher, the dashboard has a **Courses** card.
    They get one token, `blablador-course-…`, that works from the first day
    until the end of the last day (UTC). Course tokens cannot be renewed or
    rotated, and a student cannot join a second time.
-   Or press **Invite by email**: paste the students' addresses, adjust the
-   message, and the service mails each of them a personal link that works
-   once. Each invitation holds a seat until it is used or you cancel it;
-   **Resend** mails a new link and disables the old one. Students may sign in
-   with any account, not only the address you used.
+   Or press **Invite by email**: paste the students' addresses and adjust
+   the message. The service mails each student a personal link that shows
+   their token once; they need no account, and you never see the tokens.
+   Each invitation holds a seat until it is used or you cancel it. For a
+   student who lost their token, **Reissue** revokes it and mails a new link
+   without using another seat. If a student later signs in with JSC and the
+   same verified address, the token moves to their account.
 4. **Students** lists who joined, and the invitations with their state, when each token was last used and how often.
    A token used far more than the others may have been shared: **Revoke** it.
    A revoked student's seat stays used.

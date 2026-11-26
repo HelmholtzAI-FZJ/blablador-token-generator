@@ -497,6 +497,9 @@
               "minLength": 1,
               "maxLength": 4000,
               "pattern": "\\{link\\}"
+            },
+            "admin_can_view_invitation_links": {
+              "type": "boolean"
             }
           }
         },

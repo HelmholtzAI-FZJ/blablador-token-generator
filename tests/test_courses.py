@@ -496,7 +496,8 @@ def test_join_page_resumes_after_sign_in(client, course):
     assert after_sign_in(request) == f"/courses/join/{code}"
     invite = Request({"type": "http", "method": "GET", "path": "/", "query_string": b"",
                       "headers": [(b"cookie", f"course_join=invite-{code}".encode())]})
-    assert after_sign_in(invite) == f"/courses/invite/{code}"
+    # Invitations need no sign-in, so there is nothing to resume.
+    assert after_sign_in(invite) == "/dashboard"
     for value in (code, f"other-{code}", "invite-../evil"):
         odd = Request({"type": "http", "method": "GET", "path": "/", "query_string": b"",
                        "headers": [(b"cookie", f"course_join={value}".encode())]})
@@ -720,18 +721,51 @@ def test_invitations_mail_one_personal_link_each(client, teacher, course, mailbo
     assert all(code_of(link) not in {i.code_hash for i in stored} for link in links)
 
 
-def test_invitation_link_works_once_for_any_account(client, teacher, course, mailbox):
-    invite(teacher, course, ["student@uni.example"])
+def claim_signed_out(client, code):
+    client.cookies.clear()
+    client.cookies.set("csrf_token", "c")
+    return client.post(f"/courses/invite/{code}", headers=CSRF)
+
+
+def test_invitation_link_shows_token_once_without_sign_in(client, teacher, course, mailbox):
+    invitation = invite(teacher, course, ["student@uni.example"]).json()["invited"][0]
     drain(client)
     code = code_of(link_in(mailbox[0]))
-    someone = Session(client)
-    joined = someone.post(f"/courses/invite/{code}")
-    assert joined.status_code == 200, joined.text
-    assert validate(client, joined.json()["token"]).json()["user_id"] == someone.user_id
-    assert Session(client).post(f"/courses/invite/{code}").status_code == 404
-    listed = teacher.get(f"/courses/{course['id']}/invitations").json()
-    assert listed[0]["status"] == "claimed" and listed[0]["claimed_by_name"] == "Person"
+    claimed = claim_signed_out(client, code)
+    assert claimed.status_code == 200, claimed.text
+    token = claimed.json()["token"]
+    assert token.startswith("blablador-course-")
+
+    body = validate(client, token).json()
+    assert body["valid"] and body["token_type"] == "course"
+    assert body["user_id"] is None and body["user"] is None
+    assert body["email"] == "student@uni.example"
+    assert body["course"]["student_id"] == f"invitation:{invitation['id']}"
+    assert body["course"]["student_email"] == "student@uni.example"
+
+    assert claim_signed_out(client, code).status_code == 404
+    listed = teacher.get(f"/courses/{course['id']}/invitations").json()[0]
+    assert listed["status"] == "claimed" and listed["claimed_by_name"] is None
+    assert listed["token_status"] == "active" and listed["use_count"] == 1 and listed["last_used_at"]
+    assert "token" not in listed and "link" not in listed
     assert teacher.get(f"/courses/{course['id']}").json()["seats_claimed"] == 1
+
+
+def test_signed_in_visitor_does_not_get_the_mailed_token(client, teacher, course, mailbox):
+    invite(teacher, course, ["student@uni.example"])
+    drain(client)
+    someone = Session(client)
+    claimed = someone.post(f"/courses/invite/{code_of(link_in(mailbox[0]))}")
+    assert claimed.status_code == 200
+    assert validate(client, claimed.json()["token"]).json()["email"] == "student@uni.example"
+    assert "Course: Intro to LLMs" not in someone.get("/dashboard").text
+
+
+def test_claiming_needs_csrf(client, teacher, course, mailbox):
+    invite(teacher, course, ["a@x.org"])
+    drain(client)
+    client.cookies.clear()
+    assert client.post(f"/courses/invite/{code_of(link_in(mailbox[0]))}").status_code == 403
 
 
 def test_invitations_hold_seats(client, teacher, course, mailbox):
@@ -864,7 +898,8 @@ def test_invitation_page_shows_course_without_claiming(client, teacher, course, 
     assert teacher.get(f"/courses/{course['id']}/invitations").json()[0]["status"] == "open"
     client.cookies.clear()
     signed_out = client.get(f"/courses/invite/{code}", follow_redirects=False)
-    assert signed_out.status_code == 303 and signed_out.cookies.get("course_join") == f"invite-{code}"
+    assert signed_out.status_code == 200 and "Show my token" in signed_out.text
+    assert "Go to your dashboard" not in signed_out.text
 
 
 def test_purge_deletes_invited_addresses(client, teacher, course, mailbox):
@@ -1026,3 +1061,175 @@ def test_footer_is_validated(footer, message):
 def test_every_placeholder_is_accepted():
     from app.config import INVITATION_FOOTER_FIELDS
     Config(courses={"invitation_footer": " ".join("{" + f + "}" for f in INVITATION_FOOTER_FIELDS)})
+
+
+
+# Mailed tokens: upgrade on sign-in, revoke, reissue, admin links
+
+
+def unique_address() -> str:
+    return f"student-{uuid.uuid4().hex[:8]}@uni.example"
+
+
+def mailed_token(client, teacher, course, mailbox, address):
+    invitation = invite(teacher, course, [address]).json()["invited"][0]
+    drain(client)
+    message = next(m for m in reversed(mailbox) if m["to"] == [address.lower()])
+    return invitation, claim_signed_out(client, code_of(link_in(message))).json()
+
+
+async def seed_signed_in(email, verified=True):
+    from app import database
+    async with database.async_session_maker() as db:
+        user = User(email=email, name="Student Person", unity_id=f"jsc-{uuid.uuid4()}", email_verified=verified)
+        db.add(user)
+        await db.commit()
+        await db.refresh(user)
+        return user
+
+
+def sign_in_claims(client, user):
+    from app import database
+    from app.courses import claim_course_tokens
+
+    async def run():
+        async with database.async_session_maker() as db:
+            fresh = await db.get(User, user.id)
+            return await claim_course_tokens(db, fresh)
+    return client.portal.call(run)
+
+
+def test_verified_sign_in_moves_the_token_to_the_account(client, teacher, course, mailbox):
+    address = unique_address()
+    invitation, claimed = mailed_token(client, teacher, course, mailbox, address.replace("student", "Student"))
+    user = client.portal.call(lambda: seed_signed_in(address))
+    assert sign_in_claims(client, user) == 1
+    body = validate(client, claimed["token"]).json()
+    assert body["valid"] and body["user_id"] == user.id and body["user"]["name"] == "Student Person"
+    assert body["course"]["student_id"] == f"user:{user.id}" and body["course"]["student_email"] is None
+    listed = teacher.get(f"/courses/{course['id']}/invitations").json()[0]
+    assert listed["claimed_by_name"] == "Student Person" and listed["token_status"] == "active"
+    assert listed["use_count"] == 1
+    assert sign_in_claims(client, user) == 0
+    seats = teacher.get(f"/courses/{course['id']}/seats").json()
+    assert [seat["student_email"] for seat in seats] == [address]
+    assert teacher.get(f"/courses/{course['id']}").json()["seats_claimed"] == 1
+
+
+def test_unverified_sign_in_does_not_take_the_token(client, teacher, course, mailbox):
+    address = unique_address()
+    _, claimed = mailed_token(client, teacher, course, mailbox, address)
+    user = client.portal.call(lambda: seed_signed_in(address, verified=False))
+    assert sign_in_claims(client, user) == 0
+    assert validate(client, claimed["token"]).json()["user_id"] is None
+
+
+def test_student_already_in_the_course_keeps_their_token(client, teacher, course, mailbox):
+    address = unique_address()
+    _, claimed = mailed_token(client, teacher, course, mailbox, address)
+    user = client.portal.call(lambda: seed_signed_in(address))
+    session = Session.__new__(Session)
+    session.client, session.user_id, session.session = client, user.id, create_session_token(user)
+    assert session.post(f"/courses/join/{code_of(course['join_url'])}").status_code == 200
+    assert sign_in_claims(client, user) == 0
+    assert validate(client, claimed["token"]).json()["user_id"] is None
+
+
+def test_local_sign_in_runs_the_claim(client, teacher, course, mailbox):
+    from app import database
+    from app.auth import hash_password
+
+    email = f"local-{uuid.uuid4().hex[:6]}@example.com"
+    _, claimed = mailed_token(client, teacher, course, mailbox, email)
+    password = "a sufficiently long passphrase 42"
+
+    async def seed():
+        async with database.async_session_maker() as db:
+            db.add(User(email=email, name="Local Student", password_hash=hash_password(password)))
+            await db.commit()
+
+    client.portal.call(seed)
+    client.cookies.clear()
+    client.cookies.set("csrf_token", "c")
+    client.post("/login/local", data={"email": email, "password": password, "csrf_token": "c"},
+                follow_redirects=False)
+    assert validate(client, claimed["token"]).json()["user"]["name"] == "Local Student"
+
+
+def test_teacher_revokes_a_mailed_token(client, teacher, course, mailbox):
+    invitation, claimed = mailed_token(client, teacher, course, mailbox, unique_address())
+    path = f"/courses/{course['id']}/invitations/{invitation['id']}/revoke"
+    assert teacher.post(path).json()["tokens_revoked"] == 1
+    assert validate(client, claimed["token"]).status_code == 401
+    listed = teacher.get(f"/courses/{course['id']}/invitations").json()[0]
+    assert listed["token_status"] == "revoked"
+    assert teacher.get(f"/courses/{course['id']}").json()["seats_claimed"] == 1
+    assert Session(client, teacher=True).post(path).status_code == 404
+
+
+def test_revoke_follows_a_token_moved_to_an_account(client, teacher, course, mailbox):
+    address = unique_address()
+    invitation, claimed = mailed_token(client, teacher, course, mailbox, address)
+    user = client.portal.call(lambda: seed_signed_in(address))
+    sign_in_claims(client, user)
+    teacher.post(f"/courses/{course['id']}/invitations/{invitation['id']}/revoke")
+    assert validate(client, claimed["token"]).status_code == 401
+
+
+def test_reissue_replaces_a_lost_token_without_a_new_seat(client, teacher, course, mailbox):
+    invitation, claimed = mailed_token(client, teacher, course, mailbox, unique_address())
+    path = f"/courses/{course['id']}/invitations/{invitation['id']}/reissue"
+    reissued = teacher.post(path, json={"subject": "New token", "body": "Here again"})
+    assert reissued.status_code == 200 and reissued.json()["status"] == "open"
+    assert validate(client, claimed["token"]).status_code == 401
+    assert teacher.get(f"/courses/{course['id']}").json()["seats_claimed"] == 0
+    drain(client)
+    assert mailbox[-1]["subject"] == "New token"
+    again = claim_signed_out(client, code_of(link_in(mailbox[-1])))
+    assert again.status_code == 200 and validate(client, again.json()["token"]).status_code == 200
+    assert teacher.get(f"/courses/{course['id']}").json()["seats_claimed"] == 1
+    assert teacher.post(path, json={"subject": "x", "body": "y"}).json()["send_count"] == 3
+    drain(client)
+    claim_signed_out(client, code_of(link_in(mailbox[-1])))
+    limited = teacher.post(path, json={"subject": "x", "body": "y"})
+    assert limited.status_code == 400 and "at most 3 times" in limited.json()["detail"]
+
+
+def test_reissue_needs_a_used_invitation(client, teacher, course, mailbox):
+    invitation = invite(teacher, course, ["a@x.org"]).json()["invited"][0]
+    path = f"/courses/{course['id']}/invitations/{invitation['id']}/reissue"
+    assert teacher.post(path, json={"subject": "x", "body": "y"}).status_code == 404
+
+
+def test_admin_sees_unused_links_only_when_enabled(client, teacher, course, mailbox, monkeypatch):
+    admin = Session(client, admin=True)
+    path = f"/api/admin/courses/{course['id']}/invitations"
+    invite(teacher, course, ["off@x.org"])
+    assert admin.get(path).json()[0]["link"] is None
+
+    monkeypatch.setattr(get_config().courses, "admin_can_view_invitation_links", True)
+    invite(teacher, course, ["on@x.org"])
+    drain(client)
+    listed = {entry["email"]: entry for entry in admin.get(path).json()}
+    link = listed["on@x.org"]["link"]
+    assert link == link_in(next(m for m in mailbox if m["to"] == ["on@x.org"]))
+    assert listed["off@x.org"]["link"] is None
+    assert "link" not in teacher.get(f"/courses/{course['id']}/invitations").json()[0]
+
+    claim_signed_out(client, code_of(link))
+    assert {e["email"]: e for e in admin.get(path).json()}["on@x.org"]["link"] is None
+    assert teacher.get(path).status_code == 403
+
+
+def test_closing_clears_kept_links(client, teacher, course, mailbox, monkeypatch):
+    monkeypatch.setattr(get_config().courses, "admin_can_view_invitation_links", True)
+    invite(teacher, course, ["a@x.org"])
+    teacher.post(f"/courses/{course['id']}/close")
+    stored = client.portal.call(lambda: fetch(select(CourseInvitation)))
+    assert all(invitation.link is None for invitation in stored)
+
+
+def test_mailed_token_footer_explains_no_sign_in(client, teacher, course, mailbox):
+    invite(teacher, course, ["a@x.org"])
+    drain(client)
+    assert "no sign-in is needed" in mailbox[0]["body"]

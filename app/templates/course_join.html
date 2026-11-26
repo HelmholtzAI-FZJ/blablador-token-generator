@@ -57,18 +57,24 @@
         {% if problem %}
         <h1>Cannot join</h1>
         <p>{{ problem }}</p>
-        <a href="/dashboard" class="btn">Go to your dashboard</a>
+        {% if user %}<a href="/dashboard" class="btn">Go to your dashboard</a>{% endif %}
         {% else %}
         <h1>{{ course.name }}</h1>
         <p class="muted">
             From <span class="datetime-date" data-utc="{{ course.starts_at|utc_iso }}">{{ course.starts_at.strftime('%Y-%m-%d') }}</span>
             until <span class="datetime-date" data-utc="{{ course.ends_at|utc_iso }}">{{ course.ends_at.strftime('%Y-%m-%d') }}</span> (end of the course, UTC).
         </p>
+        {% if invited %}
+        <p>This link gives you one personal API token for this course, shown once. It works only while the course
+           runs; your teacher can see when it was last used and can revoke it. Do not share it.
+           If you later sign in here with your JSC account and this email address, the token moves to your account.</p>
+        {% else %}
         <p>Signed in as {{ user.name }} ({{ user.email }}). Joining gives you one personal API token for this course.
            It works only while the course runs; your teacher can see when it was last used and can revoke it.
            Do not share it: you cannot get a second one.</p>
+        {% endif %}
         <div id="joinArea">
-            <button class="btn" data-action="join-course" data-path="{{ join_path }}">Join and get my token</button>
+            <button class="btn" data-action="join-course" data-path="{{ join_path }}">{{ 'Show my token' if invited else 'Join and get my token' }}</button>
         </div>
         <div id="joinResult" hidden>
             <div class="token-warning">
@@ -76,7 +82,7 @@
                 <code class="token-value" id="courseTokenValue"></code>
                 <button class="btn btn-copy" data-action="copy-course-token">Copy</button>
             </div>
-            <a href="/dashboard" class="btn">Go to your dashboard</a>
+            {% if not invited %}<a href="/dashboard" class="btn">Go to your dashboard</a>{% endif %}
         </div>
         <p class="error" id="joinError" role="alert"></p>
         {% endif %}

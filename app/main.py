@@ -44,7 +44,9 @@ from app.auth import (
     decode_access_token, revoke_jwt,
 )
 from app.api import applications, courses, tokens, validate, admin
-from app.courses import TEACHER_DELETED, close_courses_of, is_join_code, open_invitation_count
+from app.courses import (
+    TEACHER_DELETED, claim_course_tokens, close_courses_of, is_join_code, open_invitation_count,
+)
 from app.api.tokens import manageable_by
 from app.rate_limit import limiter, RATE_LIMITS, run_storage, user_or_ip
 from app.logging_config import configure_logging
@@ -281,7 +283,7 @@ async def home(request: Request):
 def after_sign_in(request: Request) -> str:
     """The join page of a course link opened before signing in, else the dashboard."""
     kind, _, code = (request.cookies.get(COURSE_JOIN_COOKIE) or "").rpartition("-")
-    if config.courses.enabled and kind in ("join", "invite") and is_join_code(code):
+    if config.courses.enabled and kind == "join" and is_join_code(code):
         return f"/courses/{kind}/{code}"
     return "/dashboard"
 
@@ -344,6 +346,7 @@ async def openid_callback(request: Request, code: str | None = None, state: str 
         return oauth_failure(request, exc.status_code, message)
     _audit.info("user=%s action=login method=oauth", user.id)
     await claim_invitations(db, user)
+    await claim_course_tokens(db, user)
 
     response = RedirectResponse(url=after_sign_in(request), status_code=303)
     delete_cookie(response, COURSE_JOIN_COOKIE)
@@ -594,6 +597,7 @@ async def login_local(
         user.email_verified = True
         await db.commit()
     await claim_invitations(db, user)
+    await claim_course_tokens(db, user)
     response = RedirectResponse(url=after_sign_in(request), status_code=303)
     delete_cookie(response, COURSE_JOIN_COOKIE)
     set_cookie(response, SESSION_COOKIE, create_session_token(user),
@@ -627,20 +631,23 @@ async def course_invitation_page(
 
 
 async def course_page(request: Request, kind: str, code: str, db: AsyncSession):
-    """Shows the course; joining is a separate POST so that link previews
-    and prefetching never claim a seat. Signed-out visitors sign in first
-    and come back here."""
+    """Shows the course; the token is issued by a separate POST, so link
+    previews and prefetching never use up a link. The shared link needs a
+    signed-in account (signed-out visitors sign in first and come back);
+    a mailed invitation needs none."""
     if not config.courses.enabled:
         raise HTTPException(status_code=404, detail="Courses are not enabled")
-    try:
-        user = await get_current_user(request, db)
-    except HTTPException as exc:
-        if exc.status_code != 302:
-            raise
-        response = RedirectResponse(url="/", status_code=303)
-        if is_join_code(code):
-            set_cookie(response, COURSE_JOIN_COOKIE, f"{kind}-{code}", max_age=COURSE_JOIN_COOKIE_SECONDS)
-        return response
+    user = None
+    if kind == "join":
+        try:
+            user = await get_current_user(request, db)
+        except HTTPException as exc:
+            if exc.status_code != 302:
+                raise
+            response = RedirectResponse(url="/", status_code=303)
+            if is_join_code(code):
+                set_cookie(response, COURSE_JOIN_COOKIE, f"{kind}-{code}", max_age=COURSE_JOIN_COOKIE_SECONDS)
+            return response
     if kind == "invite":
         _, course = await courses.invitation_for_code(db, code)
         problem = courses.join_problem(course, -1 if course else 0)
@@ -654,6 +661,7 @@ async def course_page(request: Request, kind: str, code: str, db: AsyncSession):
         "course": course,
         "problem": problem,
         "join_path": f"/courses/{kind}/{code}" if problem is None else "",
+        "invited": kind == "invite",
     }, status_code=200 if problem is None else (404 if course is None else 410))
     delete_cookie(response, COURSE_JOIN_COOKIE)
     return response

@@ -81,7 +81,7 @@ async def close_course(db: AsyncSession, course: Course, reason: str) -> int:
     await db.execute(
         update(CourseInvitation)
         .where(CourseInvitation.course_id == course.id, open_invitations())
-        .values(cancelled_at=now, code_hash=None)
+        .values(cancelled_at=now, code_hash=None, link=None)
         .execution_options(synchronize_session=False)
     )
     result = await db.execute(
@@ -171,3 +171,42 @@ async def delete_course(db: AsyncSession, course: Course) -> int:
     await db.execute(delete(CourseSeat).where(CourseSeat.course_id == course.id))
     await db.delete(course)
     return result.rowcount
+
+
+async def claim_course_tokens(db: AsyncSession, user: User) -> int:
+    """Move course tokens mailed to the user's verified email to their
+    account, so they become ordinary course tokens of a known person. Only a
+    verified address may claim: an unverified one could be anyone's. A
+    student already in the course keeps the token they have. A failure only
+    delays this to the next sign-in."""
+    from app.auth import normalize_email
+    from app.models import CourseSeat
+
+    if not user.email_verified or not get_config().courses.enabled:
+        return 0
+    try:
+        rows = (await db.execute(
+            select(Token, CourseInvitation)
+            .join(CourseInvitation, Token.course_invitation_id == CourseInvitation.id)
+            .where(CourseInvitation.email == normalize_email(user.email), Token.revoked_at.is_(None))
+            .with_for_update()
+        )).all()
+        moved = 0
+        for token, invitation in rows:
+            if await db.scalar(select(CourseSeat.id).where(
+                CourseSeat.course_id == token.course_id, CourseSeat.user_id == user.id
+            )):
+                continue
+            db.add(CourseSeat(course_id=token.course_id, user_id=user.id))
+            token.course_invitation_id = None
+            token.user_id = user.id
+            invitation.claimed_by_id = user.id
+            moved += 1
+        if moved:
+            await db.commit()
+            logger.info("user=%s action=claim_course_tokens count=%d", user.id, moved)
+        return moved
+    except Exception as exc:
+        await db.rollback()
+        logger.error("user=%s action=claim_course_tokens_failed error_type=%s", user.id, type(exc).__name__)
+        return 0

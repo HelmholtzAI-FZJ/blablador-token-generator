@@ -137,6 +137,8 @@ courses:
   # {link} is required.
   # invitation_footer: "..."
   invitation_max_body_chars: 4000
+  # For testing only: let administrators see unused invitation links.
+  admin_can_view_invitation_links: false
   # Sends per invitation, the first included.
   max_invitation_sends: 3
   # Bump terms_version when terms_text changes; courses record the version accepted.

@@ -223,8 +223,10 @@ DEFAULT_INVITATION_BODY = (
 DEFAULT_INVITATION_FOOTER = (
     "Your personal link to join \"{course}\" ({start} to {end}):\n\n"
     "    {link}\n\n"
-    "Sign in with your account, open the link and press \"Join\" to get your API token. "
-    "The link works once, for one person; do not forward it.\n\n"
+    "Open the link and press \"Show my token\" to get your API token; no sign-in is needed. "
+    "The link works once, for one person; do not forward it. "
+    "If you sign in to {app_name} with your JSC account and this email address, "
+    "the token moves to your account.\n\n"
     "-- \n"
     "Sent by {app_name} on behalf of {teacher_name} <{teacher_email}>. "
     "Reply to this message to reach them. If you did not expect it, ignore it.\n"
@@ -255,6 +257,9 @@ class CourseConfig(SecurityConfigModel):
     # change it. Placeholders: {course}, {start}, {end} (first and last day),
     # {link}, {app_name}, {teacher_name}, {teacher_email}. {link} is required.
     invitation_footer: str = Field(DEFAULT_INVITATION_FOOTER, min_length=1, max_length=4000)
+    # For testing: keep each unused invitation's link so administrators can
+    # open it. Links are otherwise stored only as hashes. Keep off in production.
+    admin_can_view_invitation_links: bool = False
     # Sends per invitation, the first included, so resending cannot spam.
     max_invitation_sends: int = Field(3, ge=1, le=20)
     terms_version: str = Field("1", min_length=1, max_length=32)

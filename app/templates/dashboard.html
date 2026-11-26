@@ -264,7 +264,7 @@ curl {{ api_url }}/api/v1/user \
             {% if course_mail %}
             <form id="inviteForm" hidden>
                 <h3>Invite students by email</h3>
-                <p class="muted">Each address gets its own link, which works once and holds a seat until it is used or you cancel it. Students may sign in with any account. The link, the course dates and a line saying you sent it are added below your text; replies go to you.</p>
+                <p class="muted">Each address gets its own link, which shows the student their token once and holds a seat until it is used or you cancel it. Students need no account; you never see their tokens, only whether and how much each is used. If a student later signs in with JSC and that verified address, the token moves to their account. The link, the course dates and a line saying you sent it are added below your text; replies go to you.</p>
                 <input type="hidden" id="inviteCourse">
                 <div class="form-group">
                     <label for="inviteEmails">Email addresses (one per line, or separated by commas)</label>

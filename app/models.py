@@ -184,17 +184,29 @@ class CourseInvitation(Base):
         String(36), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )
     cancelled_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    # The link itself, kept only while open and only with
+    # courses.admin_can_view_invitation_links (for testing).
+    link: Mapped[str | None] = mapped_column(String(512), nullable=True)
 
     claimed_by: Mapped[Optional["User"]] = relationship("User")
 
 
+TOKEN_OWNER_CHECK = (
+    "(CASE WHEN user_id IS NULL THEN 0 ELSE 1 END)"
+    " + (CASE WHEN application_id IS NULL THEN 0 ELSE 1 END)"
+    " + (CASE WHEN course_invitation_id IS NULL THEN 0 ELSE 1 END) = 1"
+)
+
+
 class Token(Base):
-    """A personal token (user_id) or an application token (application_id).
-    A course token is a personal token of a student with course_id set."""
+    """A personal token (user_id), an application token (application_id),
+    or a course token mailed to an invited address (course_invitation_id).
+    A course token taken through the shared link is a personal token of the
+    signed-in student with course_id set."""
 
     __tablename__ = "tokens"
     __table_args__ = (
-        CheckConstraint("(user_id IS NULL) <> (application_id IS NULL)", name="ck_tokens_owner"),
+        CheckConstraint(TOKEN_OWNER_CHECK, name="ck_tokens_owner"),
     )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
@@ -206,6 +218,10 @@ class Token(Base):
     )
     course_id: Mapped[str | None] = mapped_column(
         String(36), ForeignKey("courses.id", ondelete="CASCADE", name="fk_tokens_course_id"),
+        index=True, nullable=True
+    )
+    course_invitation_id: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("course_invitations.id", ondelete="CASCADE", name="fk_tokens_course_invitation_id"),
         index=True, nullable=True
     )
     # Who created an application token; it outlives their membership.
@@ -230,6 +246,7 @@ class Token(Base):
     application: Mapped[Optional["Application"]] = relationship("Application", back_populates="tokens")
     created_by: Mapped[Optional["User"]] = relationship("User", foreign_keys=[created_by_id])
     course: Mapped[Optional["Course"]] = relationship("Course")
+    course_invitation: Mapped[Optional["CourseInvitation"]] = relationship("CourseInvitation")
 
     @property
     def reported_user(self) -> Optional["User"]:

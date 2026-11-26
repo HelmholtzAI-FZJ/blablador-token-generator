@@ -7,7 +7,7 @@ from sqlalchemy import and_, delete, func, or_, select, update
 from sqlalchemy.orm import joinedload, selectinload
 from pydantic import BaseModel, Field, StrictBool, field_validator
 from app.database import get_db, lock_user_for_update
-from app.models import Application, ApplicationMember, Course, ROLE_OWNER, User, Token
+from app.models import Application, ApplicationMember, Course, CourseInvitation, ROLE_OWNER, User, Token
 from app.config import get_config
 from app.tombstones import (
     identity_reference, is_user_deleted, lift_deletions_for_email, lift_deletions_for_subject,
@@ -795,3 +795,46 @@ async def delete_course_admin(
     logger.info("admin=%s action=delete_course course_id=%s teacher=%s was_active=%s tokens_deleted=%d",
                 admin.id, course_id, teacher_id or "none", was_active, deleted)
     return {"message": "Course deleted", "tokens_deleted": deleted}
+
+
+class AdminInvitationResponse(BaseModel):
+    id: str
+    email: str
+    status: str
+    sent_at: str
+    send_count: int
+    delivery_failed: bool
+    claimed_by_name: str | None = None
+    token_status: str | None = None
+    last_used_at: str | None = None
+    use_count: int = 0
+    # Only while unused and with courses.admin_can_view_invitation_links.
+    link: str | None = None
+
+
+@router.get("/courses/{course_id}/invitations", response_model=list[AdminInvitationResponse])
+@limiter.limit(ADMIN_RATE_LIMIT, key_func=user_or_ip)
+async def list_course_invitations(
+    request: Request,
+    course_id: ResourceId,
+    admin: User = Depends(get_current_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    """A course's invitations; for testing, the unused links when kept."""
+    from app.api.courses import invitation_listing
+
+    course = (await db.execute(select(Course).where(Course.id == course_id))).scalar_one_or_none()
+    if course is None:
+        raise HTTPException(status_code=404, detail="Course not found")
+    listing = await invitation_listing(db, course)
+    links = {}
+    if get_config().courses.admin_can_view_invitation_links:
+        links = dict((await db.execute(
+            select(CourseInvitation.id, CourseInvitation.link).where(
+                CourseInvitation.course_id == course.id, CourseInvitation.link.isnot(None)
+            )
+        )).all())
+    logger.info("admin=%s action=list_course_invitations course_id=%s links_shown=%d",
+                admin.id, course.id, len(links))
+    return [AdminInvitationResponse(**entry.model_dump(exclude={"claimed_at"}), link=links.get(entry.id))
+            for entry in listing]

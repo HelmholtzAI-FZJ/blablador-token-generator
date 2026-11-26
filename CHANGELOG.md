@@ -27,8 +27,15 @@ All notable changes to this project are documented here. The format follows
   the course. Administrators list and suspend courses. Removing the teacher
   role or deleting the teacher's account closes their active course.
 - Teachers can have the service mail invitations (with `smtp.enabled`): one
-  single-use link per address, each holding a seat until claimed or
-  cancelled, from an editable template (`courses.invitation_subject`,
+  single-use link per address that shows the student their token once,
+  without an account or sign-in, each holding a seat until claimed or
+  cancelled. The token is recorded against the address (validation reports
+  it as `email` and `course.student_email`, with `course.student_id` for
+  per-student limits) and moves to the student's account when they sign in
+  with that address verified by JSC. Teachers see usage per address, never
+  tokens; they can revoke one student's token or reissue a lost one without
+  using another seat. `courses.admin_can_view_invitation_links` (testing)
+  lets administrators open unused links. Invitations are from an editable template (`courses.invitation_subject`,
   `courses.invitation_body`). The link, the dates and a footer naming the
   teacher (`courses.invitation_footer`, which teachers cannot change) are
   always added; replies go to the teacher. Invitations can be
@@ -62,7 +69,9 @@ All notable changes to this project are documented here. The format follows
 - Course tokens do not count towards `tokens.max_tokens_per_user`, cannot be
   renewed or rotated, and get no expiry reminders.
 - Migration 0006 adds `users.is_teacher`, the `courses`, `course_seats` and `course_invitations`
-  tables, and `tokens.course_id` and `tokens.use_count`. It is safe during a
+  tables, and `tokens.course_id` and `tokens.use_count`; migration 0007 lets
+  a token belong to an invitation and keeps test links
+  (`tokens.course_invitation_id`, `course_invitations.link`). It is safe during a
   rolling upgrade: 1.3.x instances reject course tokens as malformed.
 
 ## [1.3.2] - 2026-11-25
