@@ -38,9 +38,10 @@ renewed or rotated, and whose every use is counted so the teacher can spot a
 shared one. Join links and mailed single-use invitations are stored only as
 keyed hashes (unless `courses.admin_can_view_invitation_links` is turned on for
 testing). A mailed invitation shows its token once without sign-in; the token
-belongs to the invited address and moves to an account only when someone signs
-in with that address verified by the identity provider, so an unverified
-address cannot take it. Teachers see each address's usage, never tokens or
+belongs to the invited address's course user, an account that cannot sign in
+and is refused passwords and roles, and moves to a real account only when
+someone signs in with that address verified by the identity provider, so an
+unverified address cannot take it. Teachers see each address's usage, never tokens or
 links. A claimed seat is never given back and every open invitation
 holds a seat, so however far a link spreads, at most the seats' number of
 tokens exist. Invitations go only to as many addresses as seats remain, from

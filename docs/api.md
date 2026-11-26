@@ -54,11 +54,11 @@ case-insensitive; no request body is needed and no CSRF token is involved.
 
     A course token (`blablador-course-…`) adds `course` with its `id`,
     `name`, `starts_at`, `ends_at` and `student_id`. A token mailed to an
-    invited address has no account: `user_id` and `user` are `null`, and
-    `email` and `course.student_email` give the address. Once that student
-    signs in with JSC and the same verified address, the token moves to their
-    account and reports them like any course token (`student_id` changes from
-    `invitation:…` to `user:…`). Gateways should key per-student limits on
+    invited address belongs to that address's **course user**, an account
+    that cannot sign in: `user.course_user` is `true` and `email` and
+    `course.student_email` give the address. Once that student signs in with
+    JSC and the same verified address, the token moves to their account and
+    reports them like any course token (`user_id` and `student_id` change). Gateways should key per-student limits on
     `course.student_id` and per-course limits on `course.id`. `course` is
     `null` for every other token.
 
@@ -232,7 +232,7 @@ Administrator session plus `X-CSRF-Token`, as above. Lists are paged with
 | `POST /api/admin/courses/{id}/suspend` | | Revokes every token of a course and disables its link |
 | `GET /api/admin/courses/{id}/invitations` | | A course's invitations as teachers see them, plus `link` for unused ones when `courses.admin_can_view_invitation_links` is on (testing) |
 | `DELETE /api/admin/courses/{id}` | | Deletes any course, running or not, with its tokens, students and invitations |
-| `GET /api/admin/users` | | Optional `q` matches part of the email, name or OAuth subject, ignoring case. Accounts: `id`, `email`, `name`, `is_admin`, `is_teacher`, `created_at`, `unity_id` (OAuth subject), `has_password` |
+| `GET /api/admin/users` | | Optional `q` matches part of the email, name or OAuth subject, ignoring case. Accounts: `id`, `email`, `name`, `is_admin`, `is_teacher`, `is_course_user` (created by a course invitation; cannot sign in, and cannot be given a password, admin or teacher role), `created_at`, `unity_id` (OAuth subject), `has_password` |
 | `POST /api/admin/users` | `{"email", "name", "password", "is_admin"}` | Creates a **local** password account |
 | `PATCH /api/admin/users/{id}` | any of `name`, `password` (local accounts only), `is_admin`, `is_teacher` | Updates the account; a password or admin role change ends its sessions; removing `is_teacher` closes the teacher's active courses |
 | `DELETE /api/admin/users/{id}` | | Deletes the account and its tokens and blocks it from signing in again |

@@ -173,25 +173,77 @@ async def delete_course(db: AsyncSession, course: Course) -> int:
     return result.rowcount
 
 
+async def course_user_for(db: AsyncSession, email: str) -> User:
+    """The account a mailed course token goes to: a password account with
+    this address if there is one, else this address's course user, created
+    on first use. Never an OAuth account: their email may be unverified."""
+    from app.auth import normalize_email
+
+    address = normalize_email(email)
+    existing = (await db.execute(
+        select(User).where(func.lower(User.email) == address, User.unity_id.is_(None))
+    )).scalars().first()
+    if existing is not None:
+        return existing
+    user = User(email=address, name=address, is_course_user=True, email_verified=False)
+    db.add(user)
+    await db.flush()
+    logger.info("action=create_course_user user_id=%s", user.id)
+    return user
+
+
 async def claim_course_tokens(db: AsyncSession, user: User) -> int:
-    """Move course tokens mailed to the user's verified email to their
-    account, so they become ordinary course tokens of a known person. Only a
-    verified address may claim: an unverified one could be anyone's. A
-    student already in the course keeps the token they have. A failure only
+    """Move what a course user of the user's verified email holds (seats,
+    tokens, invitations) to their account, so the course tokens become a
+    known person's. Only a verified address may claim: an unverified one
+    could be anyone's. A course the user is already in keeps the token they
+    have. The course user is removed once it holds nothing. A failure only
     delays this to the next sign-in."""
     from app.auth import normalize_email
     from app.models import CourseSeat
 
-    if not user.email_verified or not get_config().courses.enabled:
+    if not user.email_verified or user.is_course_user or not get_config().courses.enabled:
         return 0
     try:
+        address = normalize_email(user.email)
+        moved = 0
+        course_users = (await db.execute(
+            select(User).where(User.is_course_user.is_(True), func.lower(User.email) == address,
+                               User.id != user.id).with_for_update()
+        )).scalars().all()
+        for course_user in course_users:
+            seats = (await db.execute(
+                select(CourseSeat).where(CourseSeat.user_id == course_user.id).with_for_update()
+            )).scalars().all()
+            for seat in seats:
+                if await db.scalar(select(CourseSeat.id).where(
+                    CourseSeat.course_id == seat.course_id, CourseSeat.user_id == user.id
+                )):
+                    continue
+                seat.user_id = user.id
+                await db.execute(
+                    update(Token).where(Token.user_id == course_user.id, Token.course_id == seat.course_id)
+                    .values(user_id=user.id).execution_options(synchronize_session=False)
+                )
+                await db.execute(
+                    update(CourseInvitation)
+                    .where(CourseInvitation.claimed_by_id == course_user.id,
+                           CourseInvitation.course_id == seat.course_id)
+                    .values(claimed_by_id=user.id).execution_options(synchronize_session=False)
+                )
+                moved += 1
+            await db.flush()
+            left = await db.scalar(select(CourseSeat.id).where(CourseSeat.user_id == course_user.id))
+            if left is None and await db.scalar(select(Token.id).where(Token.user_id == course_user.id)) is None:
+                await db.delete(course_user)
+                logger.info("user=%s action=remove_course_user course_user=%s", user.id, course_user.id)
+        # Tokens issued before course users existed belong to the invitation.
         rows = (await db.execute(
             select(Token, CourseInvitation)
             .join(CourseInvitation, Token.course_invitation_id == CourseInvitation.id)
-            .where(CourseInvitation.email == normalize_email(user.email), Token.revoked_at.is_(None))
+            .where(CourseInvitation.email == address, Token.revoked_at.is_(None))
             .with_for_update()
         )).all()
-        moved = 0
         for token, invitation in rows:
             if await db.scalar(select(CourseSeat.id).where(
                 CourseSeat.course_id == token.course_id, CourseSeat.user_id == user.id
@@ -202,8 +254,9 @@ async def claim_course_tokens(db: AsyncSession, user: User) -> int:
             token.user_id = user.id
             invitation.claimed_by_id = user.id
             moved += 1
-        if moved:
+        if moved or course_users:
             await db.commit()
+        if moved:
             logger.info("user=%s action=claim_course_tokens count=%d", user.id, moved)
         return moved
     except Exception as exc:

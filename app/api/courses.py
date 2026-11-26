@@ -14,7 +14,7 @@ from app.api.applications import email_address
 from app.api.tokens import TOKEN_READ_LIMIT, TOKEN_WRITE_LIMIT, lock_token_owner
 from app.config import get_config
 from app.courses import (
-    SUSPENDED_BY_TEACHER, active_course_count, close_course, delete_course, deliver_invitation, invitation_message,
+    SUSPENDED_BY_TEACHER, active_course_count, close_course, course_user_for, delete_course, deliver_invitation, invitation_message,
     invitation_text, invite_code_hash, is_active, is_join_code, join_code_hash, new_invite_code, new_join_code,
     open_invitation_count, open_invitations,
 )
@@ -431,23 +431,41 @@ async def accept_invitation(
     db: AsyncSession = Depends(get_db),
 ) -> JoinedCourseResponse:
     """Show the token of a mailed invitation, once. No sign-in: the token
-    belongs to the invited address, and moves to the student's account if
-    they later sign in with that verified address."""
+    belongs to the course user of the invited address (created on first
+    use), and moves to the student's account if they later sign in with
+    that verified address."""
     invitation, course = await invitation_for_code(db, code, lock=True)
     problem = join_problem(course, -1 if course else 0)
     if problem:
         raise HTTPException(status_code=404 if course is None else 410, detail=problem)
+    owner = await course_user_for(db, invitation.email)
+    if await db.scalar(select(Token.id).where(
+        Token.course_id == course.id, Token.user_id == owner.id, Token.revoked_at.is_(None)
+    )):
+        raise HTTPException(status_code=409, detail="This address already has a token for this course")
+    if not await db.scalar(select(CourseSeat.id).where(
+        CourseSeat.course_id == course.id, CourseSeat.user_id == owner.id
+    )):
+        db.add(CourseSeat(course_id=course.id, user_id=owner.id))
     plain_token = generate_token(course=True)
     token = Token(
-        course_invitation_id=invitation.id, course_id=course.id, token_hash=hash_token(plain_token),
+        user_id=owner.id, course_id=course.id, token_hash=hash_token(plain_token),
         name=f"Course: {course.name}", expires_at=course.ends_at,
     )
     course.seats_claimed += 1
     invitation.claimed_at = utcnow()
+    invitation.claimed_by_id = owner.id
     invitation.code_hash = None
     invitation.link = None
     db.add(token)
-    await commit(db, "Failed to issue the token")
+    try:
+        await db.commit()
+    except IntegrityError:
+        await db.rollback()
+        raise HTTPException(status_code=409, detail="Please try again")
+    except Exception:
+        await db.rollback()
+        raise HTTPException(status_code=500, detail="Failed to issue the token")
     logger.info("action=claim_course_invitation course_id=%s invitation_id=%s token_id=%s seat=%d/%d",
                 course.id, invitation.id, token.id, course.seats_claimed, course.max_seats)
     return JoinedCourseResponse(

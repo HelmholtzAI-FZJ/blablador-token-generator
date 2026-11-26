@@ -728,7 +728,7 @@ def claim_signed_out(client, code):
 
 
 def test_invitation_link_shows_token_once_without_sign_in(client, teacher, course, mailbox):
-    invitation = invite(teacher, course, ["student@uni.example"]).json()["invited"][0]
+    invite(teacher, course, ["student@uni.example"])
     drain(client)
     code = code_of(link_in(mailbox[0]))
     claimed = claim_signed_out(client, code)
@@ -738,14 +738,17 @@ def test_invitation_link_shows_token_once_without_sign_in(client, teacher, cours
 
     body = validate(client, token).json()
     assert body["valid"] and body["token_type"] == "course"
-    assert body["user_id"] is None and body["user"] is None
+    assert body["user"]["course_user"] is True and body["user"]["email"] == "student@uni.example"
     assert body["email"] == "student@uni.example"
-    assert body["course"]["student_id"] == f"invitation:{invitation['id']}"
+    assert body["course"]["student_id"] == f"user:{body['user_id']}"
     assert body["course"]["student_email"] == "student@uni.example"
+    stored = client.portal.call(lambda: fetch(select(User).where(User.id == body["user_id"])))[0]
+    assert stored.is_course_user and stored.password_hash is None and stored.unity_id is None
+    assert not stored.is_admin and not stored.is_teacher
 
     assert claim_signed_out(client, code).status_code == 404
     listed = teacher.get(f"/courses/{course['id']}/invitations").json()[0]
-    assert listed["status"] == "claimed" and listed["claimed_by_name"] is None
+    assert listed["status"] == "claimed" and listed["claimed_by_name"] == "student@uni.example"
     assert listed["token_status"] == "active" and listed["use_count"] == 1 and listed["last_used_at"]
     assert "token" not in listed and "link" not in listed
     assert teacher.get(f"/courses/{course['id']}").json()["seats_claimed"] == 1
@@ -1121,7 +1124,7 @@ def test_unverified_sign_in_does_not_take_the_token(client, teacher, course, mai
     _, claimed = mailed_token(client, teacher, course, mailbox, address)
     user = client.portal.call(lambda: seed_signed_in(address, verified=False))
     assert sign_in_claims(client, user) == 0
-    assert validate(client, claimed["token"]).json()["user_id"] is None
+    assert validate(client, claimed["token"]).json()["user"]["course_user"] is True
 
 
 def test_student_already_in_the_course_keeps_their_token(client, teacher, course, mailbox):
@@ -1132,28 +1135,89 @@ def test_student_already_in_the_course_keeps_their_token(client, teacher, course
     session.client, session.user_id, session.session = client, user.id, create_session_token(user)
     assert session.post(f"/courses/join/{code_of(course['join_url'])}").status_code == 200
     assert sign_in_claims(client, user) == 0
-    assert validate(client, claimed["token"]).json()["user_id"] is None
+    body = validate(client, claimed["token"]).json()
+    assert body["user"]["course_user"] is True and body["user_id"] != user.id
+    remaining = client.portal.call(lambda: fetch(select(User).where(User.id == body["user_id"])))
+    assert remaining, "the course user keeps what it could not hand over"
 
 
-def test_local_sign_in_runs_the_claim(client, teacher, course, mailbox):
+def test_existing_password_account_receives_the_token(client, teacher, course, mailbox):
     from app import database
     from app.auth import hash_password
 
     email = f"local-{uuid.uuid4().hex[:6]}@example.com"
-    _, claimed = mailed_token(client, teacher, course, mailbox, email)
-    password = "a sufficiently long passphrase 42"
 
     async def seed():
         async with database.async_session_maker() as db:
-            db.add(User(email=email, name="Local Student", password_hash=hash_password(password)))
+            db.add(User(email=email, name="Local Student", password_hash=hash_password("x" * 20)))
             await db.commit()
 
     client.portal.call(seed)
+    _, claimed = mailed_token(client, teacher, course, mailbox, email)
+    body = validate(client, claimed["token"]).json()
+    assert body["user"]["name"] == "Local Student" and body["user"]["course_user"] is False
+    assert not client.portal.call(lambda: fetch(select(User).where(User.is_course_user.is_(True), User.email == email)))
+
+
+def test_course_user_is_reused_across_courses(client, mailbox):
+    address = unique_address()
+    first_teacher, second_teacher = Session(client, teacher=True), Session(client, teacher=True)
+    first = first_teacher.post("/courses", json=course_body(name="First")).json()
+    second = second_teacher.post("/courses", json=course_body(name="Second")).json()
+    _, one = mailed_token(client, first_teacher, first, mailbox, address)
+    _, two = mailed_token(client, second_teacher, second, mailbox, address)
+    assert validate(client, one["token"]).json()["user_id"] == validate(client, two["token"]).json()["user_id"]
+    assert len(client.portal.call(lambda: fetch(select(User).where(User.email == address)))) == 1
+
+
+def test_sign_in_moves_everything_and_removes_the_course_user(client, teacher, course, mailbox):
+    address = unique_address()
+    _, claimed = mailed_token(client, teacher, course, mailbox, address)
+    course_user_id = validate(client, claimed["token"]).json()["user_id"]
+    user = client.portal.call(lambda: seed_signed_in(address))
+    assert sign_in_claims(client, user) == 1
+    assert validate(client, claimed["token"]).json()["user_id"] == user.id
+    assert client.portal.call(lambda: fetch(select(User).where(User.id == course_user_id))) == []
+
+
+def test_admin_sees_course_users_and_cannot_promote_them(client, teacher, course, mailbox):
+    address = unique_address()
+    _, claimed = mailed_token(client, teacher, course, mailbox, address)
+    course_user_id = validate(client, claimed["token"]).json()["user_id"]
+    admin = Session(client, admin=True)
+    found = admin.get("/api/admin/users", params={"q": address}).json()
+    assert [(u["id"], u["is_course_user"], u["has_password"]) for u in found] == [(course_user_id, True, False)]
+    for change in ({"is_admin": True}, {"is_teacher": True}, {"password": "a sufficiently long passphrase 42"}):
+        response = admin.patch(f"/api/admin/users/{course_user_id}", json=change)
+        assert response.status_code == 400 and "course user" in response.json()["detail"]
+    assert admin.patch(f"/api/admin/users/{course_user_id}", json={"name": "Renamed"}).status_code == 200
+    assert admin.delete(f"/api/admin/users/{course_user_id}").status_code == 200
+    assert validate(client, claimed["token"]).status_code == 401
+
+
+def test_course_user_cannot_sign_in(client, teacher, course, mailbox):
+    address = unique_address()
+    mailed_token(client, teacher, course, mailbox, address)
     client.cookies.clear()
     client.cookies.set("csrf_token", "c")
-    client.post("/login/local", data={"email": email, "password": password, "csrf_token": "c"},
-                follow_redirects=False)
-    assert validate(client, claimed["token"]).json()["user"]["name"] == "Local Student"
+    response = client.post("/login/local", data={"email": address, "password": "", "csrf_token": "c"},
+                           follow_redirects=False)
+    assert response.status_code in (401, 422)
+    response = client.post("/login/local", data={"email": address, "password": "anything at all 123",
+                                                  "csrf_token": "c"}, follow_redirects=False)
+    assert response.status_code == 401
+
+
+def test_same_address_twice_in_a_course_is_refused(client, teacher, course, mailbox, monkeypatch):
+    address = unique_address()
+    invitation, _ = mailed_token(client, teacher, course, mailbox, address)
+    path = f"/courses/{course['id']}/invitations/{invitation['id']}/reissue"
+    assert teacher.post(path, json={"subject": "x", "body": "y"}).status_code == 200
+    drain(client)
+    again = claim_signed_out(client, code_of(link_in(mailbox[-1])))
+    assert again.status_code == 200
+    seats = client.portal.call(lambda: fetch(select(CourseSeat).where(CourseSeat.course_id == course["id"])))
+    assert len(seats) == 1
 
 
 def test_teacher_revokes_a_mailed_token(client, teacher, course, mailbox):

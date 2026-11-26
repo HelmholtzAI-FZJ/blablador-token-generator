@@ -23,6 +23,9 @@ class UserInfo(BaseModel):
     id: str
     email: str
     name: str
+    # Created by a mailed course invitation: known only by a mailbox, not
+    # by the identity provider.
+    course_user: bool = False
 
 
 class ApplicationInfo(BaseModel):
@@ -243,7 +246,7 @@ async def count_course_token_use(token_id: str, token_hash: str, now: datetime, 
 def user_info(user: User | None) -> UserInfo | None:
     if user is None:
         return None
-    return UserInfo(id=user.id, email=user.email, name=user.name)
+    return UserInfo(id=user.id, email=user.email, name=user.name, course_user=bool(user.is_course_user))
 
 
 def application_info(token: Token) -> ApplicationInfo | None:
@@ -260,7 +263,9 @@ def course_info(token: Token) -> CourseInfo | None:
         id=token.course.id, name=token.course.name,
         starts_at=isoformat_utc(token.course.starts_at), ends_at=isoformat_utc(token.course.ends_at),
         student_id=f"invitation:{invitation.id}" if invitation else f"user:{token.user_id}",
-        student_email=invitation.email if invitation else None,
+        student_email=invitation.email if invitation else (
+            token.user.email if token.user is not None and token.user.is_course_user else None
+        ),
     )
 
 

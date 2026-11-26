@@ -59,6 +59,14 @@ All notable changes to this project are documented here. The format follows
   tries it against the Blablador API (`blablador.api_url` +
   `blablador.test_path`). On the dashboard the command follows the View/Hide
   state; Copy always copies the real one.
+- Using a mailed invitation creates (or reuses) a **course user** for the
+  address, which owns the token and appears on the admin Users tab with a
+  Course badge. Course users cannot sign in and cannot be given a password,
+  admin or teacher role; validation marks them (`user.course_user`). Signing
+  in with JSC and the same verified address moves their seats and tokens to
+  the real account and removes the course user. An existing password account
+  with the address receives the token directly. Migration 0008 adds
+  `users.is_course_user`.
 - Administrators can search users by part of their email, name or OAuth
   subject (search box on the Users tab; `q` on `GET /api/admin/users`).
 - Configuration: `courses.*`, `rate_limits.course_join` and

@@ -38,6 +38,10 @@ class User(Base):
     session_epoch: Mapped[int] = mapped_column(Integer, default=0)
     # Granted by an admin: may run courses.
     is_teacher: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("false"))
+    # Created by using a mailed course invitation: owns course tokens, cannot
+    # sign in, and never gets a password or a role. Replaced by the real
+    # account when someone signs in with this address verified.
+    is_course_user: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("false"))
 
     tokens: Mapped[list["Token"]] = relationship(
         "Token", back_populates="user", cascade="all, delete-orphan", foreign_keys="Token.user_id"

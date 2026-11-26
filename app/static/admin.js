@@ -44,6 +44,7 @@ function switchTab(tab) {
 // Confirmations name the account by what identifies it: the OAuth subject
 // (a provider email may be unverified and shared) or the local email.
 function describeAccount(user) {
+    if (user.is_course_user) return `${user.email}, course user`;
     return user.unity_id
         ? `${user.name} <${user.email}>, OAuth subject ${user.unity_id}`
         : `${user.name} <${user.email}>, local account`;
@@ -73,6 +74,7 @@ async function loadUsers(page = 1) {
                 <td>${escapeHtml(user.email)}</td>
                 <td>${escapeHtml(user.name)}</td>
                 <td>
+                    ${user.is_course_user ? '<span class="badge badge-course" title="Created by a course invitation; cannot sign in">Course</span>' : ''}
                     ${user.has_password ? '<span class="badge badge-local">Local</span>' : ''}
                     ${user.unity_id
                         ? `<span class="badge badge-oauth">OAuth</span><code class="subject" title="OAuth subject">${escapeHtml(user.unity_id)}</code>`
@@ -85,8 +87,8 @@ async function loadUsers(page = 1) {
                     ${user.has_password
                         ? `<button class="btn btn-small" data-action="reset-password" data-id="${escapeHtml(user.id)}">Reset Password</button>`
                         : ''}
-                    <button class="btn btn-small" data-action="toggle-admin" data-id="${escapeHtml(user.id)}" data-account="${escapeHtml(describeAccount(user))}" data-admin="${user.is_admin}">${user.is_admin ? 'Remove Admin' : 'Make Admin'}</button>
-                    <button class="btn btn-small" data-action="toggle-teacher" data-id="${escapeHtml(user.id)}" data-account="${escapeHtml(describeAccount(user))}" data-teacher="${user.is_teacher}">${user.is_teacher ? 'Remove Teacher' : 'Make Teacher'}</button>
+                    ${user.is_course_user ? '' : `<button class="btn btn-small" data-action="toggle-admin" data-id="${escapeHtml(user.id)}" data-account="${escapeHtml(describeAccount(user))}" data-admin="${user.is_admin}">${user.is_admin ? 'Remove Admin' : 'Make Admin'}</button>
+                    <button class="btn btn-small" data-action="toggle-teacher" data-id="${escapeHtml(user.id)}" data-account="${escapeHtml(describeAccount(user))}" data-teacher="${user.is_teacher}">${user.is_teacher ? 'Remove Teacher' : 'Make Teacher'}</button>`}
                     <button class="btn btn-small btn-danger" data-action="revoke-credentials" data-id="${escapeHtml(user.id)}" data-account="${escapeHtml(describeAccount(user))}">Revoke All Credentials</button>
                     <button class="btn btn-small btn-danger" data-action="delete-user" data-id="${escapeHtml(user.id)}" data-account="${escapeHtml(describeAccount(user))}">Delete</button>
                 </td>

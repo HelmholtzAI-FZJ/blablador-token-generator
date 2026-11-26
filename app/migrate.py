@@ -51,7 +51,8 @@ ADDED_TABLES = {"applications", "application_members", "courses", "course_seats"
 ADDED_COLUMNS = {("tokens", "application_id"), ("tokens", "created_by_id"), ("users", "email_verified"),
                  ("tokens", "expiry_notified_days"), ("tokens", "expiry_notified_at"),
                  ("tokens", "course_id"), ("tokens", "use_count"), ("users", "is_teacher"),
-                 ("tokens", "course_invitation_id"), ("course_invitations", "link")}
+                 ("tokens", "course_invitation_id"), ("course_invitations", "link"),
+                 ("users", "is_course_user")}
 # Columns later revisions made nullable.
 RELAXED_COLUMNS = {("tokens", "user_id")}
 LOCK_WAIT_SECONDS = 120

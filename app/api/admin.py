@@ -111,6 +111,8 @@ class UserResponse(BaseModel):
     name: str
     is_admin: bool
     is_teacher: bool = False
+    # Created by using a mailed course invitation; cannot sign in.
+    is_course_user: bool = False
     created_at: str
     unity_id: str | None = None
     has_password: bool = False
@@ -119,7 +121,8 @@ class UserResponse(BaseModel):
     def of(cls, user: User) -> "UserResponse":
         return cls(
             id=user.id, email=user.email, name=user.name, is_admin=user.is_admin,
-            is_teacher=bool(user.is_teacher), created_at=isoformat_utc(user.created_at),
+            is_teacher=bool(user.is_teacher), is_course_user=bool(user.is_course_user),
+            created_at=isoformat_utc(user.created_at),
             unity_id=user.unity_id, has_password=user.password_hash is not None,
         )
 
@@ -392,6 +395,11 @@ async def update_user(
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
 
+    if user.is_course_user and (body.password is not None or body.is_admin or body.is_teacher):
+        raise HTTPException(
+            status_code=400,
+            detail="A course user cannot get a password or a role; they sign in with JSC to get a full account",
+        )
     if body.name is not None:
         user.name = body.name
     if body.password is not None:
