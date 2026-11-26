@@ -238,6 +238,13 @@ function fallbackCopy(token, btn) {
     document.body.removeChild(textArea);
 }
 
+// The curl line follows the View/Hide state; Copy always copies the real one.
+function showCurl() {
+    const token = document.getElementById('newTokenValue').textContent;
+    const shown = document.getElementById('newTokenValue').style.display !== 'none';
+    document.getElementById('newTokenCurl').textContent = curlTest(shown ? token : '•'.repeat(12));
+}
+
 function toggleTokenView() {
     const tokenEl = document.getElementById('newTokenValue');
     const hiddenEl = document.getElementById('tokenHidden');
@@ -252,6 +259,7 @@ function toggleTokenView() {
         hiddenEl.style.display = 'inline-block';
         viewBtn.textContent = 'View';
     }
+    showCurl();
 }
 
 document.getElementById('createTokenForm').addEventListener('submit', async (e) => {
@@ -276,6 +284,7 @@ document.getElementById('createTokenForm').addEventListener('submit', async (e) 
     if (response.ok) {
         const result = await response.json();
         document.getElementById('newTokenValue').textContent = result.token;
+        showCurl();
         document.getElementById('newTokenValue').style.display = 'none';
         document.getElementById('tokenHidden').style.display = 'inline-block';
         document.getElementById('viewBtn').textContent = 'View';
@@ -727,6 +736,7 @@ async function rotateToken(tokenId) {
         }
         const result = await response.json();
         document.getElementById('newTokenValue').textContent = result.token;
+        showCurl();
         document.getElementById('newTokenValue').style.display = 'none';
         document.getElementById('tokenHidden').style.display = 'inline-block';
         document.getElementById('viewBtn').textContent = 'View';
@@ -751,6 +761,7 @@ async function revokeAllCredentials() {
 registerActions({
     'toggle-token-view': () => toggleTokenView(),
     'copy-token': () => copyToken(),
+    'copy-token-curl': (el) => copyText(curlTest(document.getElementById('newTokenValue').textContent), el),
     'revoke-token': (el) => revokeToken(el.dataset.id),
     'delete-token': (el) => deleteToken(el.dataset.id),
     'renew-token': (el) => window.openRenewModal(el.dataset.id),

@@ -54,6 +54,11 @@ All notable changes to this project are documented here. The format follows
 - Courses can be deleted, with their tokens, students and invitations: by
   their teacher once closed or ended, and by administrators at any time.
   Deletions are audit-logged.
+- Pages that show a new token (the dashboard and the course token page) have
+  copy buttons next to the token and a ready-to-paste `curl` command that
+  tries it against the Blablador API (`blablador.api_url` +
+  `blablador.test_path`). On the dashboard the command follows the View/Hide
+  state; Copy always copies the real one.
 - Administrators can search users by part of their email, name or OAuth
   subject (search box on the Users tab; `q` on `GET /api/admin/users`).
 - Configuration: `courses.*`, `rate_limits.course_join` and

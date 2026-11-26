@@ -279,6 +279,7 @@ config:
     max_concurrent_password_operations: 4
   blablador:
     api_url: https://ptj.blablador.fz-juelich.de
+    test_path: /v1/models
     models: []
 # Uvicorn workers per pod. One worker runs in a single process (about
 # 120 MiB); each further one adds as much again plus a supervisor, and only

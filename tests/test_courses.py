@@ -1233,3 +1233,49 @@ def test_mailed_token_footer_explains_no_sign_in(client, teacher, course, mailbo
     invite(teacher, course, ["a@x.org"])
     drain(client)
     assert "no sign-in is needed" in mailbox[0]["body"]
+
+
+# Copy buttons and the curl test line
+
+
+def test_token_pages_carry_copy_buttons_and_curl_url(client, teacher, course, mailbox):
+    from app.config import get_config as config
+    url = config().blablador.test_url
+    assert url == config().blablador.api_url.rstrip("/") + "/v1/models"
+    page = teacher.get("/dashboard").text
+    assert f'<meta name="blablador-test-url" content="{url}">' in page
+    assert 'data-action="copy-token-curl"' in page and 'id="newTokenCurl"' in page
+    invite(teacher, course, ["a@x.org"])
+    drain(client)
+    client.cookies.clear()
+    join_page = client.get(f"/courses/invite/{code_of(link_in(mailbox[0]))}").text
+    assert f'<meta name="blablador-test-url" content="{url}">' in join_page
+    assert 'data-action="copy-course-token"' in join_page and 'data-action="copy-course-curl"' in join_page
+
+
+def test_scripts_build_the_curl_line():
+    from pathlib import Path
+    static = Path(__file__).resolve().parents[1] / "app/static"
+    common = (static / "common.js").read_text()
+    assert "function curlTest(token)" in common and 'Authorization: Bearer ${token}' in common
+    assert "function copyText(text, button)" in common
+    assert "curlTest(result.token)" in (static / "course_join.js").read_text()
+    assert "showCurl();" in (static / "dashboard.js").read_text()
+
+
+@pytest.mark.parametrize("field, value", [
+    ("api_url", "https://x.example/$(id)"),
+    ("api_url", 'https://x.example/"; rm -rf ~'),
+    ("api_url", "https://x.example/ `id`"),
+    ("api_url", "javascript:alert(1)"),
+    ("test_path", "v1/models"),
+    ("test_path", "/v1/models?x=$(id)"),
+])
+def test_curl_url_parts_are_safe_to_paste(field, value):
+    with pytest.raises(ValueError):
+        Config(blablador={field: value})
+
+
+def test_curl_url_joins_cleanly():
+    assert Config(blablador={"api_url": "https://api.example/", "test_path": "/v1/models"}).blablador.test_url \
+        == "https://api.example/v1/models"

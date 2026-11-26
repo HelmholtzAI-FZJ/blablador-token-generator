@@ -291,8 +291,15 @@ class ModelConfig(SecurityConfigModel):
 
 
 class BlabladorConfig(SecurityConfigModel):
-    api_url: str = "https://ptj.blablador.fz-juelich.de"
+    # The Blablador API that tokens are for; pages show a curl command
+    # against api_url + test_path to try a new token.
+    api_url: str = Field("https://ptj.blablador.fz-juelich.de", pattern=r"^https?://[^\s\"'`$\\]+$")
+    test_path: str = Field("/v1/models", pattern=r"^/[A-Za-z0-9/_.-]*$", max_length=200)
     models: List[ModelConfig] = []
+
+    @property
+    def test_url(self) -> str:
+        return self.api_url.rstrip("/") + self.test_path
 
 
 class Config(SecurityConfigModel):

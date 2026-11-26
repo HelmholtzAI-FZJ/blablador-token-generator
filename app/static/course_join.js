@@ -14,6 +14,7 @@ registerActions({
             if (!response.ok) throw new Error(await errorMessage(response));
             const result = await response.json();
             document.getElementById('courseTokenValue').textContent = result.token;
+            document.getElementById('courseTokenCurl').textContent = curlTest(result.token);
             document.getElementById('joinArea').hidden = true;
             document.getElementById('joinResult').hidden = false;
         } catch (e) {
@@ -21,8 +22,6 @@ registerActions({
             el.disabled = false;
         }
     },
-    'copy-course-token': async (el) => {
-        await navigator.clipboard.writeText(document.getElementById('courseTokenValue').textContent);
-        el.textContent = 'Copied';
-    },
+    'copy-course-token': (el) => copyText(document.getElementById('courseTokenValue').textContent, el),
+    'copy-course-curl': (el) => copyText(document.getElementById('courseTokenCurl').textContent, el),
 });

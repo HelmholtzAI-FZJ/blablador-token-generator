@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="csrf-token" content="{{ request.state.csrf_token }}">
+    <meta name="blablador-test-url" content="{{ blablador_test_url }}">
     <title>Join course - {{ app_name }}</title>
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -48,7 +49,9 @@
             border-radius: 4px;
             margin: 1rem 0;
         }
-        .token-value { font-family: monospace; word-break: break-all; display: block; margin: 0.5rem 0; }
+        .token-value { font-family: monospace; word-break: break-all; display: block; margin: 0.5rem 0; flex: 1 1 auto; }
+        .copy-row { display: flex; align-items: center; gap: 0.5rem; }
+        .btn-small { padding: 0.35rem 0.75rem; font-size: 0.875rem; white-space: nowrap; }
         .error { color: #c0392b; }
     </style>
 </head>
@@ -79,8 +82,15 @@
         <div id="joinResult" hidden>
             <div class="token-warning">
                 <strong>Copy your token now. You won't be able to see it again.</strong>
-                <code class="token-value" id="courseTokenValue"></code>
-                <button class="btn btn-copy" data-action="copy-course-token">Copy</button>
+                <div class="copy-row">
+                    <code class="token-value" id="courseTokenValue"></code>
+                    <button class="btn btn-small btn-copy" data-action="copy-course-token"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg> Copy</button>
+                </div>
+                <p>Try it:</p>
+                <div class="copy-row">
+                    <code class="token-value" id="courseTokenCurl"></code>
+                    <button class="btn btn-small btn-copy" data-action="copy-course-curl"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg> Copy</button>
+                </div>
             </div>
             {% if not invited %}<a href="/dashboard" class="btn">Go to your dashboard</a>{% endif %}
         </div>

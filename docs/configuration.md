@@ -262,5 +262,6 @@ account) revokes all its tokens and disables its link. The chart's
 
 | Key | Default | Description |
 | --- | --- | --- |
-| `api_url` | `https://ptj.blablador.fz-juelich.de` | Reserved; not used by this release. |
+| `api_url` | `https://ptj.blablador.fz-juelich.de` | The Blablador API the tokens are for. Pages that show a new token also show `curl <api_url><test_path> -H "Authorization: Bearer <token>"` to try it. Must be an `http(s)` URL without spaces, quotes, `$` or backticks, so the command is safe to paste. |
+| `test_path` | `/v1/models` | Path the curl example calls; choose one that requires a valid token. |
 | `models` | `[]` | Reserved; not used by this release. |

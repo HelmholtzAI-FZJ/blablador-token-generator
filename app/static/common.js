@@ -58,3 +58,29 @@ registerActions({
         }
     },
 });
+
+// A curl command that tries a token against the Blablador API; the page
+// names the URL in <meta name="blablador-test-url">.
+function curlTest(token) {
+    const meta = document.querySelector('meta[name="blablador-test-url"]');
+    const url = meta ? meta.content : '';
+    return `curl ${url} -H "Authorization: Bearer ${token}"`;
+}
+
+async function copyText(text, button) {
+    try {
+        await navigator.clipboard.writeText(text);
+    } catch {
+        const area = document.createElement('textarea');
+        area.value = text;
+        document.body.appendChild(area);
+        area.select();
+        document.execCommand('copy');
+        area.remove();
+    }
+    if (button) {
+        const label = button.innerHTML;
+        button.textContent = 'Copied';
+        setTimeout(() => { button.innerHTML = label; }, 2000);
+    }
+}
