@@ -442,23 +442,11 @@ def test_course_token_cannot_be_renewed(client, course):
     assert response.status_code == 400
 
 
-def test_rotation_keeps_course_end_and_shape(client, course):
+def test_course_token_cannot_be_rotated(client, course):
     student, joined = join(client, course)
-    rotated = student.post(f"/tokens/{joined['token_id']}/rotate", json={"expires_in_days": 300})
-    assert rotated.status_code == 200
-    body = rotated.json()
-    assert body["token"].startswith("blablador-course-")
-    assert body["expires_at"] == course["ends_at"]
-    assert validate(client, joined["token"]).status_code == 401
-    assert validate(client, body["token"]).json()["token_type"] == "course"
-
-
-def test_rotation_refused_once_course_closed(client, teacher, course):
-    student, joined = join(client, course)
-    client.portal.call(lambda: run_sql(
-        update(Course).where(Course.id == course["id"]).values(suspended_at=utcnow())
-    ))
-    assert student.post(f"/tokens/{joined['token_id']}/rotate").status_code == 400
+    response = student.post(f"/tokens/{joined['token_id']}/rotate")
+    assert response.status_code == 400 and "cannot be rotated" in response.json()["detail"]
+    assert validate(client, joined["token"]).status_code == 200
 
 
 def test_course_tokens_do_not_count_towards_personal_limit(client, course, monkeypatch):
@@ -478,7 +466,7 @@ def test_dashboard_shows_course_badge_without_renew(client, course):
     page = student.get("/dashboard").text
     assert "Course: Intro to LLMs" in page
     row = page.split(f'data-token-id="{joined["token_id"]}"', 1)[1].split("</tr>", 1)[0]
-    assert "renew-token" not in row and "rotate-token" in row
+    assert "renew-token" not in row and "rotate-token" not in row and "revoke-token" in row
 
 
 def test_dashboard_course_card_only_for_teachers(client, teacher):

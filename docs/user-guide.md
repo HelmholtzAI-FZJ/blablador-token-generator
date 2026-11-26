@@ -71,8 +71,8 @@ If an administrator made you a teacher, the dashboard has a **Courses** card.
    once; **New join link** replaces it (the old one stops working).
 3. Each student signs in, opens the link and presses **Join and get my token**.
    They get one token, `blablador-course-…`, that works from the first day
-   until the end of the last day (UTC). If they lose it they can rotate it on
-   their dashboard; they cannot join a second time.
+   until the end of the last day (UTC). Course tokens cannot be renewed or
+   rotated, and a student cannot join a second time.
    Or press **Invite by email**: paste the students' addresses, adjust the
    message, and the service mails each of them a personal link that works
    once. Each invitation holds a seat until it is used or you cancel it;

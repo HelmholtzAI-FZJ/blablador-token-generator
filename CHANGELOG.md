@@ -43,7 +43,7 @@ All notable changes to this project are documented here. The format follows
 ### Changed
 
 - Course tokens do not count towards `tokens.max_tokens_per_user`, cannot be
-  renewed, keep their course's end when rotated, and get no expiry reminders.
+  renewed or rotated, and get no expiry reminders.
 - Migration 0006 adds `users.is_teacher`, the `courses`, `course_seats` and `course_invitations`
   tables, and `tokens.course_id` and `tokens.use_count`. It is safe during a
   rolling upgrade: 1.3.x instances reject course tokens as malformed.

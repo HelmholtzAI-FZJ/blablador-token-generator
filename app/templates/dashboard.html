@@ -181,7 +181,9 @@
                         </td>
                         <td>
                             {% if not token.revoked_at %}
+                            {% if not token.course_id %}
                             <button class="btn" data-action="rotate-token" data-id="{{ token.id }}">Rotate</button>
+                            {% endif %}
                             <button class="btn btn-danger" data-action="revoke-token" data-id="{{ token.id }}"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"></line></svg> Revoke</button>
                             {% if not token.course_id %}
                             <button class="btn" style="background: #2ecc71;" data-action="renew-token" data-id="{{ token.id }}"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right: 4px;"><polyline points="23 4 23 10 17 10"></polyline><polyline points="1 20 1 14 7 14"></polyline><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path></svg> Renew</button>

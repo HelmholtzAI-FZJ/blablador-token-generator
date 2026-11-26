@@ -251,7 +251,7 @@ cancelled, so a course never has more invitations than seats. The link is not
 tied to the address: students may sign in with any account.
 
 Course tokens do not count towards `tokens.max_tokens_per_user`, cannot be
-renewed, and keep the course's end when rotated. Closing a course (by its
+renewed or rotated. Closing a course (by its
 teacher, an administrator, removing the teacher role or deleting the teacher's
 account) revokes all its tokens and disables its link. The chart's
 `coursePurge` CronJob runs `python -m app.manage purge-course-tokens` daily.

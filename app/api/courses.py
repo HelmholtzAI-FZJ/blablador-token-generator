@@ -353,7 +353,7 @@ async def claim_seat(
     )):
         raise HTTPException(
             status_code=409,
-            detail="You already joined this course. Your token is on your dashboard; rotate it there if you lost it.",
+            detail="You already joined this course. Your token is on your dashboard; if you lost it, ask your teacher.",
         )
     plain_token = generate_token(course=True)
     token = Token(
