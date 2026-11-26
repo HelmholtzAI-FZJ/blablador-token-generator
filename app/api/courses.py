@@ -15,7 +15,8 @@ from app.api.tokens import TOKEN_READ_LIMIT, TOKEN_WRITE_LIMIT, lock_token_owner
 from app.config import get_config
 from app.courses import (
     SUSPENDED_BY_TEACHER, active_course_count, close_course, course_user_for, delete_course, deliver_invitation, invitation_message,
-    invitation_text, invite_code_hash, is_active, is_join_code, join_code_hash, new_invite_code, new_join_code,
+    invitation_subject, invitation_text, invite_code_hash, is_active, is_join_code, join_code_hash,
+    new_invite_code, new_join_code,
     open_invitation_count, open_invitations,
 )
 from app.mailer import run_later
@@ -288,6 +289,42 @@ async def close_course_endpoint(
     logger.info("user=%s action=close_course course_id=%s reason=%s tokens_revoked=%d",
                 user.id, course.id, SUSPENDED_BY_TEACHER, revoked)
     return {"message": "Course closed and all its tokens revoked", "tokens_revoked": revoked}
+
+
+class SeatsRequest(BaseModel):
+    max_seats: int = Field(..., ge=1)
+
+
+@router.patch("/{course_id}", response_model=CourseResponse, dependencies=[Depends(require_courses_enabled)])
+@limiter.limit(TOKEN_WRITE_LIMIT, key_func=user_or_ip)
+async def change_seats(
+    request: Request,
+    course_id: ResourceId,
+    body: SeatsRequest,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> CourseResponse:
+    """Change a running course's seats, for students who come late: up to
+    courses.max_seats, never below the seats used or held by invitations."""
+    user = await lock_token_owner(request, user, db)
+    course = await teacher_course(course_id, user, db, lock=True)
+    if not is_active(course):
+        raise HTTPException(status_code=400, detail="The course has ended or was closed")
+    limit = get_config().courses.max_seats
+    if body.max_seats > limit:
+        raise HTTPException(status_code=400, detail=f"A course has at most {limit} seats")
+    in_use = course.seats_claimed + await open_invitation_count(db, course.id)
+    if body.max_seats < in_use:
+        raise HTTPException(
+            status_code=400,
+            detail=f"{in_use} seat(s) are used or held by open invitations; cancel invitations to go lower",
+        )
+    previous = course.max_seats
+    course.max_seats = body.max_seats
+    await commit(db, "Failed to change the seats")
+    logger.info("user=%s action=change_course_seats course_id=%s from=%d to=%d",
+                user.id, course.id, previous, course.max_seats)
+    return CourseResponse.of(course)
 
 
 @router.delete("/{course_id}", dependencies=[Depends(require_courses_enabled)])
@@ -612,7 +649,9 @@ def new_link(invitation: CourseInvitation) -> str:
 def send_invitation(course: Course, teacher: User, invitation: CourseInvitation, code: str,
                     subject: str, body: str) -> None:
     text = invitation_message(course, teacher, body, invite_url(code))
-    run_later(deliver_invitation(invitation.id, invitation.email, subject, text, teacher.email))
+    run_later(deliver_invitation(
+        invitation.id, invitation.email, invitation_subject(course, subject), text, teacher.email,
+    ))
 
 
 async def active_teacher_course(request: Request, course_id: str, user: User, db: AsyncSession):

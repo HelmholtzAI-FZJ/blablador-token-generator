@@ -211,6 +211,7 @@ may join one with its link.
 | `GET /courses/{id}/seats` | | Everyone with a seat, with `token_status` (`active`, `revoked`, `expired`, `deleted`), `last_used_at`, `use_count`, `course_user` and `joined_via` (`link` or `invitation`) |
 | `POST /courses/{id}/join-link` | | Replaces the join link; claimed seats stay claimed |
 | `POST /courses/{id}/close` | | Revokes every token of the course and disables its link, for good |
+| `PATCH /courses/{id}` | `{"max_seats"}` | Changes a running course's seats: at most `courses.max_seats`, never below the seats used or held by open invitations |
 | `DELETE /courses/{id}` | | Deletes a closed or ended course with its tokens, students and invitations; `400` while it runs |
 | `POST /courses/{id}/seats/{seat_id}/revoke` | | Revokes one student's token; they cannot join again |
 | `POST /courses/{id}/invitations` | `{"emails": [...], "subject", "body"}` | Teachers only; needs mail. Mails each new address a single-use link (one seat each). `400` if there are not enough free seats. Returns `invited` and `skipped` (already invited) |

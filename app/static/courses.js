@@ -39,7 +39,9 @@ async function loadCourses() {
                 <td>
                     <button class="btn btn-small" data-action="toggle-seats" data-id="${escapeHtml(course.id)}">Students</button>
                     ${course.active && mailEnabled ? `
-                    <button class="btn btn-small" data-action="open-invite" data-id="${escapeHtml(course.id)}" data-name="${escapeHtml(course.name)}">Invite by email</button>` : ''}
+                    <button class="btn btn-small" data-action="open-invite" data-id="${escapeHtml(course.id)}" data-name="${escapeHtml(course.name)}">Add students</button>` : ''}
+                    ${course.active ? `
+                    <button class="btn btn-small" data-action="change-seats" data-id="${escapeHtml(course.id)}" data-seats="${course.max_seats}" data-used="${course.seats_claimed}">Seats</button>` : ''}
                     ${course.active ? `
                     <button class="btn btn-small" data-action="new-course-link" data-id="${escapeHtml(course.id)}">New join link</button>
                     <button class="btn btn-small btn-danger" data-action="close-course" data-id="${escapeHtml(course.id)}" data-name="${escapeHtml(course.name)}">Revoke all and close</button>` : `
@@ -164,11 +166,28 @@ registerActions({
     'open-invite': (el) => {
         const form = document.getElementById('inviteForm');
         document.getElementById('inviteCourse').value = el.dataset.id;
-        form.querySelector('h3').textContent = `Invite students to "${el.dataset.name}" by email`;
+        form.querySelector('h3').textContent = `Add students to "${el.dataset.name}"`;
         form.hidden = false;
         form.scrollIntoView({behavior: 'smooth'});
     },
     'close-invite': () => { document.getElementById('inviteForm').hidden = true; },
+    'change-seats': async (el) => {
+        const limit = document.getElementById('coursesCard').dataset.maxSeats;
+        const answer = prompt(`Seats for this course (currently ${el.dataset.seats}, at most ${limit}):`, el.dataset.seats);
+        if (answer === null) return;
+        const seats = Number(answer);
+        if (!Number.isInteger(seats) || seats < 1) {
+            alert('Enter a whole number of seats');
+            return;
+        }
+        const response = await fetch(`/courses/${encodeURIComponent(el.dataset.id)}`, {
+            method: 'PATCH',
+            headers: csrfHeaders({'Content-Type': 'application/json'}),
+            body: JSON.stringify({max_seats: seats}),
+        });
+        if (!response.ok) alert(`Seats not changed: ${await errorMessage(response)}`);
+        loadCourses();
+    },
     'resend-invitation': async (el) => {
         if (!confirm(`Send ${el.dataset.email} a new link (with the message in the invitation form)? The previous link stops working.`)) return;
         const response = await fetch(

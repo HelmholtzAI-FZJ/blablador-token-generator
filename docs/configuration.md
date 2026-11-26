@@ -238,7 +238,7 @@ end of the last day. See the [user guide](user-guide.md#courses).
 | `max_days_ahead` | `180` | How far ahead a course may start. |
 | `join_code_bytes` | `24` | Random bytes in a join link's code. |
 | `retention_days` | `30` | Days after a course ends before `purge-course-tokens` deletes its tokens. Courses and seats are kept as a record. |
-| `invitation_subject` | (built-in text) | Default subject of mailed invitations; teachers may edit it. |
+| `invitation_subject` | `Blablador access for the course {course}` | Default subject of mailed invitations; teachers may edit it. `{course}` becomes the course name, and a subject without the name gets `[course name]` in front, so every invitation names its course. |
 | `invitation_body` | (built-in text) | Default message of mailed invitations; teachers may edit it. The personal link, the course dates and a footer naming the teacher are always appended, and replies go to the teacher. |
 | `invitation_footer` | (built-in text) | Appended to every invitation after the teacher's text; teachers cannot change it. Placeholders: `{course}`, `{start}` and `{end}` (first and last day), `{link}`, `{app_name}`, `{teacher_name}`, `{teacher_email}`. Must contain `{link}`; other placeholders are refused. |
 | `invitation_max_body_chars` | `4000` | Longest message a teacher may write. |

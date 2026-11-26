@@ -84,6 +84,13 @@ All notable changes to this project are documented here. The format follows
   command and what a working and a failing token answer look like.
 - `courses.max_invitation_sends: 0` removes the per-invitation send limit
   (for testing); `rate_limits.course_invite` still limits sending.
+- Invitation subjects always name the course: `{course}` in the subject is
+  filled in, and a subject without the name gets it in front. The default
+  is `Blablador access for the course {course}`.
+- Teachers can add students to a running course (**Add students**, the
+  former "Invite by email") and change its seats (**Seats**,
+  `PATCH /courses/{id}`), up to `courses.max_seats` and never below the
+  seats in use.
 - Administrators can search users by part of their email, name or OAuth
   subject (search box on the Users tab; `q` on `GET /api/admin/users`).
 - Configuration: `courses.*`, `rate_limits.course_join` and

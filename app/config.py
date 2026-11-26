@@ -214,7 +214,7 @@ DEFAULT_COURSE_TERMS = (
 )
 
 
-DEFAULT_INVITATION_SUBJECT = "Your access to Blablador for the course"
+DEFAULT_INVITATION_SUBJECT = "Blablador access for the course {course}"
 DEFAULT_INVITATION_BODY = (
     "Hello,\n\n"
     "for this course you will use Blablador, an LLM service. Use the personal link "
@@ -250,6 +250,8 @@ class CourseConfig(SecurityConfigModel):
     retention_days: int = Field(30, ge=0, le=3650)
     # Mailed invitations (need smtp.enabled): the default text teachers
     # edit; the link, dates and a footer naming the teacher are always added.
+    # {course} becomes the course name; a subject without the name gets it
+    # in front, so every invitation names its course.
     invitation_subject: str = Field(DEFAULT_INVITATION_SUBJECT, min_length=1, max_length=200)
     invitation_body: str = Field(DEFAULT_INVITATION_BODY, min_length=1, max_length=4000)
     invitation_max_body_chars: int = Field(4000, ge=100, le=20000)

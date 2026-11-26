@@ -129,6 +129,15 @@ def invitation_text(value: str, *, multiline: bool) -> str:
     return value
 
 
+def invitation_subject(course: Course, subject: str) -> str:
+    """The subject with {course} filled in; the course name is put in front
+    when the teacher's subject does not contain it."""
+    filled = subject.replace("{course}", course.name)
+    if course.name.casefold() not in filled.casefold():
+        filled = f"[{course.name}] {filled}"
+    return filled
+
+
 def invitation_message(course: Course, teacher: User, body: str, link: str) -> str:
     """The teacher's text, then what the service always adds."""
     config = get_config()

@@ -73,8 +73,10 @@ If an administrator made you a teacher, the dashboard has a **Courses** card.
    They get one token, `blablador-course-…`, that works from the first day
    until the end of the last day (UTC). Course tokens cannot be renewed or
    rotated, and a student cannot join a second time.
-   Or press **Invite by email**: paste the students' addresses and adjust
-   the message. The service mails each student a personal link that shows
+   Or press **Add students**: paste the students' addresses and adjust the
+   message (every subject names the course). Use it again for students who
+   come late, while seats are free; **Seats** raises a running course's
+   seats, up to the configured maximum. The service mails each student a personal link that shows
    their token once; they need no account, and you never see the tokens.
    Each invitation holds a seat until it is used or you cancel it. For a
    student who lost their token, **Reissue** revokes it and mails a new link

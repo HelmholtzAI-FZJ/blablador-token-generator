@@ -709,7 +709,7 @@ def test_invitations_mail_one_personal_link_each(client, teacher, course, mailbo
     drain(client)
     assert sorted(m["to"][0] for m in mailbox) == ["a@example.org", "b@example.org"]
     message = mailbox[0]
-    assert message["subject"] == "Welcome"
+    assert message["subject"] == "[Intro to LLMs] Welcome"
     assert message["body"].startswith("Hello class")
     assert "Intro to LLMs" in message["body"] and today().isoformat() in message["body"]
     teacher_user = client.portal.call(lambda: fetch(select(User).where(User.id == teacher.user_id)))[0]
@@ -820,7 +820,7 @@ def test_resend_replaces_the_link_with_a_limit(client, teacher, course, mailbox)
     assert resent.status_code == 200 and resent.json()["send_count"] == 2
     drain(client)
     new = code_of(link_in(mailbox[1]))
-    assert mailbox[1]["subject"] == "Again"
+    assert mailbox[1]["subject"] == "[Intro to LLMs] Again"
     assert Session(client).post(f"/courses/invite/{old}").status_code == 404
     assert teacher.post(path, json={"subject": "x", "body": "y"}).status_code == 200
     limited = teacher.post(path, json={"subject": "x", "body": "y"})
@@ -1248,7 +1248,7 @@ def test_reissue_replaces_a_lost_token_without_a_new_seat(client, teacher, cours
     assert validate(client, claimed["token"]).status_code == 401
     assert teacher.get(f"/courses/{course['id']}").json()["seats_claimed"] == 0
     drain(client)
-    assert mailbox[-1]["subject"] == "New token"
+    assert mailbox[-1]["subject"] == "[Intro to LLMs] New token"
     again = claim_signed_out(client, code_of(link_in(mailbox[-1])))
     assert again.status_code == 200 and validate(client, again.json()["token"]).status_code == 200
     assert teacher.get(f"/courses/{course['id']}").json()["seats_claimed"] == 1
@@ -1474,3 +1474,62 @@ def test_send_limit_config_range():
     assert Config(courses={"max_invitation_sends": 0}).courses.max_invitation_sends == 0
     with pytest.raises(ValueError):
         Config(courses={"max_invitation_sends": -1})
+
+
+# Subjects name the course; late students
+
+
+@pytest.mark.parametrize("subject, expected", [
+    ("Blablador access for the course {course}", "Blablador access for the course Intro to LLMs"),
+    ("Welcome", "[Intro to LLMs] Welcome"),
+    ("About intro to llms", "About intro to llms"),
+    ("{course}: {course}", "Intro to LLMs: Intro to LLMs"),
+])
+def test_invitation_subject_names_the_course(client, teacher, course, mailbox, subject, expected):
+    invite(teacher, course, [unique_address()], subject=subject)
+    drain(client)
+    assert mailbox[-1]["subject"] == expected
+
+
+def test_resend_and_reissue_subjects_name_the_course(client, teacher, course, mailbox):
+    invitation, _ = mailed_token(client, teacher, course, mailbox, unique_address())
+    teacher.post(f"/courses/{course['id']}/invitations/{invitation['id']}/reissue", json={"subject": "Again", "body": "y"})
+    drain(client)
+    assert mailbox[-1]["subject"] == "[Intro to LLMs] Again"
+
+
+def test_default_subject_has_the_placeholder():
+    assert "{course}" in get_config().courses.invitation_subject
+
+
+def test_teacher_raises_seats_for_late_students(client, teacher, course, mailbox):
+    for _ in range(3):
+        join(client, course)
+    full = invite(teacher, course, [unique_address()])
+    assert full.status_code == 400
+    raised = teacher.patch(f"/courses/{course['id']}", json={"max_seats": 5})
+    assert raised.status_code == 200 and raised.json()["max_seats"] == 5
+    assert invite(teacher, course, [unique_address(), unique_address()]).status_code == 200
+    assert invite(teacher, course, [unique_address()]).status_code == 400
+
+
+def test_seats_limits(client, teacher, course, mailbox):
+    join(client, course)
+    invite(teacher, course, [unique_address()])
+    path = f"/courses/{course['id']}"
+    too_low = teacher.patch(path, json={"max_seats": 1})
+    assert too_low.status_code == 400 and "2 seat(s) are used or held" in too_low.json()["detail"]
+    assert teacher.patch(path, json={"max_seats": 2}).status_code == 200
+    too_high = teacher.patch(path, json={"max_seats": 61})
+    assert too_high.status_code == 400 and "at most 60" in too_high.json()["detail"]
+    assert teacher.patch(path, json={"max_seats": 0}).status_code == 422
+    assert Session(client, teacher=True).patch(path, json={"max_seats": 5}).status_code == 404
+    teacher.post(f"{path}/close")
+    assert teacher.patch(path, json={"max_seats": 5}).status_code == 400
+
+
+def test_dashboard_offers_add_students_and_seats():
+    from pathlib import Path
+    script = (Path(__file__).resolve().parents[1] / "app/static/courses.js").read_text()
+    assert ">Add students</button>" in script and 'data-action="change-seats"' in script
+    assert "Invite by email" not in script
