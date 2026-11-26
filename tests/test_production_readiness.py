@@ -232,7 +232,13 @@ class TestValidationApiContract:
         response = client.post("/api/v1/auth/validate",
                                         headers={"Authorization": "Bearer blablador-" + "0" * 64})
         assert response.status_code == 401
-        assert response.headers["www-authenticate"] == "Bearer"
+        assert response.headers["www-authenticate"] == (
+            'Bearer error="invalid_token", error_description="Token not found or revoked"'
+        )
+        assert response.json() == {
+            "valid": False, "error": "invalid_token", "reason": "unknown_or_revoked",
+            "error_description": "Token not found or revoked", "detail": "Token not found or revoked",
+        }
 
     def test_cookie_endpoints_still_require_csrf(self, client):
         client.cookies.set("csrf_token", "abc")

@@ -89,6 +89,9 @@
             margin-bottom: 1rem;
         }
         .token-warning strong { color: #856404; }
+        .token-test p { margin: 0.5rem 0; }
+        .copy-row { display: flex; align-items: center; gap: 0.5rem; }
+        .copy-row .token-value { flex: 1 1 auto; word-break: break-all; }
         .app-badge { display: inline-block; padding: 0.1rem 0.5rem; border-radius: 4px; background: #eaf2fb; color: #2471a3; font-size: 0.85rem; }
         .muted { color: #888; }
         tr.members-row > td { white-space: normal; background: #fafbfc; }
@@ -166,10 +169,8 @@
                         <button class="btn btn-small" data-action="toggle-token-view" id="viewBtn"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg> View</button>
                         <button class="btn btn-small btn-copy" id="copyBtn" data-action="copy-token"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg> Copy</button>
                     </span>
-                    <p style="margin-top: 0.75rem;">Try it:</p>
-                    <code class="token-value" id="newTokenCurl"></code>
-                    <button class="btn btn-small btn-copy" data-action="copy-token-curl"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg> Copy</button>
                 </div>
+                {% with curl_id="newTokenCurl", copy_action="copy-token-curl" %}{% include "_token_test.html" %}{% endwith %}
             </div>
             
             {% if tokens %}

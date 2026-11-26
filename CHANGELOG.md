@@ -74,6 +74,14 @@ All notable changes to this project are documented here. The format follows
 - Deleting a course user removes them from their courses; their invitations
   then show "account deleted" and can be reissued. Course users leave no
   deletion record, so the address can be invited again.
+- Rejected tokens get an RFC 6750 answer: `WWW-Authenticate: Bearer
+  error="invalid_token", error_description="…"` and a JSON body with
+  `valid: false`, `error`, a machine-readable `reason` (`malformed`,
+  `unknown_or_revoked`, `expired`, `course_closed`, …) and a readable
+  `error_description`. `detail` is kept. A malformed token's explanation now
+  names both token forms and the expected length.
+- Pages that show a new token have a "Test your token" box with the curl
+  command and what a working and a failing token answer look like.
 - Administrators can search users by part of their email, name or OAuth
   subject (search box on the Users tab; `q` on `GET /api/admin/users`).
 - Configuration: `courses.*`, `rate_limits.course_join` and

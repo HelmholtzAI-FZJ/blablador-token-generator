@@ -66,15 +66,24 @@ case-insensitive; no request body is needed and no CSRF token is involved.
 
     ```http
     HTTP/1.1 401 Unauthorized
-    WWW-Authenticate: Bearer
+    WWW-Authenticate: Bearer error="invalid_token", error_description="Token not found or revoked"
 
-    {"detail": "Token not found or revoked"}
+    {
+      "valid": false,
+      "error": "invalid_token",
+      "reason": "unknown_or_revoked",
+      "error_description": "Token not found or revoked",
+      "detail": "Token not found or revoked"
+    }
     ```
 
-    Other reasons: `No token provided. Use Bearer token.`, `Token has
-    expired`, `Token invalid: account has been deleted`, and for course
-    tokens `Token not valid yet: the course has not started`, `Token has
-    expired: the course has ended`, `Token revoked: the course was closed`.
+    The answer follows RFC 6750. `reason` is one of `missing_token` (then
+    `error` is `invalid_request` and the challenge is a bare `Bearer`),
+    `malformed` (not shaped like a token of this service, typically copied
+    incompletely or with extra characters), `unknown_or_revoked`, `expired`,
+    `account_deleted`, `course_not_started`, `course_ended` and
+    `course_closed`. `error_description` explains it for people; `detail`
+    repeats it for clients written against earlier releases.
 
 | Status | Meaning | Gateway should |
 | --- | --- | --- |

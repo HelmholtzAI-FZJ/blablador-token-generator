@@ -125,4 +125,5 @@ class TestMalformedToken:
                 db=test_db,
             )
 
-        assert exc_info.value.headers == {"WWW-Authenticate": "Bearer"}
+        challenge = exc_info.value.headers["WWW-Authenticate"]
+        assert challenge.startswith('Bearer error="invalid_token", error_description="This is not a blablador token')

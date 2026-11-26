@@ -1447,3 +1447,15 @@ def test_a_new_course_user_is_not_blocked_by_an_old_deletion_record(client, teac
     client.portal.call(old_record)
     _, claimed = mailed_token(client, teacher, course, mailbox, address)
     assert validate(client, claimed["token"]).json()["valid"] is True
+
+
+def test_token_pages_have_the_test_box(client, teacher, course, mailbox):
+    page = teacher.get("/dashboard").text
+    box = page.split('class="token-warning token-test"', 1)[1].split("</div>\n</div>", 1)[0]
+    assert "Test your token" in box and 'id="newTokenCurl"' in box and "malformed" in box and "401" in box
+    invite(teacher, course, ["a@x.org"])
+    drain(client)
+    client.cookies.clear()
+    join_page = client.get(f"/courses/invite/{code_of(link_in(mailbox[0]))}").text
+    assert join_page.count("Test your token") == 1 and 'id="courseTokenCurl"' in join_page
+    assert "Try it:" not in join_page and "Try it:" not in page

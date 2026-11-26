@@ -120,6 +120,8 @@ def error_page(request: Request, status_code: int, message: str,
 
 @app.exception_handler(StarletteHTTPException)
 async def http_exception_handler(request: Request, exc: StarletteHTTPException):
+    if isinstance(exc, validate.TokenRejected):
+        return JSONResponse(status_code=exc.status_code, content=exc.body(), headers=exc.headers)
     if exc.status_code == 302:
         if request.url.path.startswith(("/api/", "/tokens")) or request.method != "GET":
             return JSONResponse(status_code=401, content={"detail": "Authentication required"}, headers=exc.headers)

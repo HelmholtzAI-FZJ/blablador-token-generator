@@ -79,8 +79,33 @@ async def extract_bearer_token(authorization: str | None = Header(None)) -> str 
     return token
 
 
-def invalid_token(detail: str) -> HTTPException:
-    return HTTPException(status_code=401, detail=detail, headers={"WWW-Authenticate": "Bearer"})
+class TokenRejected(HTTPException):
+    """A 401 for a bearer token, answered as RFC 6750 describes: an error
+    code in WWW-Authenticate and in the body, plus a reason code and a
+    readable description. "detail" repeats the description for gateways
+    that read it."""
+
+    def __init__(self, reason: str, description: str):
+        self.reason = reason
+        # A request without a token gets no error code (RFC 6750, 3.1).
+        self.error = "invalid_request" if reason == "missing_token" else "invalid_token"
+        challenge = "Bearer" if reason == "missing_token" else (
+            f'Bearer error="{self.error}", error_description="{description.replace(chr(34), chr(39))}"'
+        )
+        super().__init__(status_code=401, detail=description, headers={"WWW-Authenticate": challenge})
+
+    def body(self) -> dict:
+        return {
+            "valid": False,
+            "error": self.error,
+            "reason": self.reason,
+            "error_description": self.detail,
+            "detail": self.detail,
+        }
+
+
+def invalid_token(detail: str, reason: str = "unknown_or_revoked") -> TokenRejected:
+    return TokenRejected(reason, detail)
 
 
 _HEX_DIGITS = frozenset("0123456789abcdefABCDEF")
@@ -113,14 +138,14 @@ def is_possible_token(token: str) -> bool:
     return token_shape(token) is not None
 
 
-def course_problem(course: Course, now: datetime) -> str | None:
-    """Why a course's tokens do not work now, or None."""
+def course_problem(course: Course, now: datetime) -> tuple[str, str] | None:
+    """Why a course's tokens do not work now (description, reason), or None."""
     if course.suspended_at is not None:
-        return "Token revoked: the course was closed"
+        return "Token revoked: the course was closed", "course_closed"
     if now < as_utc(course.starts_at):
-        return "Token not valid yet: the course has not started"
+        return "Token not valid yet: the course has not started", "course_not_started"
     if now >= as_utc(course.ends_at):
-        return "Token has expired: the course has ended"
+        return "Token has expired: the course has ended", "course_ended"
     return None
 
 
@@ -136,13 +161,19 @@ async def authenticate_api_token(
     built before recording the token's use, which may roll back and
     expire it."""
     if not bearer_token:
-        raise invalid_token("No token provided. Use Bearer token.")
+        raise invalid_token(
+            "No token was sent. Send it in the header: Authorization: Bearer <your token>.", "missing_token"
+        )
 
     shape = token_shape(bearer_token)
     if shape is None:
+        tokens = get_config().tokens
+        length = 2 * tokens.token_length_bytes
         raise invalid_token(
-            f"Token is malformed: expected '{get_config().tokens.token_prefix}-' "
-            "followed by an even number of hexadecimal characters"
+            f"This is not a {tokens.token_prefix} token (malformed). Tokens look like {tokens.token_prefix}- "
+            f"followed by {length} hexadecimal characters ({tokens.token_prefix}-{COURSE_TOKEN_MARKER}- for "
+            "course tokens). Check that it was copied completely, without missing or extra characters.",
+            "malformed",
         )
 
     token_hash = hash_token(bearer_token)
@@ -172,7 +203,7 @@ async def authenticate_api_token(
             token.user_id,
             token.id,
         )
-        raise invalid_token("Token invalid: account has been deleted")
+        raise invalid_token("Token invalid: account has been deleted", "account_deleted")
 
     now = datetime.now(timezone.utc)
     if token.expires_at:
@@ -180,11 +211,11 @@ async def authenticate_api_token(
         if expires.tzinfo is None:
             expires = expires.replace(tzinfo=timezone.utc)
         if expires <= now:
-            raise invalid_token("Token has expired")
+            raise invalid_token("Token has expired", "expired")
     if token.course is not None:
         problem = course_problem(token.course, now)
         if problem:
-            raise invalid_token(problem)
+            raise invalid_token(*problem)
 
     response = respond(token)
     await record_token_use(token, token_hash, now, db)
