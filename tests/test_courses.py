@@ -915,3 +915,70 @@ def test_mailer_sets_reply_to(monkeypatch):
     assert captured["message"]["Reply-To"] == "teacher@x.org"
     mailer._send(["s@x.org"], "Subject", "Body")
     assert captured["message"]["Reply-To"] is None
+
+
+# Deleting courses
+
+
+def stored_rows(client, course_id):
+    async def count():
+        from app import database
+        async with database.async_session_maker() as db:
+            return [len((await db.execute(select(model).where(column == course_id))).scalars().all())
+                    for model, column in ((Course, Course.id), (Token, Token.course_id),
+                                          (CourseSeat, CourseSeat.course_id),
+                                          (CourseInvitation, CourseInvitation.course_id))]
+    return client.portal.call(count)
+
+
+def test_teacher_deletes_closed_course_with_everything(client, teacher, course, mailbox):
+    _, joined = join(client, course)
+    invite(teacher, course, ["a@x.org"])
+    refused = teacher.delete(f"/courses/{course['id']}")
+    assert refused.status_code == 400 and "Close the course" in refused.json()["detail"]
+    assert stored_rows(client, course["id"]) == [1, 1, 1, 1]
+
+    teacher.post(f"/courses/{course['id']}/close")
+    response = teacher.delete(f"/courses/{course['id']}")
+    assert response.status_code == 200 and response.json()["tokens_deleted"] == 1
+    assert stored_rows(client, course["id"]) == [0, 0, 0, 0]
+    assert validate(client, joined["token"]).status_code == 401
+    assert teacher.get(f"/courses/{course['id']}").status_code == 404
+    assert teacher.delete(f"/courses/{course['id']}").status_code == 404
+
+
+def test_teacher_deletes_ended_course(client, teacher, course):
+    client.portal.call(lambda: run_sql(
+        update(Course).where(Course.id == course["id"])
+        .values(starts_at=utcnow() - timedelta(days=5), ends_at=utcnow() - timedelta(days=1))
+    ))
+    assert teacher.delete(f"/courses/{course['id']}").status_code == 200
+
+
+def test_only_the_teacher_deletes_their_course(client, teacher, course):
+    teacher.post(f"/courses/{course['id']}/close")
+    assert Session(client, teacher=True).delete(f"/courses/{course['id']}").status_code == 404
+    assert Session(client).delete(f"/courses/{course['id']}").status_code == 404
+    assert stored_rows(client, course["id"])[0] == 1
+
+
+def test_admin_deletes_running_course(client, teacher, course):
+    admin = Session(client, admin=True)
+    _, joined = join(client, course)
+    response = admin.delete(f"/api/admin/courses/{course['id']}")
+    assert response.status_code == 200 and response.json()["tokens_deleted"] == 1
+    assert stored_rows(client, course["id"]) == [0, 0, 0, 0]
+    assert validate(client, joined["token"]).status_code == 401
+    assert admin.delete(f"/api/admin/courses/{course['id']}").status_code == 404
+    assert teacher.post("/courses", json=course_body(name="Fresh start")).status_code == 200
+
+
+def test_admin_course_deletion_needs_admin(client, teacher, course):
+    assert teacher.delete(f"/api/admin/courses/{course['id']}").status_code == 403
+
+
+def test_deleted_student_seat_does_not_block_course_deletion(client, teacher, course):
+    student, _ = join(client, course)
+    student.post("/account/delete")
+    teacher.post(f"/courses/{course['id']}/close")
+    assert teacher.delete(f"/courses/{course['id']}").status_code == 200

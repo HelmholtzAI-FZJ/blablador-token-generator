@@ -198,6 +198,7 @@ may join one with its link.
 | `GET /courses/{id}/seats` | | Students who joined, with `token_status` (`active`, `revoked`, `expired`, `deleted`), `last_used_at` and `use_count` |
 | `POST /courses/{id}/join-link` | | Replaces the join link; claimed seats stay claimed |
 | `POST /courses/{id}/close` | | Revokes every token of the course and disables its link, for good |
+| `DELETE /courses/{id}` | | Deletes a closed or ended course with its tokens, students and invitations; `400` while it runs |
 | `POST /courses/{id}/seats/{seat_id}/revoke` | | Revokes one student's token; they cannot join again |
 | `POST /courses/{id}/invitations` | `{"emails": [...], "subject", "body"}` | Teachers only; needs mail. Mails each new address a single-use link (one seat each). `400` if there are not enough free seats. Returns `invited` and `skipped` (already invited) |
 | `GET /courses/{id}/invitations` | | Invitations: `email`, `status` (`open`, `claimed`, `cancelled`), `sent_at`, `send_count`, `delivery_failed`, `claimed_by_name` |
@@ -223,6 +224,7 @@ Administrator session plus `X-CSRF-Token`, as above. Lists are paged with
 | `DELETE /api/admin/tokens/revoked` | | Deletes all revoked tokens |
 | `GET /api/admin/courses` | | All courses with teacher, dates, seats, state and the terms version the teacher accepted |
 | `POST /api/admin/courses/{id}/suspend` | | Revokes every token of a course and disables its link |
+| `DELETE /api/admin/courses/{id}` | | Deletes any course, running or not, with its tokens, students and invitations |
 | `GET /api/admin/users` | | Optional `q` matches part of the email, name or OAuth subject, ignoring case. Accounts: `id`, `email`, `name`, `is_admin`, `is_teacher`, `created_at`, `unity_id` (OAuth subject), `has_password` |
 | `POST /api/admin/users` | `{"email", "name", "password", "is_admin"}` | Creates a **local** password account |
 | `PATCH /api/admin/users/{id}` | any of `name`, `password` (local accounts only), `is_admin`, `is_teacher` | Updates the account; a password or admin role change ends its sessions; removing `is_teacher` closes the teacher's active courses |

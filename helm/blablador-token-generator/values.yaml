@@ -279,7 +279,11 @@ config:
   blablador:
     api_url: https://ptj.blablador.fz-juelich.de
     models: []
-workers: 2
+# Uvicorn workers per pod. One worker runs in a single process (about
+# 120 MiB); each further one adds as much again plus a supervisor, and only
+# helps when the pod has more than one CPU (resources.limits.cpu). Scale
+# with replicaCount instead.
+workers: 1
 configExistingSecret: ''
 secretRevision: ''
 allowForwardedCidrs: false

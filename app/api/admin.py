@@ -19,7 +19,8 @@ from app.auth import (
 )
 from app.api.applications import delete_application_and_tokens
 from app.courses import (
-    SUSPENDED_BY_ADMIN, TEACHER_DELETED, TEACHER_ROLE_REMOVED, close_course, close_courses_of, is_active,
+    SUSPENDED_BY_ADMIN, TEACHER_DELETED, TEACHER_ROLE_REMOVED, close_course, close_courses_of, delete_course,
+    is_active,
 )
 from app.memberships import notify_orphaned, orphan_applications_left_by, orphaned_query
 from app.rate_limit import limiter, RATE_LIMITS, user_or_ip
@@ -766,3 +767,31 @@ async def list_applications(
         )
         for a in applications
     ]
+
+
+@router.delete("/courses/{course_id}")
+@limiter.limit(ADMIN_RATE_LIMIT, key_func=user_or_ip)
+async def delete_course_admin(
+    request: Request,
+    course_id: ResourceId,
+    admin: User = Depends(get_current_admin),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Delete any course with its tokens, students and invitations."""
+    admin = await lock_admin_actor(db, admin.id, request)
+    course = (await db.execute(
+        select(Course).where(Course.id == course_id).with_for_update()
+    )).scalar_one_or_none()
+    if course is None:
+        raise HTTPException(status_code=404, detail="Course not found")
+    was_active = is_active(course)
+    teacher_id = course.teacher_id
+    deleted = await delete_course(db, course)
+    try:
+        await db.commit()
+    except Exception:
+        await db.rollback()
+        raise HTTPException(status_code=500, detail="Failed to delete course")
+    logger.info("admin=%s action=delete_course course_id=%s teacher=%s was_active=%s tokens_deleted=%d",
+                admin.id, course_id, teacher_id or "none", was_active, deleted)
+    return {"message": "Course deleted", "tokens_deleted": deleted}

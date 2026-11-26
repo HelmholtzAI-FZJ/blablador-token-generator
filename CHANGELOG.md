@@ -41,6 +41,9 @@ All notable changes to this project are documented here. The format follows
   owners, member count and tokens, searchable by name or member email
   (`GET /api/admin/applications`). Orphaned ones come first, with the take
   over and delete actions.
+- Courses can be deleted, with their tokens, students and invitations: by
+  their teacher once closed or ended, and by administrators at any time.
+  Deletions are audit-logged.
 - Administrators can search users by part of their email, name or OAuth
   subject (search box on the Users tab; `q` on `GET /api/admin/users`).
 - Configuration: `courses.*`, `rate_limits.course_join` and
@@ -49,6 +52,10 @@ All notable changes to this project are documented here. The format follows
 
 ### Changed
 
+- The chart runs one Uvicorn worker per pod (`workers: 1`, was 2). With the
+  default half-CPU limit a second worker added no throughput but about
+  120 MiB plus a supervisor process, leaving pods at 216 of 256 MiB; one
+  worker uses about half of that. Scale with `replicaCount`.
 - Course tokens do not count towards `tokens.max_tokens_per_user`, cannot be
   renewed or rotated, and get no expiry reminders.
 - Migration 0006 adds `users.is_teacher`, the `courses`, `course_seats` and `course_invitations`

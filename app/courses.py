@@ -160,3 +160,16 @@ async def deliver_invitation(invitation_id: str, email: str, subject: str, text:
         )
         await db.commit()
     logger.warning("action=course_invitation_undelivered invitation_id=%s", invitation_id)
+
+
+async def delete_course(db: AsyncSession, course: Course) -> int:
+    """Delete a course with its tokens, seats and invitations; the caller
+    commits. Returns the number of tokens deleted."""
+    from app.models import CourseSeat
+
+    # Explicit, so SQLite without foreign key enforcement agrees.
+    result = await db.execute(delete(Token).where(Token.course_id == course.id))
+    await db.execute(delete(CourseInvitation).where(CourseInvitation.course_id == course.id))
+    await db.execute(delete(CourseSeat).where(CourseSeat.course_id == course.id))
+    await db.delete(course)
+    return result.rowcount

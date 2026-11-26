@@ -83,6 +83,9 @@ If an administrator made you a teacher, the dashboard has a **Courses** card.
    A revoked student's seat stays used.
 5. **Revoke all and close** ends the course at once: every token stops working
    and the link is disabled.
+6. **Delete** (once a course is closed or has ended) removes it with its
+   students' tokens and invitations. Otherwise it is kept, and its tokens and
+   invited addresses are removed `retention_days` after it ends.
 
 Once all seats are claimed the link stops working, so a leaked link can be
 used at most as many times as there are seats.

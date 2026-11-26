@@ -14,7 +14,7 @@ from app.api.applications import email_address
 from app.api.tokens import TOKEN_READ_LIMIT, TOKEN_WRITE_LIMIT, lock_token_owner
 from app.config import get_config
 from app.courses import (
-    SUSPENDED_BY_TEACHER, active_course_count, close_course, deliver_invitation, invitation_message,
+    SUSPENDED_BY_TEACHER, active_course_count, close_course, delete_course, deliver_invitation, invitation_message,
     invitation_text, invite_code_hash, is_active, is_join_code, join_code_hash, new_invite_code, new_join_code,
     open_invitation_count, open_invitations,
 )
@@ -276,6 +276,27 @@ async def close_course_endpoint(
     logger.info("user=%s action=close_course course_id=%s reason=%s tokens_revoked=%d",
                 user.id, course.id, SUSPENDED_BY_TEACHER, revoked)
     return {"message": "Course closed and all its tokens revoked", "tokens_revoked": revoked}
+
+
+@router.delete("/{course_id}", dependencies=[Depends(require_courses_enabled)])
+@limiter.limit(TOKEN_WRITE_LIMIT, key_func=user_or_ip)
+async def delete_course_endpoint(
+    request: Request,
+    course_id: ResourceId,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Delete a closed or ended course with its tokens, students and
+    invitations. A running course must be closed first, so deleting is
+    never the way its tokens stop working by surprise."""
+    user = await lock_token_owner(request, user, db)
+    course = await teacher_course(course_id, user, db, lock=True)
+    if is_active(course):
+        raise HTTPException(status_code=400, detail="Close the course before deleting it")
+    deleted = await delete_course(db, course)
+    await commit(db, "Failed to delete course")
+    logger.info("user=%s action=delete_course course_id=%s tokens_deleted=%d", user.id, course_id, deleted)
+    return {"message": "Course deleted", "tokens_deleted": deleted}
 
 
 @router.post("/{course_id}/seats/{seat_id}/revoke", dependencies=[Depends(require_courses_enabled)])

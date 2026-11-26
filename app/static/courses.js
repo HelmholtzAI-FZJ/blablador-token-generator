@@ -42,7 +42,8 @@ async function loadCourses() {
                     <button class="btn btn-small" data-action="open-invite" data-id="${escapeHtml(course.id)}" data-name="${escapeHtml(course.name)}">Invite by email</button>` : ''}
                     ${course.active ? `
                     <button class="btn btn-small" data-action="new-course-link" data-id="${escapeHtml(course.id)}">New join link</button>
-                    <button class="btn btn-small btn-danger" data-action="close-course" data-id="${escapeHtml(course.id)}" data-name="${escapeHtml(course.name)}">Revoke all and close</button>` : ''}
+                    <button class="btn btn-small btn-danger" data-action="close-course" data-id="${escapeHtml(course.id)}" data-name="${escapeHtml(course.name)}">Revoke all and close</button>` : `
+                    <button class="btn btn-small btn-danger" data-action="delete-course" data-id="${escapeHtml(course.id)}" data-name="${escapeHtml(course.name)}">Delete</button>`}
                 </td>
             </tr>
             <tr class="members-row" id="seats-${escapeHtml(course.id)}" hidden><td colspan="5"><div class="members-panel"></div></td></tr>
@@ -200,6 +201,14 @@ registerActions({
         if (!confirm(`Revoke every token of "${el.dataset.name}" and close it? This cannot be undone.`)) return;
         const response = await fetch(`/courses/${encodeURIComponent(el.dataset.id)}/close`, {
             method: 'POST', headers: csrfHeaders(),
+        });
+        if (!response.ok) alert(`Failed: ${await errorMessage(response)}`);
+        loadCourses();
+    },
+    'delete-course': async (el) => {
+        if (!confirm(`Delete "${el.dataset.name}" with its students' tokens and invitations? This cannot be undone.`)) return;
+        const response = await fetch(`/courses/${encodeURIComponent(el.dataset.id)}`, {
+            method: 'DELETE', headers: csrfHeaders(),
         });
         if (!response.ok) alert(`Failed: ${await errorMessage(response)}`);
         loadCourses();

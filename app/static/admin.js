@@ -361,11 +361,22 @@ async function loadCourses(page = 1) {
                 <td>${course.suspended_at ? `Closed: ${escapeHtml(course.suspended_reason || '')}` : (course.active ? 'Active' : 'Ended')}</td>
                 <td>${course.active
                     ? `<button class="btn btn-small btn-danger" data-action="suspend-course" data-id="${escapeHtml(course.id)}" data-name="${escapeHtml(course.name)}">Suspend</button>`
-                    : ''}</td>
+                    : ''}
+                    <button class="btn btn-small btn-danger" data-action="delete-course" data-id="${escapeHtml(course.id)}" data-name="${escapeHtml(course.name)}" data-active="${course.active}">Delete</button></td>
             </tr>`).join('');
     } catch (e) {
         tbody.innerHTML = '<tr><td colspan="6" class="empty">Failed to load courses</td></tr>';
     }
+}
+
+async function deleteCourse(courseId, name, active) {
+    const warning = active ? ' It is still running: its students\' tokens stop working at once.' : '';
+    if (!confirm(`Delete "${name}" with its tokens, students and invitations?${warning} This cannot be undone.`)) return;
+    const response = await fetch(`/api/admin/courses/${encodeURIComponent(courseId)}`, {
+        method: 'DELETE', headers: csrfHeaders(),
+    });
+    if (!response.ok) alert(`Failed to delete course: ${await errorMessage(response)}`);
+    loadCourses(coursesPage);
 }
 
 async function suspendCourse(courseId, name) {
@@ -428,6 +439,7 @@ registerActions({
     },
     'toggle-teacher': (el) => toggleTeacher(el.dataset.id, el.dataset.account, el.dataset.teacher === 'true'),
     'suspend-course': (el) => suspendCourse(el.dataset.id, el.dataset.name),
+    'delete-course': (el) => deleteCourse(el.dataset.id, el.dataset.name, el.dataset.active === 'true'),
     'courses-previous': () => loadCourses(Math.max(1, coursesPage - 1)),
     'courses-next': () => loadCourses(coursesPage + 1),
     'take-over-application': (el) => takeOverApplication(el.dataset.id, el.dataset.name),
