@@ -66,7 +66,11 @@ All notable changes to this project are documented here. The format follows
   in with JSC and the same verified address moves their seats and tokens to
   the real account and removes the course user. An existing password account
   with the address receives the token directly. Migration 0008 adds
-  `users.is_course_user`.
+  `users.is_course_user`; migration 0009 gives tokens of invitations used
+  before that a course user and a seat.
+- The admin Courses tab's **Students** panel lists everyone with a seat,
+  whether they joined through the shared link or an invitation, and the
+  invitations; teachers' Students panel shows how each student joined.
 - Administrators can search users by part of their email, name or OAuth
   subject (search box on the Users tab; `q` on `GET /api/admin/users`).
 - Configuration: `courses.*`, `rate_limits.course_join` and

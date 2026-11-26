@@ -199,7 +199,7 @@ may join one with its link.
 | `POST /courses` | `{"name", "starts_on", "ends_on", "max_seats", "accept_terms": true}` | Teachers only. Creates a course (dates are `YYYY-MM-DD`, inclusive, UTC) and returns it with its `join_url`, shown only here |
 | `GET /courses` | | Your courses: `id`, `name`, `starts_at`, `ends_at`, `max_seats`, `seats_claimed`, `active`, `suspended_at`, `suspended_reason` |
 | `GET /courses/{id}` | | One of your courses |
-| `GET /courses/{id}/seats` | | Students who joined, with `token_status` (`active`, `revoked`, `expired`, `deleted`), `last_used_at` and `use_count` |
+| `GET /courses/{id}/seats` | | Everyone with a seat, with `token_status` (`active`, `revoked`, `expired`, `deleted`), `last_used_at`, `use_count`, `course_user` and `joined_via` (`link` or `invitation`) |
 | `POST /courses/{id}/join-link` | | Replaces the join link; claimed seats stay claimed |
 | `POST /courses/{id}/close` | | Revokes every token of the course and disables its link, for good |
 | `DELETE /courses/{id}` | | Deletes a closed or ended course with its tokens, students and invitations; `400` while it runs |
@@ -230,6 +230,7 @@ Administrator session plus `X-CSRF-Token`, as above. Lists are paged with
 | `DELETE /api/admin/tokens/revoked` | | Deletes all revoked tokens |
 | `GET /api/admin/courses` | | All courses with teacher, dates, seats, state and the terms version the teacher accepted |
 | `POST /api/admin/courses/{id}/suspend` | | Revokes every token of a course and disables its link |
+| `GET /api/admin/courses/{id}/seats` | | Everyone with a seat in a course, as teachers see it |
 | `GET /api/admin/courses/{id}/invitations` | | A course's invitations as teachers see them, plus `link` for unused ones when `courses.admin_can_view_invitation_links` is on (testing) |
 | `DELETE /api/admin/courses/{id}` | | Deletes any course, running or not, with its tokens, students and invitations |
 | `GET /api/admin/users` | | Optional `q` matches part of the email, name or OAuth subject, ignoring case. Accounts: `id`, `email`, `name`, `is_admin`, `is_teacher`, `is_course_user` (created by a course invitation; cannot sign in, and cannot be given a password, admin or teacher role), `created_at`, `unity_id` (OAuth subject), `has_password` |

@@ -82,6 +82,10 @@ class SeatResponse(BaseModel):
     token_status: str
     last_used_at: str | None = None
     use_count: int = 0
+    # Known only by a mailed invitation's address, without an account.
+    course_user: bool = False
+    # "invitation" (mailed link) or "link" (shared link, signed in).
+    joined_via: str = "link"
 
 
 class JoinedCourseResponse(BaseModel):
@@ -211,9 +215,15 @@ async def course_seats(db: AsyncSession, course: Course) -> list[SeatResponse]:
     )).scalars().all()
     tokens = {
         token.user_id: token for token in (await db.execute(
-            select(Token).where(Token.course_id == course.id)
+            # The newest token wins, after a reissue too.
+            select(Token).where(Token.course_id == course.id).order_by(Token.created_at)
         )).scalars().all()
     }
+    invited = set((await db.execute(
+        select(CourseInvitation.claimed_by_id).where(
+            CourseInvitation.course_id == course.id, CourseInvitation.claimed_by_id.isnot(None)
+        )
+    )).scalars())
     now = utcnow()
     result = []
     for seat in seats:
@@ -224,6 +234,8 @@ async def course_seats(db: AsyncSession, course: Course) -> list[SeatResponse]:
             token_status=seat_status(token, now),
             last_used_at=isoformat_utc(token.last_used_at) if token else None,
             use_count=token.use_count if token else 0,
+            course_user=bool(seat.user.is_course_user),
+            joined_via="invitation" if seat.user_id in invited else "link",
         ))
     return result
 

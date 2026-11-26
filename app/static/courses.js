@@ -91,11 +91,12 @@ async function loadSeats(courseId) {
     const seats = await response.json();
     const invitations = await invitationsResponse.json();
     panel.innerHTML = (seats.length === 0 ? '<p class="muted">Nobody has joined yet.</p>' : `
-        <table><thead><tr><th>Student</th><th>Joined</th><th>Token</th><th>Last used</th><th>Uses</th><th></th></tr></thead><tbody>
+        <table><thead><tr><th>Student</th><th>Joined</th><th>Via</th><th>Token</th><th>Last used</th><th>Uses</th><th></th></tr></thead><tbody>
         ${seats.map(seat => `
             <tr>
-                <td>${escapeHtml(seat.student_name)} &lt;${escapeHtml(seat.student_email)}&gt;</td>
+                <td>${escapeHtml(seat.student_name)} &lt;${escapeHtml(seat.student_email)}&gt;${seat.course_user ? ' <span class="muted">(no account)</span>' : ''}</td>
                 <td>${courseDateTime(seat.claimed_at)}</td>
+                <td>${seat.joined_via === 'invitation' ? 'invitation' : 'shared link'}</td>
                 <td>${escapeHtml(seat.token_status)}</td>
                 <td>${courseDateTime(seat.last_used_at)}</td>
                 <td>${seat.use_count}</td>

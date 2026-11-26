@@ -1343,3 +1343,45 @@ def test_curl_url_parts_are_safe_to_paste(field, value):
 def test_curl_url_joins_cleanly():
     assert Config(blablador={"api_url": "https://api.example/", "test_path": "/v1/models"}).blablador.test_url \
         == "https://api.example/v1/models"
+
+
+# Who is in a course
+
+
+def test_seats_show_both_ways_in(client, teacher, course, mailbox):
+    linked, _ = join(client, course)
+    address = unique_address()
+    mailed_token(client, teacher, course, mailbox, address)
+    seats = {seat["student_email"]: seat for seat in teacher.get(f"/courses/{course['id']}/seats").json()}
+    assert len(seats) == 2
+    mailed = seats[address]
+    assert mailed["joined_via"] == "invitation" and mailed["course_user"] is True
+    assert mailed["token_status"] == "active"
+    shared = next(seat for email, seat in seats.items() if email != address)
+    assert shared["joined_via"] == "link" and shared["course_user"] is False
+
+    admin = Session(client, admin=True)
+    assert admin.get(f"/api/admin/courses/{course['id']}/seats").json() == \
+        teacher.get(f"/courses/{course['id']}/seats").json()
+    assert admin.get(f"/api/admin/courses/{uuid.uuid4()}/seats").status_code == 404
+    assert teacher.get(f"/api/admin/courses/{course['id']}/seats").status_code == 403
+
+
+def test_seat_shows_the_newest_token_after_reissue(client, teacher, course, mailbox):
+    address = unique_address()
+    invitation, _ = mailed_token(client, teacher, course, mailbox, address)
+    teacher.post(f"/courses/{course['id']}/invitations/{invitation['id']}/reissue",
+                 json={"subject": "x", "body": "y"})
+    drain(client)
+    claim_signed_out(client, code_of(link_in(mailbox[-1])))
+    seat = next(s for s in teacher.get(f"/courses/{course['id']}/seats").json() if s["student_email"] == address)
+    assert seat["token_status"] == "active"
+
+
+@pytest.mark.skipif(not __import__("shutil").which("node"), reason="needs node")
+def test_page_scripts_parse():
+    import subprocess
+    from pathlib import Path
+    for script in sorted((Path(__file__).resolve().parents[1] / "app/static").glob("*.js")):
+        subprocess.run(["node", "-e", "new Function(require('fs').readFileSync(process.argv[1], 'utf8'))",
+                        str(script)], check=True)

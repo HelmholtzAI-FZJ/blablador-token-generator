@@ -361,7 +361,7 @@ async function loadCourses(page = 1) {
                 <td>${toLocalDate(course.starts_at)} – ${toLocalDateTime(course.ends_at)}</td>
                 <td>${course.seats_claimed} / ${course.max_seats}</td>
                 <td>${course.suspended_at ? `Closed: ${escapeHtml(course.suspended_reason || '')}` : (course.active ? 'Active' : 'Ended')}</td>
-                <td><button class="btn btn-small" data-action="course-invitations" data-id="${escapeHtml(course.id)}">Invitations</button>
+                <td><button class="btn btn-small" data-action="course-invitations" data-id="${escapeHtml(course.id)}">Students</button>
                     ${course.active
                     ? `<button class="btn btn-small btn-danger" data-action="suspend-course" data-id="${escapeHtml(course.id)}" data-name="${escapeHtml(course.name)}">Suspend</button>`
                     : ''}
@@ -388,13 +388,31 @@ async function toggleCourseInvitations(courseId) {
     row.hidden = !row.hidden;
     if (row.hidden) return;
     const cell = row.querySelector('td');
-    const response = await fetch(`/api/admin/courses/${encodeURIComponent(courseId)}/invitations`);
-    if (!response.ok) {
-        cell.textContent = `Failed to load invitations: ${await errorMessage(response)}`;
+    const [seatsResponse, response] = await Promise.all([
+        fetch(`/api/admin/courses/${encodeURIComponent(courseId)}/seats`),
+        fetch(`/api/admin/courses/${encodeURIComponent(courseId)}/invitations`),
+    ]);
+    if (!response.ok || !seatsResponse.ok) {
+        cell.textContent = `Failed to load students: ${await errorMessage(response.ok ? seatsResponse : response)}`;
         return;
     }
+    const seats = await seatsResponse.json();
     const invitations = await response.json();
-    cell.innerHTML = invitations.length === 0 ? '<span class="muted">No invitations.</span>' : `
+    const students = seats.length === 0 ? '<p class="muted">Nobody has joined yet.</p>' : `
+        <h4>Students</h4>
+        <table><thead><tr><th>Student</th><th>Joined</th><th>Via</th><th>Token</th><th>Last used</th><th>Uses</th></tr></thead><tbody>
+        ${seats.map(seat => `
+            <tr>
+                <td>${escapeHtml(seat.student_name)} &lt;${escapeHtml(seat.student_email)}&gt;
+                    ${seat.course_user ? '<span class="badge badge-course">Course</span>' : ''}</td>
+                <td>${toLocalDateTime(seat.claimed_at)}</td>
+                <td>${seat.joined_via === 'invitation' ? 'invitation' : 'shared link'}</td>
+                <td>${escapeHtml(seat.token_status)}</td>
+                <td>${seat.last_used_at ? toLocalDateTime(seat.last_used_at) : 'Never'}</td>
+                <td>${seat.use_count}</td>
+            </tr>`).join('')}
+        </tbody></table>`;
+    cell.innerHTML = students + (invitations.length === 0 ? '' : '<h4>Invitations</h4>') + (invitations.length === 0 ? '' : `
         <table><thead><tr><th>Address</th><th>State</th><th>Token</th><th>Uses</th><th>Link (testing)</th></tr></thead><tbody>
         ${invitations.map(invitation => `
             <tr>
@@ -404,7 +422,7 @@ async function toggleCourseInvitations(courseId) {
                 <td>${invitation.use_count}</td>
                 <td>${invitation.link ? `<a href="${escapeHtml(invitation.link)}" target="_blank" rel="noopener noreferrer">${escapeHtml(invitation.link)}</a>` : ''}</td>
             </tr>`).join('')}
-        </tbody></table>`;
+        </tbody></table>`);
 }
 
 async function suspendCourse(courseId, name) {

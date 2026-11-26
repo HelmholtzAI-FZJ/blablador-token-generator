@@ -846,3 +846,22 @@ async def list_course_invitations(
                 admin.id, course.id, len(links))
     return [AdminInvitationResponse(**entry.model_dump(exclude={"claimed_at"}), link=links.get(entry.id))
             for entry in listing]
+
+
+
+@router.get("/courses/{course_id}/seats")
+@limiter.limit(ADMIN_RATE_LIMIT, key_func=user_or_ip)
+async def list_course_seats(
+    request: Request,
+    course_id: ResourceId,
+    admin: User = Depends(get_current_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    """Everyone with a seat in a course, however they joined."""
+    from app.api.courses import course_seats
+
+    course = (await db.execute(select(Course).where(Course.id == course_id))).scalar_one_or_none()
+    if course is None:
+        raise HTTPException(status_code=404, detail="Course not found")
+    logger.info("admin=%s action=list_course_seats course_id=%s", admin.id, course.id)
+    return await course_seats(db, course)
