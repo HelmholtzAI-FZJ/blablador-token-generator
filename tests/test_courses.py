@@ -194,12 +194,12 @@ def test_only_teachers_create_courses(client):
 @pytest.mark.parametrize("changes, detail", [
     ({"accept_terms": False}, "Accept the course terms"),
     ({"max_seats": 61}, "at most 60 seats"),
-    ({"ends_on": (date.today() + timedelta(days=21)).isoformat()}, "at most 21 days"),
-    ({"ends_on": (date.today() - timedelta(days=1)).isoformat()}, "end on or after"),
-    ({"starts_on": (date.today() - timedelta(days=5)).isoformat(),
-      "ends_on": (date.today() - timedelta(days=2)).isoformat()}, "end in the future"),
-    ({"starts_on": (date.today() + timedelta(days=181)).isoformat(),
-      "ends_on": (date.today() + timedelta(days=182)).isoformat()}, "at most 180 days from today"),
+    ({"ends_on": (utcnow().date() + timedelta(days=21)).isoformat()}, "at most 21 days"),
+    ({"ends_on": (utcnow().date() - timedelta(days=1)).isoformat()}, "end on or after"),
+    ({"starts_on": (utcnow().date() - timedelta(days=5)).isoformat(),
+      "ends_on": (utcnow().date() - timedelta(days=2)).isoformat()}, "end in the future"),
+    ({"starts_on": (utcnow().date() + timedelta(days=181)).isoformat(),
+      "ends_on": (utcnow().date() + timedelta(days=182)).isoformat()}, "at most 180 days from today"),
 ])
 def test_course_limits(teacher, changes, detail):
     response = teacher.post("/courses", json=course_body(**changes))
@@ -1544,3 +1544,22 @@ def test_test_box_is_gray_not_the_token_warning():
     for page in ("dashboard.html", "course_join.html"):
         css = (templates / page).read_text().split(".token-test {", 1)[1].split("}", 1)[0]
         assert "#f4f5f7" in css and "#fff3cd" not in css
+
+
+
+def test_copy_warning_outranks_the_test_box():
+    from pathlib import Path
+    templates = Path(__file__).resolve().parents[1] / "app/templates"
+    for page in ("dashboard.html", "course_join.html"):
+        html = (templates / page).read_text()
+        alert = html.index('class="token-alert" role="alert"')
+        assert alert < html.index('{% include "_token_test.html" %}')
+        assert "Copy your token now</strong>" in html and "shown only this once" in html
+        css = html.split(".token-alert {", 1)[1].split("}", 1)[0]
+        assert "border-left: 10px" in css and "box-shadow" in css
+        assert "font-size: 1.4rem" in html.split(".token-alert-title {", 1)[1].split("}", 1)[0]
+        quiet = html.split(".token-test {", 1)[1].split("}", 1)[0]
+        assert "font-size: 0.875rem" in quiet and "#f4f5f7" in quiet
+    static = Path(__file__).resolve().parents[1] / "app/static"
+    assert ".token-alert').scrollIntoView" in (static / "course_join.js").read_text()
+    assert (static / "dashboard.js").read_text().count(".token-alert').scrollIntoView") == 2

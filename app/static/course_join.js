@@ -17,6 +17,7 @@ registerActions({
             document.getElementById('courseTokenCurl').textContent = curlTest(result.token);
             document.getElementById('joinArea').hidden = true;
             document.getElementById('joinResult').hidden = false;
+            document.querySelector('#joinResult .token-alert').scrollIntoView({behavior: 'smooth', block: 'center'});
         } catch (e) {
             error.textContent = e.message;
             el.disabled = false;

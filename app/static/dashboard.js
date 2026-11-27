@@ -289,6 +289,7 @@ document.getElementById('createTokenForm').addEventListener('submit', async (e) 
         document.getElementById('tokenHidden').style.display = 'inline-block';
         document.getElementById('viewBtn').textContent = 'View';
         document.getElementById('newTokenDisplay').style.display = 'block';
+        document.querySelector('#newTokenDisplay .token-alert').scrollIntoView({behavior: 'smooth', block: 'center'});
         e.target.reset();
         
         // Add new token to the table
@@ -741,6 +742,7 @@ async function rotateToken(tokenId) {
         document.getElementById('tokenHidden').style.display = 'inline-block';
         document.getElementById('viewBtn').textContent = 'View';
         document.getElementById('newTokenDisplay').style.display = 'block';
+        document.querySelector('#newTokenDisplay .token-alert').scrollIntoView({behavior: 'smooth', block: 'center'});
         document.getElementById('newTokenDisplay').scrollIntoView({block: 'center'});
     } catch (error) {
         alert('Failed to rotate token: ' + error.message);

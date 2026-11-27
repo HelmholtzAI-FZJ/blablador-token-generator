@@ -89,7 +89,22 @@
             margin-bottom: 1rem;
         }
         .token-warning strong { color: #856404; }
+        .token-alert {
+            background: #fff3cd;
+            border: 2px solid #e67e22;
+            border-left: 10px solid #d35400;
+            border-radius: 6px;
+            box-shadow: 0 4px 14px rgba(211, 84, 0, 0.25);
+            padding: 1.25rem 1.5rem;
+            margin: 1rem 0 1.25rem;
+        }
+        .token-alert-title { display: block; font-size: 1.4rem; font-weight: 700; color: #a04000; line-height: 1.3; }
+        .token-alert-note { margin: 0.25rem 0 0.75rem; color: #6e3b00; font-weight: 600; }
+        .token-alert .token-value { font-size: 1rem; background: #fff; border: 1px solid #e0c48c; padding: 0.5rem 0.75rem; }
+        .token-alert .btn-copy { font-size: 1rem; padding: 0.5rem 1rem; }
         .token-test {
+            font-size: 0.875rem;
+            color: #555;
             background: #f4f5f7;
             border: 1px solid #d5d8dc;
             padding: 1rem;
@@ -168,9 +183,9 @@
             <h2>Your Tokens</h2>
             <button class="btn btn-danger" data-action="revoke-all">Revoke All Tokens and Sessions</button>
             <div id="newTokenDisplay" style="display: none;">
-                <div class="token-warning">
-                    <strong>Warning:</strong> Copy your token now. You won't be able to see it again!
-                    <br><br>
+                <div class="token-alert" role="alert">
+                    <strong class="token-alert-title">&#9888; Copy your token now</strong>
+                    <p class="token-alert-note">It is shown only this once. Store it somewhere safe before leaving this page.</p>
                     <span id="tokenContainer">
                         <code class="token-value" id="newTokenValue" style="display: none;"></code>
                         <span id="tokenHidden" style="display: inline-block; padding: 0.25rem 0.5rem; background: #f8f9fa; border-radius: 4px; margin-right: 0.5rem;">••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••</span>
