@@ -108,10 +108,42 @@ rate_limits:
   session: "30/minute"
   account_delete: "5/minute"
   admin: "120/minute"
+  # Joining a course through its link, per signed-in user.
+  course_join: "10/minute"
+  # Sending or resending course invitations, per teacher.
+  course_invite: "10/minute"
   # POST /api/v1/auth/validate, per client IP. List the API gateway's
   # addresses or CIDRs in token_validation_exempt so its traffic is never limited.
   token_validation: "600/minute"
   token_validation_exempt: []
+
+courses:
+  # Teachers (granted by an admin) share a join link; each student who signs
+  # in and opens it gets one token, valid for the course's dates only.
+  enabled: false
+  max_days: 21
+  max_seats: 60
+  max_active_per_teacher: 1
+  max_days_ahead: 180
+  join_code_bytes: 24
+  # Days after a course ends before purge-course-tokens deletes its tokens.
+  retention_days: 30
+  # Mailed invitations (need smtp.enabled). Teachers start from this text and
+  # may edit it; the link, the dates and a footer naming the teacher are added.
+  # invitation_subject: "..."
+  # invitation_body: "..."
+  # Appended to every invitation; teachers cannot change it. Placeholders:
+  # {course} {start} {end} {link} {app_name} {teacher_name} {teacher_email};
+  # {link} is required.
+  # invitation_footer: "..."
+  invitation_max_body_chars: 4000
+  # For testing only: let administrators see unused invitation links.
+  admin_can_view_invitation_links: false
+  # Sends per invitation, the first included.
+  max_invitation_sends: 3   # 0: no limit (testing)
+  # Bump terms_version when terms_text changes; courses record the version accepted.
+  terms_version: "1"
+  # terms_text: "..."
 
 admin:
   # OAuth subject IDs granted admin ONLY at first account creation. Preferred: the

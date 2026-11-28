@@ -6,6 +6,113 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [1.4.0] - 2026-11-26
+
+### Added
+
+- Courses, for teachers handing out short-lived tokens to a class. An
+  administrator marks an account as a teacher; the teacher creates a course
+  with a date range (at most 21 days) and a number of seats (at most 60),
+  accepts the course terms and gets a join link. Each student signs in, opens
+  the link and gets one token, `blablador-course-<hex>`, valid from the first
+  day until the end of the last day (UTC). A link opened before signing in is
+  resumed after sign-in. Claimed seats are never given back, so the link
+  stops working once the course is full. A teacher runs one course at a time.
+- Validation reports course tokens as `token_type: "course"` with a `course`
+  object (`id`, `name`, `starts_at`, `ends_at`), and refuses them before the
+  course starts, after it ends and once it is closed. Every use of a course
+  token is counted (`use_count`) so teachers can spot shared tokens.
+- Teachers see who joined, each token's last use and use count, and can revoke
+  one student's token, replace the join link, or revoke everything and close
+  the course. Administrators list and suspend courses. Removing the teacher
+  role or deleting the teacher's account closes their active course.
+- Teachers can have the service mail invitations (with `smtp.enabled`): one
+  single-use link per address that shows the student their token once,
+  without an account or sign-in, each holding a seat until claimed or
+  cancelled. The token is recorded against the address (validation reports
+  it as `email` and `course.student_email`, with `course.student_id` for
+  per-student limits) and moves to the student's account when they sign in
+  with that address verified by JSC. Teachers see usage per address, never
+  tokens; they can revoke one student's token or reissue a lost one without
+  using another seat. `courses.admin_can_view_invitation_links` (testing)
+  lets administrators open unused links. Invitations are from an editable template (`courses.invitation_subject`,
+  `courses.invitation_body`). The link, the dates and a footer naming the
+  teacher (`courses.invitation_footer`, which teachers cannot change) are
+  always added; replies go to the teacher. Invitations can be
+  resent (`courses.max_invitation_sends`) or cancelled, and failed deliveries
+  are shown. Links are not tied to the address.
+- `python -m app.manage purge-course-tokens` and the chart's `coursePurge`
+  CronJob delete the tokens of courses that ended more than
+  `courses.retention_days` ago.
+- The dashboard is split into tabs: Tokens, My courses (teachers) and
+  Applications. The active tab is kept in the address, so reloading after an
+  action stays on it.
+- The admin panel has an Applications tab listing every application with its
+  owners, member count and tokens, searchable by name or member email
+  (`GET /api/admin/applications`). Orphaned ones come first, with the take
+  over and delete actions.
+- Courses can be deleted, with their tokens, students and invitations: by
+  their teacher once closed or ended, and by administrators at any time.
+  Deletions are audit-logged.
+- Pages that show a new token (the dashboard and the course token page) have
+  copy buttons next to the token and a ready-to-paste `curl` command that
+  tries it: against this service's `/api/v1/user` (which checks the token and
+  names its owner) unless `blablador.test_url` names another endpoint. On the dashboard the command follows the View/Hide
+  state; Copy always copies the real one.
+- Using a mailed invitation creates (or reuses) a **course user** for the
+  address, which owns the token and appears on the admin Users tab with a
+  Course badge. Course users cannot sign in and cannot be given a password,
+  admin or teacher role; validation marks them (`user.course_user`). Signing
+  in with JSC and the same verified address moves their seats and tokens to
+  the real account and removes the course user. An existing password account
+  with the address receives the token directly. Migration 0008 adds
+  `users.is_course_user`; migration 0009 gives tokens of invitations used
+  before that a course user and a seat.
+- The admin Courses tab's **Students** panel lists everyone with a seat,
+  whether they joined through the shared link or an invitation, and the
+  invitations; teachers' Students panel shows how each student joined.
+- Deleting a course user removes them from their courses; their invitations
+  then show "account deleted" and can be reissued. Course users leave no
+  deletion record, so the address can be invited again.
+- Rejected tokens get an RFC 6750 answer: `WWW-Authenticate: Bearer
+  error="invalid_token", error_description="…"` and a JSON body with
+  `valid: false`, `error`, a machine-readable `reason` (`malformed`,
+  `unknown_or_revoked`, `expired`, `course_closed`, …) and a readable
+  `error_description`. `detail` is kept. A malformed token's explanation now
+  names both token forms and the expected length.
+- Pages that show a new token have a "Test your token" box with the curl
+  command and what a working and a failing token answer look like.
+- `courses.max_invitation_sends: 0` removes the per-invitation send limit
+  (for testing); `rate_limits.course_invite` still limits sending.
+- Invitation subjects always name the course: `{course}` in the subject is
+  filled in, and a subject without the name gets it in front. The default
+  is `Blablador access for the course {course}`.
+- Teachers can add students to a running course (**Add students**, the
+  former "Invite by email") and change its seats (**Seats**,
+  `PATCH /courses/{id}`), up to `courses.max_seats` and never below the
+  seats in use.
+- `/api/v1/user` reports the token's `email` at the top level, as
+  `/api/v1/auth/validate` does.
+- Administrators can search users by part of their email, name or OAuth
+  subject (search box on the Users tab; `q` on `GET /api/admin/users`).
+- Configuration: `courses.*`, `rate_limits.course_join` and
+  `rate_limits.course_invite`. Courses are off
+  until `courses.enabled` is set.
+
+### Changed
+
+- The chart runs one Uvicorn worker per pod (`workers: 1`, was 2). With the
+  default half-CPU limit a second worker added no throughput but about
+  120 MiB plus a supervisor process, leaving pods at 216 of 256 MiB; one
+  worker uses about half of that. Scale with `replicaCount`.
+- Course tokens do not count towards `tokens.max_tokens_per_user`, cannot be
+  renewed or rotated, and get no expiry reminders.
+- Migration 0006 adds `users.is_teacher`, the `courses`, `course_seats` and `course_invitations`
+  tables, and `tokens.course_id` and `tokens.use_count`; migration 0007 lets
+  a token belong to an invitation and keeps test links
+  (`tokens.course_invitation_id`, `course_invitations.link`). It is safe during a
+  rolling upgrade: 1.3.x instances reject course tokens as malformed.
+
 ## [1.3.2] - 2026-11-25
 
 ### Fixed
@@ -249,6 +356,7 @@ hardening listed below, and the fixes of a follow-up security audit
     its own dumps; long release names no longer break the database pod.
   - Fuller audit trail, safer restore and upgrade procedures.
 
+[1.4.0]: https://github.com/HelmholtzAI-FZJ/blablador-token-generator/releases/tag/v1.4.0
 [1.2.1]: https://github.com/HelmholtzAI-FZJ/blablador-token-generator/releases/tag/v1.2.1
 [1.2.0]: https://github.com/HelmholtzAI-FZJ/blablador-token-generator/releases/tag/v1.2.0
 [1.1.0]: https://github.com/HelmholtzAI-FZJ/blablador-token-generator/releases/tag/v1.1.0

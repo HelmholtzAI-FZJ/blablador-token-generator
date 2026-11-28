@@ -10,6 +10,7 @@ from urllib.parse import urlencode
 import secrets as _secrets
 from secrets import compare_digest
 from fastapi import FastAPI, Request, Depends, HTTPException, Form, Query
+from fastapi import Path as FastAPIPath
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import RedirectResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
@@ -42,14 +43,17 @@ from app.auth import (
     hash_token, authenticate_local_user, new_pkce_verifier, pkce_challenge,
     decode_access_token, revoke_jwt,
 )
-from app.api import applications, tokens, validate, admin
+from app.api import applications, courses, tokens, validate, admin
+from app.courses import (
+    TEACHER_DELETED, claim_course_tokens, close_courses_of, is_join_code, open_invitation_count,
+)
 from app.api.tokens import manageable_by
 from app.rate_limit import limiter, RATE_LIMITS, run_storage, user_or_ip
 from app.logging_config import configure_logging
 from app.body_limit import BodySizeLimitMiddleware
 from app.timeutil import isoformat_utc
 from app.cookies import (
-    CSRF_COOKIE, OAUTH_STATE_COOKIE, OAUTH_VERIFIER_COOKIE, SESSION_COOKIE,
+    COURSE_JOIN_COOKIE, CSRF_COOKIE, OAUTH_STATE_COOKIE, OAUTH_VERIFIER_COOKIE, SESSION_COOKIE,
     delete_cookie, set_cookie,
 )
 
@@ -116,6 +120,8 @@ def error_page(request: Request, status_code: int, message: str,
 
 @app.exception_handler(StarletteHTTPException)
 async def http_exception_handler(request: Request, exc: StarletteHTTPException):
+    if isinstance(exc, validate.TokenRejected):
+        return JSONResponse(status_code=exc.status_code, content=exc.body(), headers=exc.headers)
     if exc.status_code == 302:
         if request.url.path.startswith(("/api/", "/tokens")) or request.method != "GET":
             return JSONResponse(status_code=401, content={"detail": "Authentication required"}, headers=exc.headers)
@@ -276,6 +282,14 @@ async def home(request: Request):
     })
 
 
+def after_sign_in(request: Request) -> str:
+    """The join page of a course link opened before signing in, else the dashboard."""
+    kind, _, code = (request.cookies.get(COURSE_JOIN_COOKIE) or "").rpartition("-")
+    if config.courses.enabled and kind == "join" and is_join_code(code):
+        return f"/courses/{kind}/{code}"
+    return "/dashboard"
+
+
 def oauth_enabled() -> bool:
     return bool(config.oauth.client_id)
 
@@ -334,8 +348,10 @@ async def openid_callback(request: Request, code: str | None = None, state: str 
         return oauth_failure(request, exc.status_code, message)
     _audit.info("user=%s action=login method=oauth", user.id)
     await claim_invitations(db, user)
+    await claim_course_tokens(db, user)
 
-    response = RedirectResponse(url="/dashboard", status_code=303)
+    response = RedirectResponse(url=after_sign_in(request), status_code=303)
+    delete_cookie(response, COURSE_JOIN_COOKIE)
     set_cookie(response, SESSION_COOKIE, create_session_token(user),
                max_age=config.app.jwt_expiration_hours * 3600)
     delete_cookie(response, OAUTH_STATE_COOKIE)
@@ -352,7 +368,7 @@ async def dashboard(
 ):
     result = await db.execute(
         select(Token)
-        .options(joinedload(Token.application))
+        .options(joinedload(Token.application), joinedload(Token.course))
         .where(manageable_by(user))
         .order_by(Token.created_at.desc())
     )
@@ -372,6 +388,9 @@ async def dashboard(
             "application_tokens": application_tokens,
             "token_default_expiration_days": config.tokens.default_expiration_days,
             "token_max_expiration_days": config.tokens.max_expiration_days,
+            "courses": config.courses,
+            "blablador_test_url": config.token_test_url,
+            "course_mail": config.courses.enabled and config.smtp.enabled,
             "login_name": config.login.name
         }
     )
@@ -494,6 +513,7 @@ async def delete_my_account(
     # 2. Write tombstone (blocks OAuth resurrection)
     record_deletion(db, user)
     orphaned = await orphan_applications_left_by(db, user)
+    await close_courses_of(db, user, TEACHER_DELETED)
 
     # 3. Delete the user row (tokens via ORM cascade, revoked_jwts via FK)
     await db.delete(user)
@@ -580,9 +600,74 @@ async def login_local(
         user.email_verified = True
         await db.commit()
     await claim_invitations(db, user)
-    response = RedirectResponse(url="/dashboard", status_code=303)
+    await claim_course_tokens(db, user)
+    response = RedirectResponse(url=after_sign_in(request), status_code=303)
+    delete_cookie(response, COURSE_JOIN_COOKIE)
     set_cookie(response, SESSION_COOKIE, create_session_token(user),
                max_age=config.app.jwt_expiration_hours * 3600)
+    return response
+
+
+COURSE_JOIN_COOKIE_SECONDS = 900
+
+
+@app.get("/courses/join/{code}", response_class=HTMLResponse)
+@limiter.limit(RATE_LIMITS.pages, key_func=user_or_ip)
+async def course_join_page(
+    request: Request,
+    code: str = FastAPIPath(..., max_length=128),
+    db: AsyncSession = Depends(get_db),
+):
+    """The course's shared link."""
+    return await course_page(request, "join", code, db)
+
+
+@app.get("/courses/invite/{code}", response_class=HTMLResponse)
+@limiter.limit(RATE_LIMITS.pages, key_func=user_or_ip)
+async def course_invitation_page(
+    request: Request,
+    code: str = FastAPIPath(..., max_length=128),
+    db: AsyncSession = Depends(get_db),
+):
+    """A student's personal, single-use invitation link."""
+    return await course_page(request, "invite", code, db)
+
+
+async def course_page(request: Request, kind: str, code: str, db: AsyncSession):
+    """Shows the course; the token is issued by a separate POST, so link
+    previews and prefetching never use up a link. The shared link needs a
+    signed-in account (signed-out visitors sign in first and come back);
+    a mailed invitation needs none."""
+    if not config.courses.enabled:
+        raise HTTPException(status_code=404, detail="Courses are not enabled")
+    user = None
+    if kind == "join":
+        try:
+            user = await get_current_user(request, db)
+        except HTTPException as exc:
+            if exc.status_code != 302:
+                raise
+            response = RedirectResponse(url="/", status_code=303)
+            if is_join_code(code):
+                set_cookie(response, COURSE_JOIN_COOKIE, f"{kind}-{code}", max_age=COURSE_JOIN_COOKIE_SECONDS)
+            return response
+    if kind == "invite":
+        _, course = await courses.invitation_for_code(db, code)
+        problem = courses.join_problem(course, -1 if course else 0)
+    else:
+        course = await courses.course_for_code(db, code)
+        reserved = await open_invitation_count(db, course.id) if course else 0
+        problem = courses.join_problem(course, reserved)
+    response = templates.TemplateResponse(request, "course_join.html", {
+        "app_name": config.app.name,
+        "user": user,
+        "course": course,
+        "problem": problem,
+        "join_path": f"/courses/{kind}/{code}" if problem is None else "",
+        "invited": kind == "invite",
+        "blablador_test_url": config.token_test_url,
+    }, status_code=200 if problem is None else (404 if course is None else 410))
+    delete_cookie(response, COURSE_JOIN_COOKIE)
     return response
 
 
@@ -593,6 +678,7 @@ app.include_router(tokens.router)
 app.include_router(validate.router)
 app.include_router(validate.user_router)
 app.include_router(applications.router)
+app.include_router(courses.router)
 app.include_router(admin.router)
 
 

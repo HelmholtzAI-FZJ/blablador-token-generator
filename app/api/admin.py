@@ -3,11 +3,11 @@ import unicodedata
 from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, Request, Query, Response
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import and_, delete, or_, select, update
+from sqlalchemy import and_, delete, func, or_, select, update
 from sqlalchemy.orm import joinedload, selectinload
 from pydantic import BaseModel, Field, StrictBool, field_validator
 from app.database import get_db, lock_user_for_update
-from app.models import Application, ApplicationMember, ROLE_OWNER, User, Token
+from app.models import Application, ApplicationMember, Course, CourseInvitation, ROLE_OWNER, User, Token
 from app.config import get_config
 from app.tombstones import (
     identity_reference, is_user_deleted, lift_deletions_for_email, lift_deletions_for_subject,
@@ -18,6 +18,10 @@ from app.auth import (
     validate_password_strength,
 )
 from app.api.applications import delete_application_and_tokens
+from app.courses import (
+    SUSPENDED_BY_ADMIN, TEACHER_DELETED, TEACHER_ROLE_REMOVED, close_course, close_courses_of, delete_course,
+    is_active,
+)
 from app.memberships import notify_orphaned, orphan_applications_left_by, orphaned_query
 from app.rate_limit import limiter, RATE_LIMITS, user_or_ip
 from app.cookies import SESSION_COOKIE
@@ -106,9 +110,21 @@ class UserResponse(BaseModel):
     email: str
     name: str
     is_admin: bool
+    is_teacher: bool = False
+    # Created by using a mailed course invitation; cannot sign in.
+    is_course_user: bool = False
     created_at: str
     unity_id: str | None = None
     has_password: bool = False
+
+    @classmethod
+    def of(cls, user: User) -> "UserResponse":
+        return cls(
+            id=user.id, email=user.email, name=user.name, is_admin=user.is_admin,
+            is_teacher=bool(user.is_teacher), is_course_user=bool(user.is_course_user),
+            created_at=isoformat_utc(user.created_at),
+            unity_id=user.unity_id, has_password=user.password_hash is not None,
+        )
 
 
 class CreateUserRequest(BaseModel):
@@ -133,6 +149,7 @@ class UpdateUserRequest(BaseModel):
     name: Annotated[str, Field(min_length=1, max_length=255), DisplayText] | None = None
     password: str | None = Field(None, min_length=8, max_length=128)
     is_admin: StrictBool | None = None
+    is_teacher: StrictBool | None = None
 
 
 class RestoreOAuthRequest(BaseModel):
@@ -271,12 +288,23 @@ async def list_users(
     response: Response,
     page: Annotated[int, Query(ge=1, le=MAX_PAGE)] = 1,
     page_size: Annotated[int, Query(ge=1, le=MAX_PAGE_SIZE)] = 20,
+    q: Annotated[str | None, Query(max_length=255)] = None,
     admin: User = Depends(get_current_admin),
     db: AsyncSession = Depends(get_db),
 ):
+    """Accounts, newest first; q matches part of the email, name or OAuth
+    subject, ignoring case."""
     offset = (page - 1) * page_size
+    query = select(User)
+    search = (q or "").strip().lower()
+    if search:
+        query = query.where(or_(
+            func.lower(User.email).contains(search, autoescape=True),
+            func.lower(User.name).contains(search, autoescape=True),
+            func.lower(User.unity_id).contains(search, autoescape=True),
+        ))
     result = await db.execute(
-        select(User)
+        query
         .order_by(User.created_at.desc(), User.id.desc())
         .offset(offset)
         .limit(page_size + 1)
@@ -284,19 +312,10 @@ async def list_users(
     users = result.scalars().all()
     response.headers["X-Has-More"] = "true" if len(users) > page_size else "false"
     users = users[:page_size]
-    logger.info("admin=%s action=list_users page=%d", admin.id, page)
+    logger.info("admin=%s action=list_users page=%d searched=%s", admin.id, page, bool(search))
 
     return [
-        UserResponse(
-            id=u.id,
-            email=u.email,
-            name=u.name,
-            is_admin=u.is_admin,
-            created_at=isoformat_utc(u.created_at),
-            unity_id=u.unity_id,
-            has_password=u.password_hash is not None,
-        )
-        for u in users
+        UserResponse.of(u) for u in users
     ]
 
 
@@ -351,15 +370,7 @@ async def create_user(
         user.is_admin,
     )
 
-    return UserResponse(
-        id=user.id,
-        email=user.email,
-        name=user.name,
-        is_admin=user.is_admin,
-        created_at=isoformat_utc(user.created_at),
-        unity_id=user.unity_id,
-        has_password=user.password_hash is not None,
-    )
+    return UserResponse.of(user)
 
 
 @router.patch("/users/{user_id}", response_model=UserResponse)
@@ -384,6 +395,11 @@ async def update_user(
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
 
+    if user.is_course_user and (body.password is not None or body.is_admin or body.is_teacher):
+        raise HTTPException(
+            status_code=400,
+            detail="A course user cannot get a password or a role; they sign in with JSC to get a full account",
+        )
     if body.name is not None:
         user.name = body.name
     if body.password is not None:
@@ -404,6 +420,12 @@ async def update_user(
         user.is_admin = body.is_admin
     if body.password is not None or role_changed:
         await invalidate_sessions(user, db)
+    was_teacher = bool(user.is_teacher)
+    closed_courses = []
+    if body.is_teacher is not None and body.is_teacher != was_teacher:
+        user.is_teacher = body.is_teacher
+        if not body.is_teacher:
+            closed_courses = await close_courses_of(db, user, TEACHER_ROLE_REMOVED)
 
     try:
         await db.commit()
@@ -413,23 +435,19 @@ async def update_user(
         raise HTTPException(status_code=500, detail="Failed to update user")
 
     logger.info(
-        "admin=%s action=update_user user_id=%s was_admin=%s is_admin=%s password_changed=%s name_changed=%s",
+        "admin=%s action=update_user user_id=%s was_admin=%s is_admin=%s was_teacher=%s is_teacher=%s "
+        "courses_closed=%d password_changed=%s name_changed=%s",
         admin.id,
         user.id,
         was_admin,
         user.is_admin,
+        was_teacher,
+        user.is_teacher,
+        len(closed_courses),
         body.password is not None,
         body.name is not None,
     )
-    return UserResponse(
-        id=user.id,
-        email=user.email,
-        name=user.name,
-        is_admin=user.is_admin,
-        created_at=isoformat_utc(user.created_at),
-        unity_id=user.unity_id,
-        has_password=user.password_hash is not None,
-    )
+    return UserResponse.of(user)
 
 
 @router.delete("/users/{user_id}")
@@ -461,6 +479,7 @@ async def delete_user(
     # Tombstone so the account isn't resurrected by logging in again
     record_deletion(db, user)
     orphaned = await orphan_applications_left_by(db, user)
+    await close_courses_of(db, user, TEACHER_DELETED)
     identity = identity_reference(user=user)
     await db.delete(user)
     try:
@@ -614,3 +633,235 @@ async def delete_orphaned_application(
     logger.info("admin=%s action=delete_application application_id=%s tokens_deleted=%d",
                 admin.id, application_id, deleted)
     return {"message": "Application and its tokens deleted", "tokens_deleted": deleted}
+
+
+class AdminCourseResponse(BaseModel):
+    id: str
+    name: str
+    teacher_id: str | None = None
+    teacher_email: str | None = None
+    teacher_name: str | None = None
+    starts_at: str
+    ends_at: str
+    max_seats: int
+    seats_claimed: int
+    active: bool
+    suspended_at: str | None = None
+    suspended_reason: str | None = None
+    terms_version: str
+    terms_accepted_at: str
+
+
+@router.get("/courses", response_model=list[AdminCourseResponse])
+@limiter.limit(ADMIN_RATE_LIMIT, key_func=user_or_ip)
+async def list_courses(
+    request: Request,
+    response: Response,
+    page: Annotated[int, Query(ge=1, le=MAX_PAGE)] = 1,
+    page_size: Annotated[int, Query(ge=1, le=MAX_PAGE_SIZE)] = 20,
+    admin: User = Depends(get_current_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    courses = (await db.execute(
+        select(Course).options(joinedload(Course.teacher))
+        .order_by(Course.ends_at.desc(), Course.id)
+        .offset((page - 1) * page_size).limit(page_size + 1)
+    )).scalars().all()
+    response.headers["X-Has-More"] = "true" if len(courses) > page_size else "false"
+    logger.info("admin=%s action=list_courses page=%d", admin.id, page)
+    return [
+        AdminCourseResponse(
+            id=c.id, name=c.name, teacher_id=c.teacher_id,
+            teacher_email=c.teacher.email if c.teacher else None,
+            teacher_name=c.teacher.name if c.teacher else None,
+            starts_at=isoformat_utc(c.starts_at), ends_at=isoformat_utc(c.ends_at),
+            max_seats=c.max_seats, seats_claimed=c.seats_claimed, active=is_active(c),
+            suspended_at=isoformat_utc(c.suspended_at), suspended_reason=c.suspended_reason,
+            terms_version=c.terms_version, terms_accepted_at=isoformat_utc(c.terms_accepted_at),
+        )
+        for c in courses[:page_size]
+    ]
+
+
+@router.post("/courses/{course_id}/suspend")
+@limiter.limit(ADMIN_RATE_LIMIT, key_func=user_or_ip)
+async def suspend_course(
+    request: Request,
+    course_id: ResourceId,
+    admin: User = Depends(get_current_admin),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Revoke every token of a course and disable its join link."""
+    admin = await lock_admin_actor(db, admin.id, request)
+    course = (await db.execute(
+        select(Course).where(Course.id == course_id).with_for_update()
+    )).scalar_one_or_none()
+    if course is None:
+        raise HTTPException(status_code=404, detail="Course not found")
+    revoked = await close_course(db, course, SUSPENDED_BY_ADMIN)
+    try:
+        await db.commit()
+    except Exception:
+        await db.rollback()
+        raise HTTPException(status_code=500, detail="Failed to suspend course")
+    logger.info("admin=%s action=suspend_course course_id=%s tokens_revoked=%d", admin.id, course.id, revoked)
+    return {"message": "Course suspended and all its tokens revoked", "tokens_revoked": revoked}
+
+
+class AdminApplicationResponse(BaseModel):
+    id: str
+    name: str
+    description: str | None = None
+    created_at: str
+    orphaned_at: str | None = None
+    owners: list[str]
+    members: int
+    tokens: int
+    active_tokens: int
+
+
+@router.get("/applications", response_model=list[AdminApplicationResponse])
+@limiter.limit(ADMIN_RATE_LIMIT, key_func=user_or_ip)
+async def list_applications(
+    request: Request,
+    response: Response,
+    page: Annotated[int, Query(ge=1, le=MAX_PAGE)] = 1,
+    page_size: Annotated[int, Query(ge=1, le=MAX_PAGE_SIZE)] = 20,
+    q: Annotated[str | None, Query(max_length=255)] = None,
+    admin: User = Depends(get_current_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    """Every application, orphaned first, then by name; q matches part of
+    the name or of a member's email, ignoring case."""
+    query = select(Application).options(selectinload(Application.members))
+    search = (q or "").strip().lower()
+    if search:
+        member_match = select(ApplicationMember.application_id).where(
+            func.lower(ApplicationMember.email).contains(search, autoescape=True)
+        )
+        query = query.where(or_(
+            func.lower(Application.name).contains(search, autoescape=True),
+            Application.id.in_(member_match),
+        ))
+    applications = (await db.execute(
+        query.order_by(Application.orphaned_at.is_(None), Application.name, Application.id)
+        .offset((page - 1) * page_size).limit(page_size + 1)
+    )).scalars().all()
+    response.headers["X-Has-More"] = "true" if len(applications) > page_size else "false"
+    applications = applications[:page_size]
+    now = utcnow()
+    counts = {}
+    if applications:
+        rows = await db.execute(
+            select(
+                Token.application_id,
+                func.count(),
+                func.count().filter(
+                    Token.revoked_at.is_(None), or_(Token.expires_at.is_(None), Token.expires_at > now)
+                ),
+            )
+            .where(Token.application_id.in_([a.id for a in applications]))
+            .group_by(Token.application_id)
+        )
+        counts = {application_id: (total, active) for application_id, total, active in rows}
+    logger.info("admin=%s action=list_applications page=%d searched=%s", admin.id, page, bool(search))
+    return [
+        AdminApplicationResponse(
+            id=a.id, name=a.name, description=a.description, created_at=isoformat_utc(a.created_at),
+            orphaned_at=isoformat_utc(a.orphaned_at),
+            owners=sorted(m.email for m in a.members if m.role == ROLE_OWNER),
+            members=len(a.members),
+            tokens=counts.get(a.id, (0, 0))[0], active_tokens=counts.get(a.id, (0, 0))[1],
+        )
+        for a in applications
+    ]
+
+
+@router.delete("/courses/{course_id}")
+@limiter.limit(ADMIN_RATE_LIMIT, key_func=user_or_ip)
+async def delete_course_admin(
+    request: Request,
+    course_id: ResourceId,
+    admin: User = Depends(get_current_admin),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Delete any course with its tokens, students and invitations."""
+    admin = await lock_admin_actor(db, admin.id, request)
+    course = (await db.execute(
+        select(Course).where(Course.id == course_id).with_for_update()
+    )).scalar_one_or_none()
+    if course is None:
+        raise HTTPException(status_code=404, detail="Course not found")
+    was_active = is_active(course)
+    teacher_id = course.teacher_id
+    deleted = await delete_course(db, course)
+    try:
+        await db.commit()
+    except Exception:
+        await db.rollback()
+        raise HTTPException(status_code=500, detail="Failed to delete course")
+    logger.info("admin=%s action=delete_course course_id=%s teacher=%s was_active=%s tokens_deleted=%d",
+                admin.id, course_id, teacher_id or "none", was_active, deleted)
+    return {"message": "Course deleted", "tokens_deleted": deleted}
+
+
+class AdminInvitationResponse(BaseModel):
+    id: str
+    email: str
+    status: str
+    sent_at: str
+    send_count: int
+    delivery_failed: bool
+    claimed_by_name: str | None = None
+    token_status: str | None = None
+    last_used_at: str | None = None
+    use_count: int = 0
+    # Only while unused and with courses.admin_can_view_invitation_links.
+    link: str | None = None
+
+
+@router.get("/courses/{course_id}/invitations", response_model=list[AdminInvitationResponse])
+@limiter.limit(ADMIN_RATE_LIMIT, key_func=user_or_ip)
+async def list_course_invitations(
+    request: Request,
+    course_id: ResourceId,
+    admin: User = Depends(get_current_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    """A course's invitations; for testing, the unused links when kept."""
+    from app.api.courses import invitation_listing
+
+    course = (await db.execute(select(Course).where(Course.id == course_id))).scalar_one_or_none()
+    if course is None:
+        raise HTTPException(status_code=404, detail="Course not found")
+    listing = await invitation_listing(db, course)
+    links = {}
+    if get_config().courses.admin_can_view_invitation_links:
+        links = dict((await db.execute(
+            select(CourseInvitation.id, CourseInvitation.link).where(
+                CourseInvitation.course_id == course.id, CourseInvitation.link.isnot(None)
+            )
+        )).all())
+    logger.info("admin=%s action=list_course_invitations course_id=%s links_shown=%d",
+                admin.id, course.id, len(links))
+    return [AdminInvitationResponse(**entry.model_dump(exclude={"claimed_at"}), link=links.get(entry.id))
+            for entry in listing]
+
+
+
+@router.get("/courses/{course_id}/seats")
+@limiter.limit(ADMIN_RATE_LIMIT, key_func=user_or_ip)
+async def list_course_seats(
+    request: Request,
+    course_id: ResourceId,
+    admin: User = Depends(get_current_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    """Everyone with a seat in a course, however they joined."""
+    from app.api.courses import course_seats
+
+    course = (await db.execute(select(Course).where(Course.id == course_id))).scalar_one_or_none()
+    if course is None:
+        raise HTTPException(status_code=404, detail="Course not found")
+    logger.info("admin=%s action=list_course_seats course_id=%s", admin.id, course.id)
+    return await course_seats(db, course)

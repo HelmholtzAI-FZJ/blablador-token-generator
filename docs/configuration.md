@@ -161,6 +161,8 @@ Limits use the [limits](https://limits.readthedocs.io/) syntax, such as
 | `session` | `30/minute` | Logout, per user. |
 | `account_delete` | `5/minute` | Account deletion, per user. |
 | `admin` | `120/minute` | Administration, per user. |
+| `course_join` | `10/minute` | Joining a course through its link, per user. |
+| `course_invite` | `10/minute` | Sending or resending course invitations, per teacher. |
 | `token_validation` | `600/minute` | Validation API, per address; also its admission budget. |
 | `token_validation_exempt` | `[]` | Addresses or networks (for example the API gateway) exempt from validation limits. |
 
@@ -218,9 +220,48 @@ new warning cycle: the stored threshold is cleared, so the reminders are sent
 again as the new expiry approaches. Rotating a token without changing its
 expiry keeps the state and sends nothing.
 
+## `courses`
+
+Courses let a teacher hand out short-lived tokens to a class. An administrator
+marks an account as a teacher (Users tab of the admin panel); the teacher
+creates a course with a date range and a number of seats and gets a join link.
+Each student signs in, opens the link and gets one course token,
+`<token_prefix>-course-<hex>`, valid from the first day (00:00 UTC) until the
+end of the last day. See the [user guide](user-guide.md#courses).
+
+| Key | Default | Description |
+| --- | --- | --- |
+| `enabled` | `false` | Offer courses. While false the course pages and API answer 404. |
+| `max_days` | `21` | Longest course, first to last day inclusive. |
+| `max_seats` | `60` | Most seats a course may have. A claimed seat is never given back. |
+| `max_active_per_teacher` | `1` | Courses a teacher may run (scheduled or running, not closed) at once. |
+| `max_days_ahead` | `180` | How far ahead a course may start. |
+| `join_code_bytes` | `24` | Random bytes in a join link's code. |
+| `retention_days` | `30` | Days after a course ends before `purge-course-tokens` deletes its tokens. Courses and seats are kept as a record. |
+| `invitation_subject` | `Blablador access for the course {course}` | Default subject of mailed invitations; teachers may edit it. `{course}` becomes the course name, and a subject without the name gets `[course name]` in front, so every invitation names its course. |
+| `invitation_body` | (built-in text) | Default message of mailed invitations; teachers may edit it. The personal link, the course dates and a footer naming the teacher are always appended, and replies go to the teacher. |
+| `invitation_footer` | (built-in text) | Appended to every invitation after the teacher's text; teachers cannot change it. Placeholders: `{course}`, `{start}` and `{end}` (first and last day), `{link}`, `{app_name}`, `{teacher_name}`, `{teacher_email}`. Must contain `{link}`; other placeholders are refused. |
+| `invitation_max_body_chars` | `4000` | Longest message a teacher may write. |
+| `admin_can_view_invitation_links` | `false` | For testing: keep each unused invitation's link so administrators can open it (admin Courses tab, Invitations). Otherwise links are stored only as hashes. Keep off in production. |
+| `max_invitation_sends` | `3` | How often one invitation may be sent (resends and reissues included). `0` means no limit, for testing; `rate_limits.course_invite` still limits how fast a teacher sends. |
+| `terms_version` | `"1"` | Version of the teacher terms, stored with each course. Change it together with `terms_text`. |
+| `terms_text` | (built-in text) | Terms a teacher must accept to create a course. |
+
+Teachers can also have the service mail invitations (requires `smtp.enabled`).
+Each address gets its own single-use link that holds a seat until it is used or
+cancelled, so a course never has more invitations than seats. The link is not
+tied to the address: students may sign in with any account.
+
+Course tokens do not count towards `tokens.max_tokens_per_user`, cannot be
+renewed or rotated. Closing a course (by its
+teacher, an administrator, removing the teacher role or deleting the teacher's
+account) revokes all its tokens and disables its link. The chart's
+`coursePurge` CronJob runs `python -m app.manage purge-course-tokens` daily.
+
 ## `blablador`
 
 | Key | Default | Description |
 | --- | --- | --- |
 | `api_url` | `https://ptj.blablador.fz-juelich.de` | Reserved; not used by this release. |
+| `test_url` | `""` | What the "Try it" command on token pages calls: `curl <test_url> -H "Authorization: Bearer <token>"`. Empty means this service's own `<app.api_url>/api/v1/user`, which checks the token and names its owner. Set it to an endpoint of the Blablador API only if that endpoint rejects invalid tokens. Must be an `http(s)` URL without spaces, quotes, `$` or backticks, so the command is safe to paste. |
 | `models` | `[]` | Reserved; not used by this release. |

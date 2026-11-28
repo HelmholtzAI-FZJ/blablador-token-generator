@@ -57,11 +57,16 @@ class MemberRequest(BaseModel):
     @field_validator("email")
     @classmethod
     def valid_email(cls, value: str) -> str:
-        value = normalize_email(value)
-        local, at, domain = value.partition("@")
-        if not (local and at and domain) or "@" in domain or has_unsafe_characters(value) or " " in value:
-            raise ValueError("Enter an email address")
-        return value
+        return email_address(value)
+
+
+def email_address(value: str) -> str:
+    """A normalized email address, or ValueError."""
+    value = normalize_email(value)
+    local, at, domain = value.partition("@")
+    if not (local and at and domain) or "@" in domain or has_unsafe_characters(value) or " " in value:
+        raise ValueError("Enter an email address")
+    return value
 
 
 class RoleRequest(BaseModel):

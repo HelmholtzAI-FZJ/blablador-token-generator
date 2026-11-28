@@ -337,6 +337,12 @@
                 "type": "string"
               },
               "type": "array"
+            },
+            "course_join": {
+              "type": "string"
+            },
+            "course_invite": {
+              "type": "string"
             }
           },
           "type": "object"
@@ -419,6 +425,84 @@
             }
           }
         },
+        "courses": {
+          "additionalProperties": false,
+          "type": "object",
+          "properties": {
+            "enabled": {
+              "type": "boolean"
+            },
+            "max_days": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 365
+            },
+            "max_seats": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 1000
+            },
+            "max_active_per_teacher": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100
+            },
+            "max_days_ahead": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 365
+            },
+            "join_code_bytes": {
+              "type": "integer",
+              "minimum": 16,
+              "maximum": 64
+            },
+            "retention_days": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 3650
+            },
+            "terms_version": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 32
+            },
+            "terms_text": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 4000
+            },
+            "invitation_subject": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            },
+            "invitation_body": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 4000
+            },
+            "invitation_max_body_chars": {
+              "type": "integer",
+              "minimum": 100,
+              "maximum": 20000
+            },
+            "max_invitation_sends": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 100
+            },
+            "invitation_footer": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 4000,
+              "pattern": "\\{link\\}"
+            },
+            "admin_can_view_invitation_links": {
+              "type": "boolean"
+            }
+          }
+        },
         "blablador": {
           "additionalProperties": false,
           "properties": {
@@ -460,6 +544,10 @@
                 "type": "object"
               },
               "type": "array"
+            },
+            "test_url": {
+              "type": "string",
+              "maxLength": 500
             }
           },
           "type": "object"
@@ -657,6 +745,22 @@
       "type": "object"
     },
     "expiryReminders": {
+      "additionalProperties": false,
+      "type": "object",
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "schedule": {
+          "type": "string",
+          "minLength": 1
+        },
+        "resources": {
+          "type": "object"
+        }
+      }
+    },
+    "coursePurge": {
       "additionalProperties": false,
       "type": "object",
       "properties": {

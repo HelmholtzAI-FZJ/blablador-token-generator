@@ -63,6 +63,8 @@
         .btn-danger:hover { background: #c0392b; }
         .btn-success { background: #27ae60; }
         .btn-small { padding: 0.25rem 0.5rem; font-size: 0.875rem; }
+        .search-form { display: flex; gap: 0.5rem; margin-bottom: 0.75rem; }
+        .search-form input { flex: 1 1 auto; padding: 0.4rem; border: 1px solid #ddd; border-radius: 4px; }
         .form-group { margin-bottom: 1rem; }
         .form-group label { display: block; margin-bottom: 0.5rem; font-weight: 500; }
         .form-group input, .form-group select {
@@ -81,6 +83,7 @@
         .badge { padding: 0.2rem 0.5rem; border-radius: 4px; font-size: 0.75rem; }
         .badge-admin { background: #f39c12; color: white; }
         .badge-local { background: #3498db; color: white; }
+        .badge-course { background: #fdebd0; color: #9c640c; }
         .badge-oauth { background: #95a5a6; color: white; }
         .subject { display: block; font-size: 0.75rem; color: #666; word-break: break-all; }
         .pagination { display: flex; gap: 0.5rem; align-items: center; margin-top: 1rem; }
@@ -127,6 +130,8 @@
         <div class="tabs">
             <div class="tab active" data-action="switch-tab" data-tab="tokens">Tokens</div>
             <div class="tab" data-action="switch-tab" data-tab="users">Users</div>
+            <div class="tab" data-action="switch-tab" data-tab="courses">Courses</div>
+            <div class="tab" data-action="switch-tab" data-tab="applications">Applications</div>
         </div>
 
         <div id="tokens-tab" class="tab-content active">
@@ -234,6 +239,11 @@
                 {% endif %}
 
                 <h3>Existing Users</h3>
+                <form id="userSearchForm" class="search-form" role="search">
+                    <input type="search" id="userSearch" maxlength="255" placeholder="Search by email, name or OAuth subject" aria-label="Search users">
+                    <button type="submit" class="btn btn-small">Search</button>
+                    <button type="button" class="btn btn-small" data-action="clear-user-search">Clear</button>
+                </form>
                 <div>
                     <button class="btn btn-small" id="usersPrevious" data-action="users-previous" disabled>Previous</button>
                     <span id="usersPage">Page 1</span>
@@ -246,11 +256,55 @@
                             <th>Name</th>
                             <th>Type</th>
                             <th>Admin</th>
+                            <th>Teacher</th>
                             <th>Created</th>
                             <th>Actions</th>
                         </tr>
                     </thead>
                     <tbody id="usersTableBody">
+                        <tr><td colspan="7" class="empty">Loading...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <div id="applications-tab" class="tab-content">
+            <div class="card">
+                <h3>Applications</h3>
+                <p>Every application, those without an owner first. Search by application name or a member's email.</p>
+                <form id="applicationSearchForm" class="search-form" role="search">
+                    <input type="search" id="applicationSearch" maxlength="255" placeholder="Search by name or member email" aria-label="Search applications">
+                    <button type="submit" class="btn btn-small">Search</button>
+                    <button type="button" class="btn btn-small" data-action="clear-application-search">Clear</button>
+                </form>
+                <div>
+                    <button class="btn btn-small" id="applicationsPrevious" data-action="applications-previous" disabled>Previous</button>
+                    <button class="btn btn-small" id="applicationsNext" data-action="applications-next" disabled>Next</button>
+                </div>
+                <table>
+                    <thead>
+                        <tr><th>Application</th><th>Owners</th><th>Members</th><th>Tokens (active)</th><th>Created</th><th>Actions</th></tr>
+                    </thead>
+                    <tbody id="applicationsTableBody">
+                        <tr><td colspan="6" class="empty">Loading...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <div id="courses-tab" class="tab-content">
+            <div class="card">
+                <h3>Courses</h3>
+                <p>Make a user a teacher on the Users tab. Suspending a course revokes all its tokens and disables its join link.</p>
+                <div>
+                    <button class="btn btn-small" id="coursesPrevious" data-action="courses-previous" disabled>Previous</button>
+                    <button class="btn btn-small" id="coursesNext" data-action="courses-next" disabled>Next</button>
+                </div>
+                <table>
+                    <thead>
+                        <tr><th>Course</th><th>Teacher</th><th>Runs</th><th>Seats</th><th>State</th><th>Actions</th></tr>
+                    </thead>
+                    <tbody id="coursesTableBody">
                         <tr><td colspan="6" class="empty">Loading...</td></tr>
                     </tbody>
                 </table>

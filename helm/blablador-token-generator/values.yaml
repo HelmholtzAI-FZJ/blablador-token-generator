@@ -86,6 +86,18 @@ expiryReminders:
     requests:
       cpu: 25m
       memory: 96Mi
+# Daily `purge-course-tokens` CronJob: deletes the tokens of courses that
+# ended more than config.courses.retention_days ago.
+coursePurge:
+  enabled: false
+  schedule: '30 3 * * *'
+  resources:
+    limits:
+      cpu: 300m
+      memory: 256Mi
+    requests:
+      cpu: 25m
+      memory: 96Mi
 # Secret holding the SMTP password, injected as SMTP_PASSWORD into the
 # application and the expiry-reminder Job. Never put the password in values.
 smtpPasswordSecret: ''
@@ -222,6 +234,8 @@ config:
     session: 30/minute
     account_delete: 5/minute
     admin: 120/minute
+    course_join: 10/minute
+    course_invite: 10/minute
     token_validation: 600/minute
     token_validation_exempt: []
     preauth: 240/minute
@@ -247,14 +261,31 @@ config:
     - 7
     - 1
     batch_size: 200
+  courses:
+    enabled: false
+    max_days: 21
+    max_seats: 60
+    max_active_per_teacher: 1
+    max_days_ahead: 180
+    join_code_bytes: 24
+    retention_days: 30
+    invitation_max_body_chars: 4000
+    max_invitation_sends: 3
+    admin_can_view_invitation_links: false
+    terms_version: '1'
   local:
     enabled: false
     allow_registration: false
     max_concurrent_password_operations: 4
   blablador:
     api_url: https://ptj.blablador.fz-juelich.de
+    test_url: ''
     models: []
-workers: 2
+# Uvicorn workers per pod. One worker runs in a single process (about
+# 120 MiB); each further one adds as much again plus a supervisor, and only
+# helps when the pod has more than one CPU (resources.limits.cpu). Scale
+# with replicaCount instead.
+workers: 1
 configExistingSecret: ''
 secretRevision: ''
 allowForwardedCidrs: false

@@ -301,3 +301,30 @@ def test_refuses_to_run_without_mail_or_consent(monkeypatch):
                 await send_expiry_reminders(db)
 
     run(scenario)
+
+
+def test_course_tokens_are_not_mailed(monkeypatch):
+    from app.models import Course
+
+    enable(monkeypatch)
+    sent = []
+    monkeypatch.setattr(notifications, "send_mail", recorder(sent))
+
+    async def scenario():
+        async with database.async_session_maker() as db:
+            student = await add_user(db, "student@example.org")
+            now = utcnow()
+            course = Course(name="Workshop", starts_at=now - timedelta(days=1), ends_at=now + timedelta(days=2),
+                            max_seats=1, seats_claimed=1, terms_version="1", terms_accepted_at=now)
+            db.add(course)
+            await db.commit()
+            token = await add_token(db, user=student, days=2, name="course")
+            token.course_id = course.id
+            await db.commit()
+            result = await send_expiry_reminders(db)
+            assert all(message["recipients"] != ["student@example.org"] for message in sent)
+            await db.refresh(token)
+            assert token.expiry_notified_days is None
+            return result
+
+    run(scenario)

@@ -19,6 +19,8 @@ SESSION_COOKIE = cookie_name("access_token")
 CSRF_COOKIE = cookie_name("csrf_token")
 OAUTH_STATE_COOKIE = cookie_name("oauth_state")
 OAUTH_VERIFIER_COOKIE = cookie_name("oauth_verifier")
+# A course join link opened before signing in, resumed after sign-in.
+COURSE_JOIN_COOKIE = cookie_name("course_join")
 
 
 def set_cookie(response: Response, name: str, value: str, max_age: int | None = None) -> None:

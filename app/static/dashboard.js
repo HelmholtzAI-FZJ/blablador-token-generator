@@ -238,6 +238,13 @@ function fallbackCopy(token, btn) {
     document.body.removeChild(textArea);
 }
 
+// The curl line follows the View/Hide state; Copy always copies the real one.
+function showCurl() {
+    const token = document.getElementById('newTokenValue').textContent;
+    const shown = document.getElementById('newTokenValue').style.display !== 'none';
+    document.getElementById('newTokenCurl').textContent = curlTest(shown ? token : '•'.repeat(12));
+}
+
 function toggleTokenView() {
     const tokenEl = document.getElementById('newTokenValue');
     const hiddenEl = document.getElementById('tokenHidden');
@@ -252,6 +259,7 @@ function toggleTokenView() {
         hiddenEl.style.display = 'inline-block';
         viewBtn.textContent = 'View';
     }
+    showCurl();
 }
 
 document.getElementById('createTokenForm').addEventListener('submit', async (e) => {
@@ -276,10 +284,12 @@ document.getElementById('createTokenForm').addEventListener('submit', async (e) 
     if (response.ok) {
         const result = await response.json();
         document.getElementById('newTokenValue').textContent = result.token;
+        showCurl();
         document.getElementById('newTokenValue').style.display = 'none';
         document.getElementById('tokenHidden').style.display = 'inline-block';
         document.getElementById('viewBtn').textContent = 'View';
         document.getElementById('newTokenDisplay').style.display = 'block';
+        document.querySelector('#newTokenDisplay .token-alert').scrollIntoView({behavior: 'smooth', block: 'center'});
         e.target.reset();
         
         // Add new token to the table
@@ -727,10 +737,12 @@ async function rotateToken(tokenId) {
         }
         const result = await response.json();
         document.getElementById('newTokenValue').textContent = result.token;
+        showCurl();
         document.getElementById('newTokenValue').style.display = 'none';
         document.getElementById('tokenHidden').style.display = 'inline-block';
         document.getElementById('viewBtn').textContent = 'View';
         document.getElementById('newTokenDisplay').style.display = 'block';
+        document.querySelector('#newTokenDisplay .token-alert').scrollIntoView({behavior: 'smooth', block: 'center'});
         document.getElementById('newTokenDisplay').scrollIntoView({block: 'center'});
     } catch (error) {
         alert('Failed to rotate token: ' + error.message);
@@ -751,6 +763,7 @@ async function revokeAllCredentials() {
 registerActions({
     'toggle-token-view': () => toggleTokenView(),
     'copy-token': () => copyToken(),
+    'copy-token-curl': (el) => copyText(curlTest(document.getElementById('newTokenValue').textContent), el),
     'revoke-token': (el) => revokeToken(el.dataset.id),
     'delete-token': (el) => deleteToken(el.dataset.id),
     'renew-token': (el) => window.openRenewModal(el.dataset.id),
@@ -761,3 +774,21 @@ registerActions({
     'leave-application': (el) => leaveApplication(el.dataset.id, el.dataset.name, el.dataset.role),
     'remove-member': (el) => removeMember(el.dataset.application, el.dataset.id, el.dataset.email),
 });
+
+// Tabs: the active one is kept in the address (#courses), so reloading
+// after an action returns to it.
+function showTab(name) {
+    const tab = document.querySelector(`.tab[data-tab="${name}"]`);
+    if (!tab) return;
+    document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t === tab));
+    document.querySelectorAll('.tab-content').forEach(c => c.classList.toggle('active', c.id === `${name}-tab`));
+}
+
+registerActions({
+    'switch-tab': (el) => {
+        showTab(el.dataset.tab);
+        history.replaceState(null, '', `#${el.dataset.tab}`);
+    },
+});
+
+showTab(location.hash.slice(1) || 'tokens');

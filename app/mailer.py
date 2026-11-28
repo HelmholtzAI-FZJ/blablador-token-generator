@@ -14,12 +14,14 @@ logger = logging.getLogger("token_generator.audit")
 _pending: set[asyncio.Task] = set()
 
 
-def _send(recipients: list[str], subject: str, body: str) -> None:
+def _send(recipients: list[str], subject: str, body: str, reply_to: str | None = None) -> None:
     smtp = get_config().smtp
     message = EmailMessage()
     message["From"] = smtp.from_address
     message["To"] = ", ".join(recipients)
     message["Subject"] = subject
+    if reply_to:
+        message["Reply-To"] = reply_to
     message.set_content(body)
     context = ssl.create_default_context()
     if smtp.use_tls:
@@ -34,12 +36,12 @@ def _send(recipients: list[str], subject: str, body: str) -> None:
         client.send_message(message)
 
 
-async def send_mail(recipients: list[str], subject: str, body: str) -> bool:
+async def send_mail(recipients: list[str], subject: str, body: str, reply_to: str | None = None) -> bool:
     """Send one message; False when mail is disabled or sending failed."""
     if not get_config().smtp.enabled or not recipients:
         return False
     try:
-        await asyncio.to_thread(_send, recipients, subject, body)
+        await asyncio.to_thread(_send, recipients, subject, body, reply_to)
     except Exception as exc:
         logger.error("action=mail_failed recipients=%d error_type=%s", len(recipients), type(exc).__name__)
         return False
@@ -49,6 +51,11 @@ async def send_mail(recipients: list[str], subject: str, body: str) -> bool:
 
 def send_mail_later(recipients: list[str], subject: str, body: str) -> None:
     """Send in the background, so a slow mail server does not hold up a response."""
-    task = asyncio.get_running_loop().create_task(send_mail(recipients, subject, body))
+    run_later(send_mail(recipients, subject, body))
+
+
+def run_later(coroutine) -> None:
+    """Run a mail coroutine in the background, kept referenced until done."""
+    task = asyncio.get_running_loop().create_task(coroutine)
     _pending.add(task)
     task.add_done_callback(_pending.discard)

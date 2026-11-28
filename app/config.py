@@ -132,6 +132,10 @@ class RateLimitConfig(SecurityConfigModel):
     session: str = "30/minute"
     account_delete: str = "5/minute"
     admin: str = "120/minute"
+    # Claiming a course seat, per signed-in user.
+    course_join: str = "10/minute"
+    # Sending or resending course invitations, per teacher.
+    course_invite: str = "10/minute"
     # Token validation, per client IP. Addresses or CIDRs listed in
     # token_validation_exempt (e.g. the API gateway) are not limited.
     token_validation: str = "600/minute"
@@ -139,7 +143,7 @@ class RateLimitConfig(SecurityConfigModel):
 
     @field_validator("pages", "oauth_callback", "local_login", "local_login_account",
                      "preauth", "tokens_read", "tokens_write", "session", "account_delete",
-                     "admin", "token_validation")
+                     "admin", "course_join", "course_invite", "token_validation")
     @classmethod
     def check_limit(cls, value: str) -> str:
         if parse(value).amount < 1:
@@ -203,6 +207,84 @@ class NotificationsConfig(SecurityConfigModel):
         return sorted(value, reverse=True)
 
 
+DEFAULT_COURSE_TERMS = (
+    "I run this course and am responsible for how its participants use their tokens. "
+    "I will tell them the service's terms of use, revoke tokens that are misused, and "
+    "not share the join link outside the course."
+)
+
+
+DEFAULT_INVITATION_SUBJECT = "Blablador access for the course {course}"
+DEFAULT_INVITATION_BODY = (
+    "Hello,\n\n"
+    "for this course you will use Blablador, an LLM service. Use the personal link "
+    "below to get your API token."
+)
+DEFAULT_INVITATION_FOOTER = (
+    "Your personal link to join \"{course}\" ({start} to {end}):\n\n"
+    "    {link}\n\n"
+    "Open the link and press \"Show my token\" to get your API token; no sign-in is needed. "
+    "The link works once, for one person; do not forward it. "
+    "If you sign in to {app_name} with your JSC account and this email address, "
+    "the token moves to your account.\n\n"
+    "-- \n"
+    "Sent by {app_name} on behalf of {teacher_name} <{teacher_email}>. "
+    "Reply to this message to reach them. If you did not expect it, ignore it.\n"
+)
+INVITATION_FOOTER_FIELDS = ("course", "start", "end", "link", "app_name", "teacher_name", "teacher_email")
+
+
+class CourseConfig(SecurityConfigModel):
+    """Courses: a teacher (set by an admin) shares a join link; each student
+    who signs in and opens it gets one token that ends with the course."""
+    enabled: bool = False
+    # Longest course, first to last day inclusive.
+    max_days: int = Field(21, ge=1, le=365)
+    max_seats: int = Field(60, ge=1, le=1000)
+    max_active_per_teacher: int = Field(1, ge=1, le=100)
+    # How far ahead a course may be scheduled.
+    max_days_ahead: int = Field(180, ge=0, le=365)
+    # Random bytes in a join link's code.
+    join_code_bytes: int = Field(24, ge=16, le=64)
+    # Days after a course ends before its tokens are purged.
+    retention_days: int = Field(30, ge=0, le=3650)
+    # Mailed invitations (need smtp.enabled): the default text teachers
+    # edit; the link, dates and a footer naming the teacher are always added.
+    # {course} becomes the course name; a subject without the name gets it
+    # in front, so every invitation names its course.
+    invitation_subject: str = Field(DEFAULT_INVITATION_SUBJECT, min_length=1, max_length=200)
+    invitation_body: str = Field(DEFAULT_INVITATION_BODY, min_length=1, max_length=4000)
+    invitation_max_body_chars: int = Field(4000, ge=100, le=20000)
+    # Appended to every invitation after the teacher's text; teachers cannot
+    # change it. Placeholders: {course}, {start}, {end} (first and last day),
+    # {link}, {app_name}, {teacher_name}, {teacher_email}. {link} is required.
+    invitation_footer: str = Field(DEFAULT_INVITATION_FOOTER, min_length=1, max_length=4000)
+    # For testing: keep each unused invitation's link so administrators can
+    # open it. Links are otherwise stored only as hashes. Keep off in production.
+    admin_can_view_invitation_links: bool = False
+    # Sends per invitation, the first included, so resending cannot spam;
+    # 0 for no limit (testing). course_invite still rate-limits sending.
+    max_invitation_sends: int = Field(3, ge=0, le=100)
+    terms_version: str = Field("1", min_length=1, max_length=32)
+    terms_text: str = Field(DEFAULT_COURSE_TERMS, min_length=1, max_length=4000)
+
+    @field_validator("invitation_footer")
+    @classmethod
+    def check_invitation_footer(cls, value: str) -> str:
+        from string import Formatter
+        try:
+            fields = {name for _, name, _, _ in Formatter().parse(value) if name is not None}
+        except ValueError as exc:
+            raise ValueError(f"courses.invitation_footer is not a valid template: {exc}") from None
+        unknown = fields - set(INVITATION_FOOTER_FIELDS)
+        if unknown:
+            raise ValueError(f"courses.invitation_footer has unknown placeholders: {sorted(unknown)}; "
+                             f"use {', '.join('{' + f + '}' for f in INVITATION_FOOTER_FIELDS)}")
+        if "link" not in fields:
+            raise ValueError("courses.invitation_footer must contain {link}")
+        return value
+
+
 class ModelConfig(SecurityConfigModel):
     id: str
     object: str = "model"
@@ -211,8 +293,15 @@ class ModelConfig(SecurityConfigModel):
     max_model_len: int | None = None
 
 
+SAFE_URL = r"^https?://[^\s\"'`$\\]+$"
+
+
 class BlabladorConfig(SecurityConfigModel):
-    api_url: str = "https://ptj.blablador.fz-juelich.de"
+    api_url: str = Field("https://ptj.blablador.fz-juelich.de", pattern=SAFE_URL)
+    # What the "Try it" curl command on token pages calls. Empty: this
+    # service's own /api/v1/user, which checks the token and names its
+    # owner. Characters unsafe in a pasted shell command are refused.
+    test_url: str = Field("", pattern=r"^$|" + SAFE_URL, max_length=500)
     models: List[ModelConfig] = []
 
 
@@ -227,7 +316,22 @@ class Config(SecurityConfigModel):
     admin: AdminConfig = AdminConfig()
     smtp: SmtpConfig = SmtpConfig()
     notifications: NotificationsConfig = NotificationsConfig()
+    courses: CourseConfig = CourseConfig()
     blablador: BlabladorConfig = BlabladorConfig()
+
+    @property
+    def token_test_url(self) -> str:
+        """The URL the "Try it" curl command on token pages calls."""
+        return self.blablador.test_url or self.app.api_url.rstrip("/") + "/api/v1/user"
+
+    @model_validator(mode="after")
+    def check_course_tokens_fit(self) -> "Config":
+        # Course tokens are <prefix>-course-<hex>.
+        if self.courses.enabled and (
+            len(self.tokens.token_prefix) + len("-course-") + 2 * self.tokens.token_length_bytes > 256
+        ):
+            raise ValueError("Course tokens must fit the 256 character input limit; shorten tokens.token_prefix")
+        return self
 
     # Known weak/default secret values that must never be used in production.
     # Declared as ClassVar so Pydantic does not treat it as a model field.

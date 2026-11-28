@@ -47,22 +47,43 @@ case-insensitive; no request body is needed and no CSRF token is involved.
     already parse from other identity providers; it is `null` for application
     tokens, which authenticate an application rather than a person. `expires_at`
     is `null` only for tokens created before expiry became mandatory.
-    `token_type` is `personal` or `application`; `user` is the token's owner
-    (for an application token, the member who created it, or `null` with
-    `user_id` once their account is deleted) and `application` is `null` for
-    personal tokens.
+    `token_type` is `personal`, `application` or `course`; `user` is the
+    token's owner (for an application token, the member who created it, or
+    `null` with `user_id` once their account is deleted) and `application` is
+    `null` for personal tokens.
+
+    A course token (`blablador-course-…`) adds `course` with its `id`,
+    `name`, `starts_at`, `ends_at` and `student_id`. A token mailed to an
+    invited address belongs to that address's **course user**, an account
+    that cannot sign in: `user.course_user` is `true` and `email` and
+    `course.student_email` give the address. Once that student signs in with
+    JSC and the same verified address, the token moves to their account and
+    reports them like any course token (`user_id` and `student_id` change). Gateways should key per-student limits on
+    `course.student_id` and per-course limits on `course.id`. `course` is
+    `null` for every other token.
 
 === "Invalid token (401)"
 
     ```http
     HTTP/1.1 401 Unauthorized
-    WWW-Authenticate: Bearer
+    WWW-Authenticate: Bearer error="invalid_token", error_description="Token not found or revoked"
 
-    {"detail": "Token not found or revoked"}
+    {
+      "valid": false,
+      "error": "invalid_token",
+      "reason": "unknown_or_revoked",
+      "error_description": "Token not found or revoked",
+      "detail": "Token not found or revoked"
+    }
     ```
 
-    Other reasons: `No token provided. Use Bearer token.`, `Token has
-    expired`, `Token invalid: account has been deleted`.
+    The answer follows RFC 6750. `reason` is one of `missing_token` (then
+    `error` is `invalid_request` and the challenge is a bare `Bearer`),
+    `malformed` (not shaped like a token of this service, typically copied
+    incompletely or with extra characters), `unknown_or_revoked`, `expired`,
+    `account_deleted`, `course_not_started`, `course_ended` and
+    `course_closed`. `error_description` explains it for people; `detail`
+    repeats it for clients written against earlier releases.
 
 | Status | Meaning | Gateway should |
 | --- | --- | --- |
@@ -107,8 +128,9 @@ GET /api/v1/user
 Authorization: Bearer blablador-6f1c…
 ```
 
-Returns `user` (`id`, `email`, `name`), `token_type` and `application`, as in
-the validation response, or `401` for a missing, revoked or expired token.
+Returns `email` (at the top level, as in the validation response; `null`
+for application tokens), `user` (`id`, `email`, `name`, `course_user`),
+`token_type`, `application` and `course`, as in the validation response, or `401` for a missing, revoked or expired token.
 
 ## Token management
 
@@ -176,6 +198,32 @@ Non-members get `404`; members attempting an owner's action get `403`.
 [`tokens.max_expiration_days`](configuration.md#tokens). Supplying both is an
 error. Without either, new tokens get `tokens.default_expiration_days`.
 
+## Courses
+
+Requires `courses.enabled`; otherwise these answer `404`. Session cookie plus
+`X-CSRF-Token`, as above. Teachers manage their own courses; anyone signed in
+may join one with its link.
+
+| Method and path | Body | Result |
+| --- | --- | --- |
+| `POST /courses` | `{"name", "starts_on", "ends_on", "max_seats", "accept_terms": true}` | Teachers only. Creates a course (dates are `YYYY-MM-DD`, inclusive, UTC) and returns it with its `join_url`, shown only here |
+| `GET /courses` | | Your courses: `id`, `name`, `starts_at`, `ends_at`, `max_seats`, `seats_claimed`, `active`, `suspended_at`, `suspended_reason` |
+| `GET /courses/{id}` | | One of your courses |
+| `GET /courses/{id}/seats` | | Everyone with a seat, with `token_status` (`active`, `revoked`, `expired`, `deleted`), `last_used_at`, `use_count`, `course_user` and `joined_via` (`link` or `invitation`) |
+| `POST /courses/{id}/join-link` | | Replaces the join link; claimed seats stay claimed |
+| `POST /courses/{id}/close` | | Revokes every token of the course and disables its link, for good |
+| `PATCH /courses/{id}` | `{"max_seats"}` | Changes a running course's seats: at most `courses.max_seats`, never below the seats used or held by open invitations |
+| `DELETE /courses/{id}` | | Deletes a closed or ended course with its tokens, students and invitations; `400` while it runs |
+| `POST /courses/{id}/seats/{seat_id}/revoke` | | Revokes one student's token; they cannot join again |
+| `POST /courses/{id}/invitations` | `{"emails": [...], "subject", "body"}` | Teachers only; needs mail. Mails each new address a single-use link (one seat each). `400` if there are not enough free seats. Returns `invited` and `skipped` (already invited) |
+| `GET /courses/{id}/invitations` | | Invitations: `email`, `status` (`open`, `claimed`, `cancelled`, or `deleted` when the student's account was deleted afterwards; it can be reissued), `sent_at`, `send_count`, `delivery_failed`, `claimed_by_name` (after the student signed in), `token_status`, `last_used_at`, `use_count`. Never the token or the link |
+| `POST /courses/{id}/invitations/{invitation_id}/revoke` | | Revokes the token an invitation gave; the seat stays used |
+| `POST /courses/{id}/invitations/{invitation_id}/reissue` | `{"subject", "body"}` | For a lost token: revokes it and mails a new one-time link, without using another seat. Counts towards `courses.max_invitation_sends` |
+| `POST /courses/{id}/invitations/{invitation_id}/resend` | `{"subject", "body"}` | Mails a new link; the old one stops working. At most `courses.max_invitation_sends` sends |
+| `DELETE /courses/{id}/invitations/{invitation_id}` | | Cancels an open invitation; its seat is free again |
+| `POST /courses/invite/{code}` | | No sign-in. Shows the token of a mailed invitation once (`token`, `token_id`, `expires_at`, `course`); the link then stops working |
+| `POST /courses/join/{code}` | | Joins the course: returns `token` (shown once), `token_id`, `expires_at` and `course`. `404` for an unknown link, `410` for a closed, ended or full course, `409` if you already joined |
+
 ## Administration
 
 Administrator session plus `X-CSRF-Token`, as above. Lists are paged with
@@ -184,15 +232,21 @@ Administrator session plus `X-CSRF-Token`, as above. Lists are paged with
 | Method and path | Body | Result |
 | --- | --- | --- |
 | `GET /api/admin/tokens` | | All tokens with owner (or application token creator) name and email, and `application_id`/`application_name` for application tokens |
+| `GET /api/admin/applications` | | Every application (orphaned first): `id`, `name`, `description`, `created_at`, `orphaned_at`, `owners` (emails), `members`, `tokens`, `active_tokens`. Optional `q` matches part of the name or a member's email |
 | `GET /api/admin/applications/orphaned` | | Applications whose last owner left: `id`, `name`, `description`, `orphaned_at`, `members`, `tokens` |
 | `POST /api/admin/applications/{id}/take-over` | | Makes you an owner of an orphaned application |
 | `DELETE /api/admin/applications/{id}` | | Deletes an orphaned application and its tokens |
 | `DELETE /api/admin/tokens/{id}` | | Revokes a token |
 | `DELETE /api/admin/tokens/{id}/permanent` | | Deletes a token |
 | `DELETE /api/admin/tokens/revoked` | | Deletes all revoked tokens |
-| `GET /api/admin/users` | | Accounts: `id`, `email`, `name`, `is_admin`, `created_at`, `unity_id` (OAuth subject), `has_password` |
+| `GET /api/admin/courses` | | All courses with teacher, dates, seats, state and the terms version the teacher accepted |
+| `POST /api/admin/courses/{id}/suspend` | | Revokes every token of a course and disables its link |
+| `GET /api/admin/courses/{id}/seats` | | Everyone with a seat in a course, as teachers see it |
+| `GET /api/admin/courses/{id}/invitations` | | A course's invitations as teachers see them, plus `link` for unused ones when `courses.admin_can_view_invitation_links` is on (testing) |
+| `DELETE /api/admin/courses/{id}` | | Deletes any course, running or not, with its tokens, students and invitations |
+| `GET /api/admin/users` | | Optional `q` matches part of the email, name or OAuth subject, ignoring case. Accounts: `id`, `email`, `name`, `is_admin`, `is_teacher`, `is_course_user` (created by a course invitation; cannot sign in, and cannot be given a password, admin or teacher role), `created_at`, `unity_id` (OAuth subject), `has_password` |
 | `POST /api/admin/users` | `{"email", "name", "password", "is_admin"}` | Creates a **local** password account |
-| `PATCH /api/admin/users/{id}` | any of `name`, `password` (local accounts only), `is_admin` | Updates the account; a password or role change ends its sessions |
+| `PATCH /api/admin/users/{id}` | any of `name`, `password` (local accounts only), `is_admin`, `is_teacher` | Updates the account; a password or admin role change ends its sessions; removing `is_teacher` closes the teacher's active courses |
 | `DELETE /api/admin/users/{id}` | | Deletes the account and its tokens and blocks it from signing in again |
 | `POST /api/admin/users/{id}/revoke-credentials` | | Revokes all of the account's tokens and ends its sessions |
 | `POST /api/admin/users/restore-oauth` | `{"subject": "<exact OAuth subject>"}` | Lets a deleted OAuth account sign in again (as a new, empty account) |

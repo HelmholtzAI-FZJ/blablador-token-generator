@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="csrf-token" content="{{ request.state.csrf_token }}">
+    <meta name="blablador-test-url" content="{{ blablador_test_url }}">
     <meta name="token-default-expiration-days" content="{{ token_default_expiration_days }}">
     <meta name="token-max-expiration-days" content="{{ token_max_expiration_days }}">
     <title>Dashboard - {{ app_name }}</title>
@@ -45,7 +46,7 @@
         .card h2 { margin-bottom: 1rem; color: #2c3e50; }
         .form-group { margin-bottom: 1rem; }
         .form-group label { display: block; margin-bottom: 0.5rem; font-weight: 500; }
-        .form-group input, .form-group select {
+        .form-group input, .form-group select, .form-group textarea {
             width: 100%;
             padding: 0.5rem;
             border: 1px solid #ddd;
@@ -88,6 +89,32 @@
             margin-bottom: 1rem;
         }
         .token-warning strong { color: #856404; }
+        .token-alert {
+            background: #fff3cd;
+            border: 2px solid #e67e22;
+            border-left: 10px solid #d35400;
+            border-radius: 6px;
+            box-shadow: 0 4px 14px rgba(211, 84, 0, 0.25);
+            padding: 1.25rem 1.5rem;
+            margin: 1rem 0 1.25rem;
+        }
+        .token-alert-title { display: block; font-size: 1.4rem; font-weight: 700; color: #a04000; line-height: 1.3; }
+        .token-alert-note { margin: 0.25rem 0 0.75rem; color: #6e3b00; font-weight: 600; }
+        .token-alert .token-value { font-size: 1rem; background: #fff; border: 1px solid #e0c48c; padding: 0.5rem 0.75rem; }
+        .token-alert .btn-copy { font-size: 1rem; padding: 0.5rem 1rem; }
+        .token-test {
+            font-size: 0.875rem;
+            color: #555;
+            background: #f4f5f7;
+            border: 1px solid #d5d8dc;
+            padding: 1rem;
+            border-radius: 4px;
+            margin-bottom: 1rem;
+        }
+        .token-test > strong { color: #2c3e50; }
+        .token-test p { margin: 0.5rem 0; }
+        .copy-row { display: flex; align-items: center; gap: 0.5rem; }
+        .copy-row .token-value { flex: 1 1 auto; word-break: break-all; }
         .app-badge { display: inline-block; padding: 0.1rem 0.5rem; border-radius: 4px; background: #eaf2fb; color: #2471a3; font-size: 0.85rem; }
         .muted { color: #888; }
         tr.members-row > td { white-space: normal; background: #fafbfc; }
@@ -96,6 +123,11 @@
         .member-form input[type=email] { flex: 1 1 16rem; padding: 0.5rem; border: 1px solid #ddd; border-radius: 4px; font-size: 1rem; }
         .member-form select, .member-role { padding: 0.4rem; border: 1px solid #ddd; border-radius: 4px; font-size: 0.95rem; }
         .empty { text-align: center; color: #666; padding: 2rem; }
+        .tabs { display: flex; flex-wrap: wrap; gap: 1rem; margin-bottom: 1.5rem; border-bottom: 2px solid #ddd; }
+        .tab { padding: 0.75rem 1.5rem; cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -2px; }
+        .tab.active { border-bottom-color: #3498db; color: #3498db; font-weight: 500; }
+        .tab-content { display: none; }
+        .tab-content.active { display: block; }
     </style>
 </head>
 <body>
@@ -113,6 +145,15 @@
     </header>
     
     <div class="container">
+        <div class="tabs" role="tablist">
+            <div class="tab active" role="tab" data-action="switch-tab" data-tab="tokens">Tokens</div>
+            {% if courses.enabled and user.is_teacher %}
+            <div class="tab" role="tab" data-action="switch-tab" data-tab="courses">My courses</div>
+            {% endif %}
+            <div class="tab" role="tab" data-action="switch-tab" data-tab="applications">Applications</div>
+        </div>
+
+        <div id="tokens-tab" class="tab-content active">
         <div class="card">
             <h2>Create New Token</h2>
             <form id="createTokenForm">
@@ -137,14 +178,14 @@
                 <button type="submit" class="btn">Create Token</button>
             </form>
         </div>
-        
+
         <div class="card" id="tokensCard">
             <h2>Your Tokens</h2>
             <button class="btn btn-danger" data-action="revoke-all">Revoke All Tokens and Sessions</button>
             <div id="newTokenDisplay" style="display: none;">
-                <div class="token-warning">
-                    <strong>Warning:</strong> Copy your token now. You won't be able to see it again!
-                    <br><br>
+                <div class="token-alert" role="alert">
+                    <strong class="token-alert-title">&#9888; Copy your token now</strong>
+                    <p class="token-alert-note">It is shown only this once. Store it somewhere safe before leaving this page.</p>
                     <span id="tokenContainer">
                         <code class="token-value" id="newTokenValue" style="display: none;"></code>
                         <span id="tokenHidden" style="display: inline-block; padding: 0.25rem 0.5rem; background: #f8f9fa; border-radius: 4px; margin-right: 0.5rem;">••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••</span>
@@ -152,6 +193,7 @@
                         <button class="btn btn-small btn-copy" id="copyBtn" data-action="copy-token"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg> Copy</button>
                     </span>
                 </div>
+                {% with curl_id="newTokenCurl", copy_action="copy-token-curl" %}{% include "_token_test.html" %}{% endwith %}
             </div>
             
             {% if tokens %}
@@ -171,7 +213,7 @@
                     {% for token in tokens %}
                     <tr data-token-id="{{ token.id }}" data-created="{{ token.created_at|utc_iso }}" data-expires="{{ token.expires_at|utc_iso }}">
                         <td>{{ token.name }}</td>
-                        <td>{% if token.application %}<span class="app-badge">{{ token.application.name }}</span>{% else %}<span class="muted">Personal</span>{% endif %}</td>
+                        <td>{% if token.application %}<span class="app-badge">{{ token.application.name }}</span>{% elif token.course %}<span class="app-badge">Course: {{ token.course.name }}</span>{% else %}<span class="muted">Personal</span>{% endif %}</td>
                         <td class="datetime" data-utc="{{ token.created_at|utc_iso }}"></td>
                         <td class="datetime" data-utc="{{ token.last_used_at|utc_iso }}">{{ token.last_used_at.strftime('%Y-%m-%d %H:%M') if token.last_used_at else 'Never' }}</td>
                         <td class="datetime-date" data-utc="{{ token.expires_at|utc_iso }}">{{ token.expires_at.strftime('%Y-%m-%d') if token.expires_at else 'Never' }}</td>
@@ -181,9 +223,13 @@
                         </td>
                         <td>
                             {% if not token.revoked_at %}
+                            {% if not token.course_id %}
                             <button class="btn" data-action="rotate-token" data-id="{{ token.id }}">Rotate</button>
+                            {% endif %}
                             <button class="btn btn-danger" data-action="revoke-token" data-id="{{ token.id }}"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"></line></svg> Revoke</button>
+                            {% if not token.course_id %}
                             <button class="btn" style="background: #2ecc71;" data-action="renew-token" data-id="{{ token.id }}"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right: 4px;"><polyline points="23 4 23 10 17 10"></polyline><polyline points="1 20 1 14 7 14"></polyline><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path></svg> Renew</button>
+                            {% endif %}
                             {% else %}
                             <button class="btn" style="background: #e74c3c;" data-action="delete-token" data-id="{{ token.id }}"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg> Delete</button>
                             {% endif %}
@@ -196,7 +242,79 @@
             <p class="empty">No tokens yet. Create one above!</p>
             {% endif %}
         </div>
-        
+
+        <div class="card">
+            <h2>API Usage</h2>
+            <p>To validate tokens from your applications, use Bearer token authentication:</p>
+            <pre style="background: #f8f9fa; padding: 1rem; border-radius: 4px; overflow-x: auto;">
+curl -X POST {{ api_url }}/api/v1/auth/validate \
+  -H "Authorization: Bearer YOUR_TOKEN_HERE"
+
+# Who does this token belong to?
+curl {{ api_url }}/api/v1/user \
+  -H "Authorization: Bearer YOUR_TOKEN_HERE"</pre>
+        </div>
+        </div>
+
+        {% if courses.enabled and user.is_teacher %}
+        <div id="courses-tab" class="tab-content">
+        <div class="card" id="coursesCard" data-max-days="{{ courses.max_days }}" data-max-seats="{{ courses.max_seats }}" data-mail="{{ 'true' if course_mail else 'false' }}">
+            <h2>My courses</h2>
+            <p class="muted">Students who sign in and open your course's join link get one token each, valid from the first day of the course until the end of its last day (UTC). A course lasts at most {{ courses.max_days }} days and has at most {{ courses.max_seats }} seats; you can run {{ courses.max_active_per_teacher }} at a time. A seat stays used once claimed, so the link stops working when the course is full.</p>
+            <form id="createCourseForm">
+                <div class="form-group">
+                    <label for="courseName">Course name</label>
+                    <input type="text" id="courseName" maxlength="200" required>
+                </div>
+                <div class="form-group">
+                    <label for="courseStarts">First day</label>
+                    <input type="date" id="courseStarts" required>
+                </div>
+                <div class="form-group">
+                    <label for="courseEnds">Last day</label>
+                    <input type="date" id="courseEnds" required>
+                </div>
+                <div class="form-group">
+                    <label for="courseSeats">Seats</label>
+                    <input type="number" id="courseSeats" min="1" max="{{ courses.max_seats }}" value="{{ courses.max_seats }}" required>
+                </div>
+                <div class="form-group">
+                    <label><input type="checkbox" id="courseTerms" required> {{ courses.terms_text }}</label>
+                </div>
+                <button type="submit" class="btn">Create course</button>
+            </form>
+            <div id="courseLinkDisplay" class="token-warning" hidden>
+                <strong>Join link</strong> (shown once; create a new one if you lose it):
+                <code class="token-value" id="courseLinkValue"></code>
+                <button class="btn btn-small btn-copy" data-action="copy-course-link">Copy</button>
+            </div>
+            <div id="coursesList"><p class="empty">Loading...</p></div>
+            {% if course_mail %}
+            <form id="inviteForm" hidden>
+                <h3>Add students</h3>
+                <p class="muted">Each address gets its own link, which shows the student their token once and holds a seat until it is used or you cancel it. Students need no account; you never see their tokens, only whether and how much each is used. If a student later signs in with JSC and that verified address, the token moves to their account. The link, the course dates and a line saying you sent it are added below your text; replies go to you.</p>
+                <input type="hidden" id="inviteCourse">
+                <div class="form-group">
+                    <label for="inviteEmails">Email addresses (one per line, or separated by commas)</label>
+                    <textarea id="inviteEmails" rows="5" required></textarea>
+                </div>
+                <div class="form-group">
+                    <label for="inviteSubject">Subject (<code>{course}</code> becomes the course name; the name is added if missing)</label>
+                    <input type="text" id="inviteSubject" maxlength="200" value="{{ courses.invitation_subject }}" required>
+                </div>
+                <div class="form-group">
+                    <label for="inviteBody">Message</label>
+                    <textarea id="inviteBody" rows="8" maxlength="{{ courses.invitation_max_body_chars }}" required>{{ courses.invitation_body }}</textarea>
+                </div>
+                <button type="submit" class="btn">Send invitations</button>
+                <button type="button" class="btn" data-action="close-invite">Cancel</button>
+            </form>
+            {% endif %}
+        </div>
+        </div>
+        {% endif %}
+
+        <div id="applications-tab" class="tab-content">
         <div class="card" id="applicationsCard">
             <h2>Applications</h2>
             <p class="muted">Give a service, CI job or bot its own tokens, shared with the people who run it. Validation reports the application and the person who created the token. Owners add people by email and may delete the application, which deletes its tokens; members manage its tokens. If the last owner leaves, the application passes to the administrators.</p>
@@ -250,21 +368,13 @@
             <p class="empty">No applications yet.</p>
             {% endif %}
         </div>
-
-        <div class="card">
-            <h2>API Usage</h2>
-            <p>To validate tokens from your applications, use Bearer token authentication:</p>
-            <pre style="background: #f8f9fa; padding: 1rem; border-radius: 4px; overflow-x: auto;">
-curl -X POST {{ api_url }}/api/v1/auth/validate \
-  -H "Authorization: Bearer YOUR_TOKEN_HERE"
-
-# Who does this token belong to?
-curl {{ api_url }}/api/v1/user \
-  -H "Authorization: Bearer YOUR_TOKEN_HERE"</pre>
         </div>
     </div>
     
     <script src="/static/common.js"></script>
     <script src="/static/dashboard.js"></script>
+    {% if courses.enabled and user.is_teacher %}
+    <script src="/static/courses.js"></script>
+    {% endif %}
 </body>
 </html>

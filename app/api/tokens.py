@@ -92,6 +92,7 @@ class TokenResponse(BaseModel):
     last_used_at: str | None = None
     revoked: bool = False
     application_id: str | None = None
+    course_id: str | None = None
 
     @classmethod
     def of(cls, token: Token) -> "TokenResponse":
@@ -103,6 +104,7 @@ class TokenResponse(BaseModel):
             last_used_at=isoformat_utc(token.last_used_at),
             revoked=token.revoked_at is not None,
             application_id=token.application_id,
+            course_id=token.course_id,
         )
 
 
@@ -134,7 +136,9 @@ async def issue_token(
     application they belong to. Each has its own max_tokens_per_user."""
     config = get_config()
 
-    owner = Token.application_id == application_id if application_id else Token.user_id == user.id
+    # Course tokens have their own limit, the course's seats.
+    owner = (Token.application_id == application_id if application_id
+             else (Token.user_id == user.id) & Token.course_id.is_(None))
     token_count = (await db.execute(select(func.count()).select_from(Token).where(owner))).scalar_one()
     if token_count >= config.tokens.max_tokens_per_user:
         raise HTTPException(
@@ -288,6 +292,8 @@ async def renew_token(
 ):
     user = await lock_token_owner(request, user, db)
     token = await manageable_token(token_id, user, db)
+    if token.course_id is not None:
+        raise HTTPException(status_code=400, detail="A course token ends with its course and cannot be renewed")
 
     config = get_config()
 
@@ -337,6 +343,8 @@ async def rotate_token(
     token = await manageable_token(token_id, user, db, lock=True)
     if token.revoked_at is not None:
         raise HTTPException(status_code=400, detail="Create a new token to replace a revoked token")
+    if token.course_id is not None:
+        raise HTTPException(status_code=400, detail="A course token cannot be rotated; ask your teacher")
     expires_at = token.expires_at
     if body and body.expires_at is not None:
         expires_at = body.expires_at
@@ -373,3 +381,4 @@ async def rotate_token(
         expires_at=isoformat_utc(token.expires_at),
         application_id=token.application_id,
     )
+

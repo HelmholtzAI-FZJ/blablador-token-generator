@@ -131,8 +131,14 @@ def pkce_challenge(verifier: str) -> str:
     return base64.urlsafe_b64encode(digest).rstrip(b"=").decode()
 
 
-def generate_token() -> str:
+COURSE_TOKEN_MARKER = "course"
+
+
+def generate_token(course: bool = False) -> str:
+    """<prefix>-<hex>, or <prefix>-course-<hex> for a course token."""
     prefix = config.tokens.token_prefix
+    if course:
+        prefix = f"{prefix}-{COURSE_TOKEN_MARKER}"
     return f"{prefix}-{secrets.token_hex(config.tokens.token_length_bytes)}"
 
 

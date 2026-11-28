@@ -8,9 +8,9 @@ from pydantic import BaseModel
 import logging as _logging
 from app.database import get_db
 from app.config import get_config
-from app.models import Token, User
+from app.models import Course, Token, User
 from app.tombstones import is_user_deleted
-from app.auth import hash_token
+from app.auth import COURSE_TOKEN_MARKER, hash_token
 from app.rate_limit import limiter, RATE_LIMITS, is_token_validation_exempt
 from app.timeutil import isoformat_utc
 
@@ -23,11 +23,26 @@ class UserInfo(BaseModel):
     id: str
     email: str
     name: str
+    # Created by a mailed course invitation: known only by a mailbox, not
+    # by the identity provider.
+    course_user: bool = False
 
 
 class ApplicationInfo(BaseModel):
     id: str
     name: str
+
+
+class CourseInfo(BaseModel):
+    id: str
+    name: str
+    starts_at: str
+    ends_at: str
+    # One per student and course, for per-student limits: the account for a
+    # student who joined signed in, the invitation for one mailed a token.
+    student_id: str
+    # The invited address, for a token mailed to it.
+    student_email: str | None = None
 
 
 class ValidateResponse(BaseModel):
@@ -41,13 +56,18 @@ class ValidateResponse(BaseModel):
     token_type: str | None = None
     user: UserInfo | None = None
     application: ApplicationInfo | None = None
+    course: CourseInfo | None = None
 
 
 class CurrentUserResponse(BaseModel):
+    # The token's person, at the top level as in the validation response;
+    # None for application tokens.
+    email: str | None = None
     # None for an application token whose creator's account was deleted.
     user: UserInfo | None = None
     token_type: str
     application: ApplicationInfo | None = None
+    course: CourseInfo | None = None
 
 
 MAX_TOKEN_LENGTH = 256
@@ -62,8 +82,78 @@ async def extract_bearer_token(authorization: str | None = Header(None)) -> str 
     return token
 
 
-def invalid_token(detail: str) -> HTTPException:
-    return HTTPException(status_code=401, detail=detail, headers={"WWW-Authenticate": "Bearer"})
+class TokenRejected(HTTPException):
+    """A 401 for a bearer token, answered as RFC 6750 describes: an error
+    code in WWW-Authenticate and in the body, plus a reason code and a
+    readable description. "detail" repeats the description for gateways
+    that read it."""
+
+    def __init__(self, reason: str, description: str):
+        self.reason = reason
+        # A request without a token gets no error code (RFC 6750, 3.1).
+        self.error = "invalid_request" if reason == "missing_token" else "invalid_token"
+        challenge = "Bearer" if reason == "missing_token" else (
+            f'Bearer error="{self.error}", error_description="{description.replace(chr(34), chr(39))}"'
+        )
+        super().__init__(status_code=401, detail=description, headers={"WWW-Authenticate": challenge})
+
+    def body(self) -> dict:
+        return {
+            "valid": False,
+            "error": self.error,
+            "reason": self.reason,
+            "error_description": self.detail,
+            "detail": self.detail,
+        }
+
+
+def invalid_token(detail: str, reason: str = "unknown_or_revoked") -> TokenRejected:
+    return TokenRejected(reason, detail)
+
+
+_HEX_DIGITS = frozenset("0123456789abcdefABCDEF")
+
+
+def token_shape(token: str) -> str | None:
+    """"course" or "personal" when generate_token can have produced this
+    value: the configured prefix, "course-" for a course token, then whole
+    random bytes, so an even and non-zero number of hex characters. None for
+    a value that cannot be a token of this service, however it was
+    truncated, copied or transcribed."""
+    prefix = f"{get_config().tokens.token_prefix}-"
+    if not token.startswith(prefix):
+        return None
+    body = token[len(prefix):]
+    shape = "personal"
+    if body.startswith(f"{COURSE_TOKEN_MARKER}-"):
+        body = body[len(COURSE_TOKEN_MARKER) + 1:]
+        shape = "course"
+    if (
+        2 <= len(body) <= MAX_TOKEN_LENGTH
+        and len(body) % 2 == 0
+        and all(character in _HEX_DIGITS for character in body)
+    ):
+        return shape
+    return None
+
+
+def is_possible_token(token: str) -> bool:
+    return token_shape(token) is not None
+
+
+def course_problem(course: Course, now: datetime) -> tuple[str, str] | None:
+    """Why a course's tokens do not work now (description, reason), or None."""
+    if course.suspended_at is not None:
+        return "Token revoked: the course was closed", "course_closed"
+    if now < as_utc(course.starts_at):
+        return "Token not valid yet: the course has not started", "course_not_started"
+    if now >= as_utc(course.ends_at):
+        return "Token has expired: the course has ended", "course_ended"
+    return None
+
+
+def as_utc(value: datetime) -> datetime:
+    return value.replace(tzinfo=timezone.utc) if value.tzinfo is None else value
 
 
 async def authenticate_api_token(
@@ -74,13 +164,27 @@ async def authenticate_api_token(
     built before recording the token's use, which may roll back and
     expire it."""
     if not bearer_token:
-        raise invalid_token("No token provided. Use Bearer token.")
+        raise invalid_token(
+            "No token was sent. Send it in the header: Authorization: Bearer <your token>.", "missing_token"
+        )
+
+    shape = token_shape(bearer_token)
+    if shape is None:
+        tokens = get_config().tokens
+        length = 2 * tokens.token_length_bytes
+        raise invalid_token(
+            f"This is not a {tokens.token_prefix} token (malformed). Tokens look like {tokens.token_prefix}- "
+            f"followed by {length} hexadecimal characters ({tokens.token_prefix}-{COURSE_TOKEN_MARKER}- for "
+            "course tokens). Check that it was copied completely, without missing or extra characters.",
+            "malformed",
+        )
 
     token_hash = hash_token(bearer_token)
 
     result = await db.execute(
         select(Token)
-        .options(joinedload(Token.user), joinedload(Token.application), joinedload(Token.created_by))
+        .options(joinedload(Token.user), joinedload(Token.application), joinedload(Token.created_by),
+                 joinedload(Token.course), joinedload(Token.course_invitation))
         .where(
             Token.token_hash == token_hash,
             Token.revoked_at.is_(None)
@@ -88,7 +192,11 @@ async def authenticate_api_token(
     )
     token = result.scalar_one_or_none()
 
-    if token is None or (token.user is None and token.application is None):
+    if token is None or (token.user is None and token.application is None and token.course_invitation is None):
+        raise invalid_token("Token not found or revoked")
+    # A value's shape must agree with its record, so a course token cannot
+    # pass as a personal one (and the gateway's course limits be skipped).
+    if (shape == "course") != (token.course_id is not None):
         raise invalid_token("Token not found or revoked")
 
     # Check if the account was deleted after this token was created
@@ -98,7 +206,7 @@ async def authenticate_api_token(
             token.user_id,
             token.id,
         )
-        raise invalid_token("Token invalid: account has been deleted")
+        raise invalid_token("Token invalid: account has been deleted", "account_deleted")
 
     now = datetime.now(timezone.utc)
     if token.expires_at:
@@ -106,7 +214,11 @@ async def authenticate_api_token(
         if expires.tzinfo is None:
             expires = expires.replace(tzinfo=timezone.utc)
         if expires <= now:
-            raise invalid_token("Token has expired")
+            raise invalid_token("Token has expired", "expired")
+    if token.course is not None:
+        problem = course_problem(token.course, now)
+        if problem:
+            raise invalid_token(*problem)
 
     response = respond(token)
     await record_token_use(token, token_hash, now, db)
@@ -117,6 +229,9 @@ async def record_token_use(token: Token, token_hash: str, now: datetime, db: Asy
     token_id = token.id
     now_naive = now.replace(tzinfo=None)
     cutoff = now_naive - timedelta(seconds=get_config().tokens.last_used_update_seconds)
+    if token.course_id is not None:
+        await count_course_token_use(token_id, token_hash, now_naive, db)
+        return
     last_used_at = token.last_used_at
     if last_used_at is not None and last_used_at.tzinfo is not None:
         last_used_at = last_used_at.astimezone(timezone.utc).replace(tzinfo=None)
@@ -143,10 +258,29 @@ async def record_token_use(token: Token, token_hash: str, now: datetime, db: Asy
         )
 
 
+async def count_course_token_use(token_id: str, token_hash: str, now: datetime, db: AsyncSession) -> None:
+    """Every use of a course token is counted, so a teacher can spot one
+    that is shared or leaked."""
+    try:
+        await db.execute(
+            update(Token)
+            .where(Token.id == token_id, Token.token_hash == token_hash, Token.revoked_at.is_(None))
+            .values(last_used_at=now, use_count=Token.use_count + 1)
+            .execution_options(synchronize_session=False)
+        )
+        await db.commit()
+    except Exception as exc:
+        await db.rollback()
+        _audit.warning(
+            "action=token_usage_update_failed token_id=%s error_type=%s",
+            token_id, type(exc).__name__,
+        )
+
+
 def user_info(user: User | None) -> UserInfo | None:
     if user is None:
         return None
-    return UserInfo(id=user.id, email=user.email, name=user.name)
+    return UserInfo(id=user.id, email=user.email, name=user.name, course_user=bool(user.is_course_user))
 
 
 def application_info(token: Token) -> ApplicationInfo | None:
@@ -155,7 +289,33 @@ def application_info(token: Token) -> ApplicationInfo | None:
     return ApplicationInfo(id=token.application.id, name=token.application.name)
 
 
+def course_info(token: Token) -> CourseInfo | None:
+    if token.course is None:
+        return None
+    invitation = token.course_invitation
+    return CourseInfo(
+        id=token.course.id, name=token.course.name,
+        starts_at=isoformat_utc(token.course.starts_at), ends_at=isoformat_utc(token.course.ends_at),
+        student_id=f"invitation:{invitation.id}" if invitation else f"user:{token.user_id}",
+        student_email=invitation.email if invitation else (
+            token.user.email if token.user is not None and token.user.is_course_user else None
+        ),
+    )
+
+
+def token_email(token: Token) -> str | None:
+    """The flat email: the owner's, or the address a course token was
+    mailed to. Application tokens authenticate an application, not a person."""
+    if token.course_invitation is not None:
+        return token.course_invitation.email
+    if token.application_id is None and token.reported_user is not None:
+        return token.reported_user.email
+    return None
+
+
 def token_type(token: Token) -> str:
+    if token.course_id:
+        return "course"
     return "application" if token.application_id else "personal"
 
 
@@ -176,11 +336,12 @@ def validation_response(token: Token) -> ValidateResponse:
         user_id=reported.id if reported else None,
         # An application token authenticates an application, not a person, so
         # the flat field stays empty; the nested user still names the owner.
-        email=reported.email if reported and token.application_id is None else None,
+        email=token_email(token),
         expires_at=isoformat_utc(token.expires_at),
         token_type=token_type(token),
         user=user_info(token.reported_user),
         application=application_info(token),
+        course=course_info(token),
     )
 
 
@@ -210,7 +371,9 @@ async def current_user(
 
 def current_user_response(token: Token) -> CurrentUserResponse:
     return CurrentUserResponse(
+        email=token_email(token),
         user=user_info(token.reported_user),
         token_type=token_type(token),
         application=application_info(token),
+        course=course_info(token),
     )

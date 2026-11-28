@@ -83,12 +83,15 @@ spec:
 
 **PostgreSQL credentials** (`postgresql.existingSecret`): `admin-password`,
 `password` (runtime role) and `database-url`. Hexadecimal passwords need no
-URL encoding:
+URL encoding. Strip the newline `openssl` prints: `--from-file` stores
+a file byte for byte, so a password file ending in a newline no longer matches
+the password inside the URL, and the application's sign-in to PostgreSQL or
+Redis fails:
 
 ```bash
 umask 077; secrets=$(mktemp -d)
-openssl rand -hex 32 > "$secrets/admin-password"
-openssl rand -hex 32 > "$secrets/password"
+openssl rand -hex 32 | tr -d '\n' > "$secrets/admin-password"
+openssl rand -hex 32 | tr -d '\n' > "$secrets/password"
 printf 'postgresql+asyncpg://tokens:%s@tokens-blablador-token-generator-postgresql:5432/tokens' \
   "$(cat "$secrets/password")" > "$secrets/database-url"
 kubectl create secret generic tokens-postgresql-credentials --from-file="$secrets/admin-password" \
@@ -100,7 +103,7 @@ kubectl create secret generic tokens-postgresql-credentials --from-file="$secret
 
 ```bash
 mkdir "$secrets/redis"
-openssl rand -hex 32 > "$secrets/redis/password"
+openssl rand -hex 32 | tr -d '\n' > "$secrets/redis/password"
 printf 'rediss://:%s@tokens-blablador-token-generator-redis:6379/0?ssl_ca_certs=/app/tls/redis/ca.crt&ssl_cert_reqs=required&ssl_check_hostname=true' \
   "$(cat "$secrets/redis/password")" > "$secrets/redis/storage-uri"
 kubectl create secret generic tokens-redis-credentials --from-file="$secrets/redis/password" \

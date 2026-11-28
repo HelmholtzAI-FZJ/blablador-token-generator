@@ -29,6 +29,28 @@ stored only as HMAC-SHA256 under a key that is not in the database. Every new,
 renewed or rotated token expires (at most 365 days by default), and each
 account holds a bounded number of tokens.
 
+**Courses.** Only accounts an administrator marked as teachers create courses,
+one running course each by default, after accepting versioned terms. A course
+lasts at most 21 days and has at most 60 seats by default. Students must sign
+in; each gets one course token (`<prefix>-course-<hex>`) that validation refuses
+before the course starts, after it ends and once it is closed, that cannot be
+renewed or rotated, and whose every use is counted so the teacher can spot a
+shared one. Join links and mailed single-use invitations are stored only as
+keyed hashes (unless `courses.admin_can_view_invitation_links` is turned on for
+testing). A mailed invitation shows its token once without sign-in; the token
+belongs to the invited address's course user, an account that cannot sign in
+and is refused passwords and roles, and moves to a real account only when
+someone signs in with that address verified by the identity provider, so an
+unverified address cannot take it. Teachers see each address's usage, never tokens or
+links. A claimed seat is never given back and every open invitation
+holds a seat, so however far a link spreads, at most the seats' number of
+tokens exist. Invitations go only to as many addresses as seats remain, from
+the service's own sender with the teacher as Reply-To; the teacher's subject
+cannot contain line breaks, and the link and a footer naming the teacher are
+always appended. Closing a course, removing the teacher role or deleting the
+teacher revokes all its tokens at once. Per-student and per-course usage
+limits belong in the gateway, which sees `token_type` and `course.id`.
+
 **Authorization.** Owners act only on their own tokens; administration needs
 the administrator role. Changes to an account's tokens or role are serialized
 with row and advisory locks and re-check the caller's session after locking,
