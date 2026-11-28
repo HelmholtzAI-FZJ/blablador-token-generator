@@ -2,7 +2,7 @@
 # only FROM lines, hence the stage for uv).
 FROM ghcr.io/astral-sh/uv:0.11.21@sha256:ff07b86af50d4d9391d9daf4ff89ce427bc544f9aae87057e69a1cc0aa369946 AS uv
 
-FROM python:3.12-slim@sha256:5e2bdb1b0d542d5039cffb8181c65930093949194a65c365dfb1b0fe13a4fa5b AS build
+FROM python:3.15-slim@sha256:65a65fc7b30b06cb6df4930fd4650697cb23f4c2698ab81fc87e4b031bc36928 AS build
 
 COPY --from=uv /uv /bin/uv
 
@@ -15,7 +15,7 @@ RUN uv export --frozen --no-dev --no-emit-project --project /build -o /build/req
     && rm -f /opt/venv/.lock
 
 
-FROM python:3.12-slim@sha256:5e2bdb1b0d542d5039cffb8181c65930093949194a65c365dfb1b0fe13a4fa5b
+FROM python:3.15-slim@sha256:65a65fc7b30b06cb6df4930fd4650697cb23f4c2698ab81fc87e4b031bc36928
 
 ARG VERSION=dev
 ARG REVISION=unknown
